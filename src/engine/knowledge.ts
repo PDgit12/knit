@@ -86,6 +86,7 @@ function walkFiles(rootPath: string, dir: string): FileEntry[] {
     } else if (stat.isFile()) {
       const ext = extname(item);
       if (!SOURCE_EXTS.has(ext)) continue;
+      if (stat.size > 5_000_000) continue; // skip files > 5MB
 
       const relPath = relative(rootPath, fullPath);
       let lines = 0;
@@ -93,7 +94,7 @@ function walkFiles(rootPath: string, dir: string): FileEntry[] {
         const content = readFileSync(fullPath, 'utf-8');
         lines = content.split('\n').length;
       } catch {
-        // skip unreadable files
+        // skip unreadable/binary files
       }
 
       entries.push({
@@ -371,7 +372,7 @@ function buildSummary(
 
   // High fanout — count how many files import each file
   const importedBy: Record<string, number> = {};
-  for (const [_importer, imports] of Object.entries(importGraph)) {
+  for (const imports of Object.values(importGraph)) {
     for (const imp of imports) {
       importedBy[imp] = (importedBy[imp] || 0) + 1;
     }

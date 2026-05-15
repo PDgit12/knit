@@ -68,9 +68,9 @@ describe('save and load', () => {
     expect(loaded.entries).toHaveLength(0);
   });
 
-  it('creates new KB if file is corrupt', () => {
-    const { writeFileSync } = require('node:fs');
-    writeFileSync(KB_PATH, 'not json!!!');
+  it('creates new KB if file is corrupt', async () => {
+    const fs = await import('node:fs');
+    fs.writeFileSync(KB_PATH, 'not json!!!');
     const loaded = loadKnowledgeBase(KB_PATH, 'fallback');
     expect(loaded.entries).toHaveLength(0);
   });

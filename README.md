@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/engram-v0.1.0-7c3aed?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiPjxwYXRoIGQ9Ik0xMiAyYTEwIDEwIDAgMSAwIDAgMjAgMTAgMTAgMCAwIDAgMC0yMHoiLz48cGF0aCBkPSJNMTIgNnY2bDQgMiIvPjwvc3ZnPg==" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
-  <img src="https://img.shields.io/badge/tests-33_passing-brightgreen?style=for-the-badge" alt="tests" />
+  <img src="https://img.shields.io/badge/tests-86_passing-brightgreen?style=for-the-badge" alt="tests" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
@@ -149,7 +149,7 @@ git clone https://github.com/piyushdua/engram.git
 cd engram
 npm install
 npm run dev          # Run CLI locally
-npm run test         # 33 tests
+npm run test         # 86 tests
 npm run typecheck    # TypeScript strict mode
 npm run build        # Compile to dist/
 ```
