@@ -5,6 +5,7 @@ import gradient from 'gradient-string';
 import chalk from 'chalk';
 import { initCommand } from './commands/init.js';
 import { refreshCommand } from './commands/refresh.js';
+import { statusCommand } from './commands/status.js';
 
 const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -70,9 +71,15 @@ program
 
 program
   .command('status')
-  .description('Show workflow health and learnings summary')
-  .action(() => {
-    console.log(chalk.dim('  Coming in v0.2 — learnings count, domain coverage, token savings'));
+  .description('Show knowledge base health, learnings usage, and session metrics')
+  .argument('[directory]', 'Target project directory', '.')
+  .action(async (directory: string) => {
+    try {
+      await statusCommand(directory);
+    } catch (error) {
+      console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
   });
 
 program

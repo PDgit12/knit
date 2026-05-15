@@ -157,6 +157,54 @@ export interface TestMapping {
   testFiles: string[];
 }
 
+/** ── Knowledge Base (structured learnings + metrics) ─────────── */
+
+/** Structured knowledge base — replaces flat markdown for retrieval */
+export interface KnowledgeBase {
+  version: 1;
+  projectName: string;
+  entries: KBEntry[];
+  metrics: KBMetrics;
+}
+
+/** A single knowledge entry with access tracking */
+export interface KBEntry {
+  id: string;
+  date: string;
+  summary: string;
+  domains: string[];
+  approach: string;
+  outcome: 'success' | 'partial' | 'failure';
+  lesson: string;
+  tags: string[];
+  /** How many times this entry was retrieved in a session */
+  accessCount: number;
+  /** Last time this entry was accessed */
+  lastAccessed: string | null;
+}
+
+/** Session and usage metrics */
+export interface KBMetrics {
+  totalSessions: number;
+  totalLearnings: number;
+  /** How many times learnings prevented re-investigation (self-reported) */
+  cacheHits: number;
+  /** Domain tag → how many entries */
+  domainDistribution: Record<string, number>;
+  /** Session history (last 20) */
+  sessions: SessionRecord[];
+}
+
+export interface SessionRecord {
+  date: string;
+  branch: string | null;
+  filesModified: number;
+  learningsAccessed: number;
+  learningsAdded: number;
+  /** Domains touched this session */
+  domainsTouched: string[];
+}
+
 /** Output of the init command */
 export interface InitResult {
   filesCreated: string[];

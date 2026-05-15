@@ -4,7 +4,8 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { scanProject } from '../engine/scanner.js';
 import { buildKnowledge } from '../engine/knowledge.js';
-import { findFalsePositives } from '../engine/learnings.js';
+import { readLearnings, findFalsePositives } from '../engine/learnings.js';
+import { loadKnowledgeBase, importFromMarkdown, saveKnowledgeBase } from '../engine/knowledgebase.js';
 import { generateClaudeMd } from '../generators/claude-md.js';
 import { generateSettings, generateSettingsLocal } from '../generators/settings.js';
 import { generateLearningsContent } from '../generators/learnings.js';
@@ -116,6 +117,21 @@ export async function initCommand(targetDir: string, options: InitOptions): Prom
 
   const learningsFileName = config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
   writeOrSkip(join(rootPath, '.claude/learnings', learningsFileName), generateLearningsContent(config), options.force, result, `.claude/learnings/${learningsFileName}`);
+
+  // Knowledge base (structured JSON with metrics)
+  const kbPath = join(rootPath, '.claude/knowledgebase.json');
+  const kb = loadKnowledgeBase(kbPath, config.name);
+
+  // Import any existing markdown learnings into structured KB
+  const allLearningsFiles = existsSync(join(rootPath, '.claude/learnings'))
+    ? readdirSync(join(rootPath, '.claude/learnings')).filter((f) => f.endsWith('.md') && f !== 'sessions.md')
+    : [];
+  for (const lf of allLearningsFiles) {
+    const entries = readLearnings(join(rootPath, '.claude/learnings', lf));
+    importFromMarkdown(kb, entries);
+  }
+  saveKnowledgeBase(kbPath, kb);
+  result.filesCreated.push('.claude/knowledgebase.json');
 
   genSpinner.succeed(chalk.dim('Workflow files generated'));
 
