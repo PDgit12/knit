@@ -36,7 +36,7 @@
     "url": "https://github.com/PDgit12/engram/issues"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@eslint/js": "^9.39.4",
     "@types/gradient-string": "^1.1.6",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
