@@ -2,6 +2,12 @@ import { writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainCache } from './cache.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
+import {
+  buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
+  startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
+  getOtherTeamFindings, getBoardSummary,
+} from '../engine/teams.js';
+import type { TeamFinding } from '../engine/types.js';
 
 /** MCP tool definition */
 interface ToolDef {
@@ -166,6 +172,75 @@ export function getToolDefinitions(): ToolDef[] {
           next_step: { type: 'string', description: 'The ONE most important thing to do next' },
         },
         required: ['goal', 'current_state', 'failed_attempts', 'next_step'],
+      },
+    },
+    // ── Team orchestration tools ─────────────────────────────────
+    {
+      name: 'engram_get_teams',
+      description: 'Get the agent teams configured for this project. Returns team names, roles, focus areas, agents, and review checklists. Custom teams override defaults if .claude/teams.json exists.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+    },
+    {
+      name: 'engram_define_team',
+      description: 'Create or update a custom agent team. Saved to .claude/teams.json. Use to add specialized teams like "Performance Team" or "Design Team" beyond the defaults.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Team name (e.g., "Performance", "Design", "DevOps")' },
+          role: { type: 'string', description: 'Team role (e.g., "Performance Engineering")' },
+          focus: { type: 'string', description: 'What this team focuses on' },
+          agents: { type: 'string', description: 'Comma-separated agent types (e.g., "performance-optimizer,code-reviewer")' },
+          file_patterns: { type: 'string', description: 'Comma-separated file patterns (e.g., "src/api/**,lib/db.*")' },
+          checklist: { type: 'string', description: 'Pipe-separated review checklist items' },
+        },
+        required: ['name', 'role', 'focus'],
+      },
+    },
+    {
+      name: 'engram_start_team_review',
+      description: 'Start a parallel team review session. Creates a shared board where teams post findings. Call this, then launch each team as a parallel agent with engram_get_team_prompt.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          task_description: { type: 'string', description: 'What the teams are reviewing' },
+          teams: { type: 'string', description: 'Comma-separated team names to include (or "all" for all teams)' },
+        },
+        required: ['task_description'],
+      },
+    },
+    {
+      name: 'engram_get_team_prompt',
+      description: 'Get the agent prompt for a specific team. This prompt includes the team role, focus, checklist, domain context, AND findings from other teams that have already reported. Use this to launch each team as a parallel agent.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Which team to generate the prompt for' },
+          files_to_review: { type: 'string', description: 'Comma-separated files for this review' },
+        },
+        required: ['team_name'],
+      },
+    },
+    {
+      name: 'engram_post_team_findings',
+      description: 'Post a team\'s review findings to the shared board. Other teams can see these findings and react. Call this after each team agent completes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Which team is reporting' },
+          findings: { type: 'string', description: 'JSON array of findings: [{severity,file,description,recommendation}]' },
+        },
+        required: ['team_name', 'findings'],
+      },
+    },
+    {
+      name: 'engram_get_board_summary',
+      description: 'Get the current state of the team review board. Shows total findings by severity, which teams are done, and whether all teams have reported.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
       },
     },
   ];
@@ -487,6 +562,158 @@ ${params.failed_attempts || 'None documented'}
         status: 'saved',
         path: 'handoff.md',
         instruction: 'Next session will read handoff.md first. User should run /clear then open a fresh session.',
+      });
+    }
+
+    // ── Team orchestration tools ─────────────────────────────────
+
+    case 'engram_get_teams': {
+      const custom = loadCustomTeams(brain.rootPath);
+      if (custom) {
+        return JSON.stringify({ source: 'custom', teams: custom, count: custom.length });
+      }
+      const defaults = buildDefaultTeams(brain.knowledge.summary.highFanoutFiles.length > 0
+        ? [
+            { name: 'UI', description: 'Frontend', filePatterns: ['components/**', 'app/**/*.tsx'], agents: ['code-reviewer', 'typescript-reviewer'] },
+            { name: 'API & Security', description: 'Backend', filePatterns: ['app/api/**', 'src/api/**'], agents: ['security-reviewer', 'code-reviewer'] },
+            { name: 'Business Logic', description: 'Core logic', filePatterns: ['lib/**', 'src/lib/**'], agents: ['type-design-analyzer', 'code-reviewer', 'silent-failure-hunter'] },
+            { name: 'Infrastructure', description: 'Platform', filePatterns: ['lib/db.*', 'prisma/**'], agents: ['database-reviewer', 'performance-optimizer'] },
+            { name: 'Quality Assurance', description: 'Testing', filePatterns: ['tests/**'], agents: ['tdd-guide', 'pr-test-analyzer'] },
+          ]
+        : [
+            { name: 'Core', description: 'Main code', filePatterns: ['src/**'], agents: ['code-reviewer'] },
+            { name: 'Quality Assurance', description: 'Testing', filePatterns: ['tests/**'], agents: ['tdd-guide'] },
+          ]
+      );
+      return JSON.stringify({ source: 'default', teams: defaults, count: defaults.length });
+    }
+
+    case 'engram_define_team': {
+      const existing = loadCustomTeams(brain.rootPath) || buildDefaultTeams([]);
+      const newTeam = {
+        name: params.name,
+        role: params.role,
+        focus: params.focus,
+        agents: (params.agents || 'code-reviewer').split(',').map((a) => a.trim()),
+        filePatterns: (params.file_patterns || 'src/**').split(',').map((p) => p.trim()),
+        reviewChecklist: (params.checklist || '').split('|').map((c) => c.trim()).filter(Boolean),
+      };
+
+      const idx = existing.findIndex((t) => t.name === newTeam.name);
+      if (idx >= 0) existing[idx] = newTeam;
+      else existing.push(newTeam);
+
+      saveCustomTeams(brain.rootPath, existing);
+      return JSON.stringify({ status: 'saved', team: newTeam, total_teams: existing.length });
+    }
+
+    case 'engram_start_team_review': {
+      const teamNames = params.teams === 'all' || !params.teams
+        ? (loadCustomTeams(brain.rootPath) || buildDefaultTeams([])).map((t) => t.name)
+        : params.teams.split(',').map((t) => t.trim());
+
+      const board = startTeamBoard(
+        `review-${Date.now()}`,
+        params.task_description,
+        teamNames,
+      );
+
+      return JSON.stringify({
+        status: 'started',
+        board_id: board.taskId,
+        teams: teamNames,
+        instruction: `Launch ${teamNames.length} agents IN PARALLEL. For each team, call engram_get_team_prompt with the team name, then spawn an Agent with that prompt. After each agent returns, call engram_post_team_findings with the results. Finally, call engram_get_board_summary to see all findings.`,
+      });
+    }
+
+    case 'engram_get_team_prompt': {
+      const teams = loadCustomTeams(brain.rootPath) || buildDefaultTeams([
+        { name: params.team_name, description: '', filePatterns: ['src/**'], agents: ['code-reviewer'] },
+      ]);
+      const team = teams.find((t) => t.name === params.team_name);
+      if (!team) return JSON.stringify({ error: `Team "${params.team_name}" not found` });
+
+      markTeamWorking(params.team_name);
+
+      // Build domain context for this team
+      const files = (params.files_to_review || '').split(',').map((f) => f.trim()).filter(Boolean);
+      const domainContext: Record<string, unknown> = {
+        files_to_review: files.length > 0 ? files : team.filePatterns,
+        knowledge_summary: {
+          total_files: brain.knowledge.summary.totalFiles,
+          high_fanout: brain.knowledge.summary.highFanoutFiles,
+          untested: brain.knowledge.summary.untestedFiles,
+        },
+      };
+
+      const otherFindings = getOtherTeamFindings(params.team_name);
+      const prompt = generateTeamPrompt(team, getTeamBoard()?.taskDescription || '', domainContext, otherFindings);
+
+      return JSON.stringify({
+        team: team.name,
+        prompt,
+        agents_to_use: team.agents,
+        instruction: 'Spawn an Agent with this prompt. The agent should review the code and return findings.',
+      });
+    }
+
+    case 'engram_post_team_findings': {
+      let findings: TeamFinding[];
+      try {
+        const raw = JSON.parse(params.findings || '[]');
+        findings = raw.map((f: Record<string, string>) => ({
+          team: params.team_name,
+          severity: f.severity || 'MEDIUM',
+          file: f.file || 'unknown',
+          description: f.description || '',
+          recommendation: f.recommendation || '',
+          timestamp: new Date().toISOString(),
+        }));
+      } catch {
+        findings = [{
+          team: params.team_name,
+          severity: 'LOW',
+          file: 'unknown',
+          description: params.findings || 'No structured findings',
+          recommendation: '',
+          timestamp: new Date().toISOString(),
+        }];
+      }
+
+      postTeamFindings(params.team_name, findings);
+      const summary = getBoardSummary();
+
+      return JSON.stringify({
+        status: 'posted',
+        team: params.team_name,
+        findings_count: findings.length,
+        board_summary: summary,
+        all_done: summary.allDone,
+        instruction: summary.allDone
+          ? 'All teams have reported. Call engram_get_board_summary for the complete picture.'
+          : `${Object.entries(getTeamBoard()?.status || {}).filter(([_, s]) => s !== 'done').map(([t]) => t).join(', ')} still working.`,
+      });
+    }
+
+    case 'engram_get_board_summary': {
+      const board = getTeamBoard();
+      if (!board) return JSON.stringify({ error: 'No active review board. Call engram_start_team_review first.' });
+
+      const summary = getBoardSummary();
+      const criticals = board.findings.filter((f) => f.severity === 'CRITICAL');
+      const highs = board.findings.filter((f) => f.severity === 'HIGH');
+
+      return JSON.stringify({
+        task: board.taskDescription,
+        ...summary,
+        team_status: board.status,
+        critical_findings: criticals.map((f) => `[${f.team}] ${f.file}: ${f.description}`),
+        high_findings: highs.map((f) => `[${f.team}] ${f.file}: ${f.description}`),
+        gate: summary.critical > 0
+          ? 'BLOCKED — fix CRITICAL findings before proceeding'
+          : summary.high > 0
+            ? 'WARNING — HIGH findings should be addressed'
+            : 'PASSED — no blocking findings',
       });
     }
 

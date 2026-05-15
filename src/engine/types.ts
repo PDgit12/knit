@@ -157,6 +157,40 @@ export interface TestMapping {
   testFiles: string[];
 }
 
+/** ── Agent Teams ─────────────────────────────────────────────── */
+
+/** A team of agents that works on a specific domain */
+export interface AgentTeam {
+  name: string;
+  role: string;
+  focus: string;
+  agents: string[];
+  /** File patterns this team is responsible for */
+  filePatterns: string[];
+  /** What this team checks during review */
+  reviewChecklist: string[];
+}
+
+/** Findings from a team's work */
+export interface TeamFinding {
+  team: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  file: string;
+  description: string;
+  recommendation: string;
+  timestamp: string;
+}
+
+/** Shared board where teams post findings for other teams to see */
+export interface TeamBoard {
+  taskId: string;
+  taskDescription: string;
+  teams: string[];
+  findings: TeamFinding[];
+  status: Record<string, 'pending' | 'working' | 'done'>;
+  createdAt: string;
+}
+
 /** ── Knowledge Base (structured learnings + metrics) ─────────── */
 
 /** Structured knowledge base — replaces flat markdown for retrieval */
