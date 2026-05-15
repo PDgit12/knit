@@ -1,0 +1,62 @@
+{
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
+  },
+  "disabledMcpServers": ["memory"],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // empty' | grep -qE '^git\\s+(push\\s+(-f|--force)|reset\\s+--hard|commit.*--no-verify)|^git\\s+.*push\\s+--force' && echo '{\"decision\":\"block\",\"reason\":\"Destructive git operation blocked. Ask the user first.\"}' || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in *.ts|*.tsx) cd /Users/piyushdua/engram && npx tsc --noEmit --pretty false 2>&1 | head -10 ;; esac; } 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "Type checking..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/piyushdua/engram && echo '--- TYPECHECK ---' && npm run typecheck 2>&1 | tail -3 && echo '--- LINT ---' && npm run lint 2>&1 | tail -3 && echo '--- BUILD ---' && npm run build 2>&1 | tail -5 || true",
+            "timeout": 120,
+            "statusMessage": "Final build verification..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/piyushdua/engram && mkdir -p .claude/learnings && DATE=$(date -u '+%Y-%m-%d') && FILE=\".claude/learnings/sessions.md\" && if [ ! -f \"$FILE\" ]; then echo '# Session Log — Engram' > \"$FILE\"; fi && echo '' >> \"$FILE\" && echo \"## Session $(date -u '+%Y-%m-%d %H:%M:%S UTC')\" >> \"$FILE\" && BRANCH=$(git branch --show-current 2>/dev/null) && COMMITS=$(git log --oneline -3 2>/dev/null | sed 's/^/  - /') && echo \"- Branch: $BRANCH\" >> \"$FILE\" && echo \"- Recent commits:\" >> \"$FILE\" && echo \"$COMMITS\" >> \"$FILE\" && CHANGED=$(git diff --stat HEAD 2>/dev/null | tail -1) && [ -n \"$CHANGED\" ] && echo \"- Uncommitted: $CHANGED\" >> \"$FILE\" || true && echo '' >> \"$FILE\"",
+            "timeout": 10,
+            "statusMessage": "Capturing session learnings..."
+          }
+        ]
+      }
+    ]
+  }
+}
