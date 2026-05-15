@@ -1,0 +1,203 @@
+import { describe, it, expect } from 'vitest';
+import { getToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
+import type { BrainCache } from '../src/mcp/cache.js';
+import type { ProjectKnowledge, KnowledgeBase } from '../src/engine/types.js';
+
+// Mock brain cache for testing
+function createMockBrain(): BrainCache {
+  const knowledge: ProjectKnowledge = {
+    generatedAt: '2026-05-15',
+    summary: {
+      totalFiles: 5,
+      totalLines: 200,
+      languageBreakdown: { '.ts': 5 },
+      entryPoints: ['src/index.ts'],
+      highFanoutFiles: ['src/types.ts'],
+      untestedFiles: ['src/api.ts'],
+      largestFiles: [{ path: 'src/types.ts', lines: 100 }],
+    },
+    files: [
+      { path: 'src/index.ts', extension: '.ts', lines: 20, sizeBytes: 500 },
+      { path: 'src/types.ts', extension: '.ts', lines: 100, sizeBytes: 3000 },
+      { path: 'src/utils.ts', extension: '.ts', lines: 30, sizeBytes: 800 },
+      { path: 'src/api.ts', extension: '.ts', lines: 40, sizeBytes: 1000 },
+      { path: 'tests/utils.test.ts', extension: '.ts', lines: 10, sizeBytes: 200 },
+    ],
+    importGraph: {
+      'src/index.ts': ['src/types.ts', 'src/utils.ts'],
+      'src/api.ts': ['src/types.ts'],
+      'tests/utils.test.ts': ['src/utils.ts'],
+    },
+    exports: {
+      'src/types.ts': [
+        { name: 'User', kind: 'interface', line: 1 },
+        { name: 'Config', kind: 'type', line: 10 },
+      ],
+      'src/utils.ts': [
+        { name: 'helper', kind: 'function', line: 1 },
+      ],
+    },
+    testMap: {
+      tested: { 'src/utils.ts': ['tests/utils.test.ts'] },
+      untested: ['src/index.ts', 'src/types.ts', 'src/api.ts'],
+      testFiles: ['tests/utils.test.ts'],
+    },
+  };
+
+  const knowledgeBase: KnowledgeBase = {
+    version: 1,
+    projectName: 'test',
+    entries: [
+      {
+        id: '1',
+        date: '2026-05-15',
+        summary: 'Fixed auth bug',
+        domains: ['API'],
+        approach: 'Added validation',
+        outcome: 'success',
+        lesson: 'Always validate tokens',
+        tags: ['#api', '#auth'],
+        accessCount: 3,
+        lastAccessed: '2026-05-15',
+      },
+      {
+        id: '2',
+        date: '2026-05-14',
+        summary: 'Known FP: missing types',
+        domains: ['Engine'],
+        approach: 'Verified manually',
+        outcome: 'success',
+        lesson: 'Types are inferred',
+        tags: ['#engine', '#false-positive'],
+        accessCount: 1,
+        lastAccessed: null,
+      },
+    ],
+    metrics: {
+      totalSessions: 5,
+      totalLearnings: 2,
+      cacheHits: 3,
+      domainDistribution: { '#api': 1, '#engine': 1 },
+      sessions: [],
+    },
+  };
+
+  return {
+    rootPath: '/tmp/test-project',
+    knowledge,
+    reverseDeps: {
+      'src/types.ts': ['src/index.ts', 'src/api.ts'],
+      'src/utils.ts': ['src/index.ts', 'tests/utils.test.ts'],
+    },
+    knowledgeBase,
+    loadedAt: Date.now(),
+  };
+}
+
+describe('getToolDefinitions', () => {
+  it('returns 8 tool definitions', () => {
+    const tools = getToolDefinitions();
+    expect(tools).toHaveLength(8);
+  });
+
+  it('all tools have name, description, and inputSchema', () => {
+    for (const tool of getToolDefinitions()) {
+      expect(tool.name).toBeDefined();
+      expect(tool.description).toBeDefined();
+      expect(tool.inputSchema.type).toBe('object');
+    }
+  });
+
+  it('all tool names start with engram_', () => {
+    for (const tool of getToolDefinitions()) {
+      expect(tool.name).toMatch(/^engram_/);
+    }
+  });
+});
+
+describe('handleToolCall', () => {
+  const brain = createMockBrain();
+
+  it('engram_query_imports — finds who imports a file', () => {
+    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: 'src/types.ts' }, brain));
+    expect(result.imported_by).toContain('src/index.ts');
+    expect(result.imported_by).toContain('src/api.ts');
+    expect(result.count).toBe(2);
+  });
+
+  it('engram_query_imports — returns empty for leaf files', () => {
+    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: 'src/api.ts' }, brain));
+    expect(result.imported_by).toEqual([]);
+    expect(result.count).toBe(0);
+  });
+
+  it('engram_query_dependents — finds what a file imports', () => {
+    const result = JSON.parse(handleToolCall('engram_query_dependents', { file_path: 'src/index.ts' }, brain));
+    expect(result.depends_on).toContain('src/types.ts');
+    expect(result.depends_on).toContain('src/utils.ts');
+  });
+
+  it('engram_query_exports — lists exports', () => {
+    const result = JSON.parse(handleToolCall('engram_query_exports', { file_path: 'src/types.ts' }, brain));
+    expect(result.count).toBe(2);
+    expect(result.exports[0].name).toBe('User');
+    expect(result.exports[0].kind).toBe('interface');
+  });
+
+  it('engram_query_tests — finds tests for a file', () => {
+    const result = JSON.parse(handleToolCall('engram_query_tests', { file_path: 'src/utils.ts' }, brain));
+    expect(result.has_tests).toBe(true);
+    expect(result.tested_by).toContain('tests/utils.test.ts');
+  });
+
+  it('engram_query_tests — lists untested files', () => {
+    const result = JSON.parse(handleToolCall('engram_query_tests', { filter: 'untested' }, brain));
+    expect(result.untested_files).toContain('src/api.ts');
+    expect(result.count).toBe(3);
+  });
+
+  it('engram_find_fanout — finds high-fanout files', () => {
+    const result = JSON.parse(handleToolCall('engram_find_fanout', { min_importers: '2' }, brain));
+    expect(result.high_fanout_files.length).toBeGreaterThan(0);
+    expect(result.high_fanout_files[0].file).toBe('src/types.ts');
+  });
+
+  it('engram_search_learnings — finds by domain', () => {
+    const result = JSON.parse(handleToolCall('engram_search_learnings', { domains: 'api' }, brain));
+    expect(result.count).toBe(1);
+    expect(result.results[0].summary).toBe('Fixed auth bug');
+  });
+
+  it('engram_search_learnings — returns empty for unknown domain', () => {
+    const result = JSON.parse(handleToolCall('engram_search_learnings', { domains: 'nonexistent' }, brain));
+    expect(result.count).toBe(0);
+  });
+
+  it('engram_get_false_positives — returns FP entries', () => {
+    const result = JSON.parse(handleToolCall('engram_get_false_positives', {}, brain));
+    expect(result.count).toBe(1);
+    expect(result.false_positives[0].summary).toContain('Known FP');
+  });
+
+  it('engram_brain_status — returns metrics', () => {
+    const result = JSON.parse(handleToolCall('engram_brain_status', {}, brain));
+    expect(result.totalSessions).toBe(5);
+    expect(result.cacheHits).toBeGreaterThanOrEqual(3);
+    expect(result.knowledge_index.files_indexed).toBe(5);
+  });
+
+  it('blocks path traversal', () => {
+    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: '../../etc/passwd' }, brain));
+    expect(result.error).toContain('Invalid file path');
+  });
+
+  it('blocks absolute paths', () => {
+    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: '/etc/passwd' }, brain));
+    expect(result.error).toContain('Invalid file path');
+  });
+
+  it('returns error for unknown tool', () => {
+    const result = JSON.parse(handleToolCall('unknown_tool', {}, brain));
+    expect(result.error).toContain('Unknown tool');
+  });
+});

@@ -4,11 +4,12 @@
   "description": "Agent memory & workflow intelligence CLI — compounding project intelligence for AI coding agents",
   "type": "module",
   "bin": {
-    "engram": "./dist/cli.js"
+    "engram": "./dist/cli.js",
+    "engram-mcp": "./dist/mcp/server.js"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --dts --clean",
+    "build": "tsup src/cli.ts src/mcp/server.ts --format esm --dts --clean",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ tests/ --ext .ts",
     "test": "vitest run",
@@ -47,6 +48,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^5.4.0",
     "commander": "^13.0.0",
     "gradient-string": "^3.0.0",

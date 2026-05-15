@@ -149,7 +149,7 @@ const IMPORT_PATTERNS: Array<{ ext: Set<string>; patterns: RegExp[] }> = [
   },
 ];
 
-function buildImportGraph(rootPath: string, files: FileEntry[]): Record<string, string[]> {
+export function buildImportGraph(rootPath: string, files: FileEntry[]): Record<string, string[]> {
   const graph: Record<string, string[]> = {};
   const fileSet = new Set(files.map((f) => f.path));
 
@@ -266,7 +266,7 @@ const EXPORT_PATTERNS: Array<{ ext: Set<string>; patterns: Array<{ regex: RegExp
   },
 ];
 
-function buildExportMap(rootPath: string, files: FileEntry[]): Record<string, ExportEntry[]> {
+export function buildExportMap(rootPath: string, files: FileEntry[]): Record<string, ExportEntry[]> {
   const exportMap: Record<string, ExportEntry[]> = {};
 
   for (const file of files) {
@@ -315,7 +315,7 @@ function isTestFile(filePath: string): boolean {
   return TEST_PATTERNS.some((p) => p.test(name)) || filePath.includes('/tests/') || filePath.includes('/__tests__/') || filePath.includes('/test/');
 }
 
-function buildTestMap(files: FileEntry[], importGraph: Record<string, string[]>): TestMapping {
+export function buildTestMap(files: FileEntry[], importGraph: Record<string, string[]>): TestMapping {
   const testFiles = files.filter((f) => isTestFile(f.path)).map((f) => f.path);
   const sourceFiles = files.filter((f) => !isTestFile(f.path)).map((f) => f.path);
 
@@ -420,4 +420,23 @@ function buildSummary(
     untestedFiles: testMap.untested,
     largestFiles,
   };
+}
+
+// ── Reverse Dependencies ─────────────────────────────────────────
+
+/**
+ * Build reverse dependency map: for each file, who imports it?
+ * Precomputed for fast "what depends on X?" queries.
+ */
+export function buildReverseDependencies(importGraph: Record<string, string[]>): Record<string, string[]> {
+  const reverse: Record<string, string[]> = {};
+
+  for (const [importer, imports] of Object.entries(importGraph)) {
+    for (const imported of imports) {
+      if (!reverse[imported]) reverse[imported] = [];
+      reverse[imported].push(importer);
+    }
+  }
+
+  return reverse;
 }

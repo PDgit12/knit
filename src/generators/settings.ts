@@ -6,6 +6,12 @@ import type { EngramConfig } from '../engine/types.js';
  */
 export function generateSettings(config: EngramConfig): object {
   return {
+    mcpServers: {
+      'engram-brain': {
+        command: 'npx',
+        args: ['-y', 'engram-mcp'],
+      },
+    },
     hooks: generateHooks(config),
   };
 }
