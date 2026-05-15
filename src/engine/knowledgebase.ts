@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { KnowledgeBase, KBEntry, SessionRecord, LearningEntry } from './types.js';
 
@@ -29,9 +29,20 @@ export function loadKnowledgeBase(filePath: string, projectName: string): Knowle
   }
 
   try {
+    // Size guard — prevent OOM on corrupted/bloated files
+    const stat = statSync(filePath);
+    if (stat.size > 10 * 1024 * 1024) {
+      return createKnowledgeBase(projectName);
+    }
+
     const raw = readFileSync(filePath, 'utf-8');
     const kb = JSON.parse(raw) as KnowledgeBase;
+
+    // Structural validation — don't trust the cast
     if (kb.version !== 1) return createKnowledgeBase(projectName);
+    if (!Array.isArray(kb.entries)) return createKnowledgeBase(projectName);
+    if (!kb.metrics || typeof kb.metrics.totalSessions !== 'number') return createKnowledgeBase(projectName);
+
     return kb;
   } catch {
     return createKnowledgeBase(projectName);

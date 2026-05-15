@@ -27,7 +27,7 @@ function generateHooks(config: EngramConfig) {
         hooks: [
           {
             type: 'command',
-            command: `jq -r '.tool_input.command // empty' | grep -qE '^git\\s+(push\\s+(-f|--force)|reset\\s+--hard|commit.*--no-verify)|^git\\s+.*push\\s+--force' && echo '{"decision":"block","reason":"Destructive git operation blocked by Engram. Ask the user first."}' || true`,
+            command: `jq -r '.tool_input.command // empty' | grep -qE '^git\\s+(push\\b.*\\s(--force|-f)|reset\\s+--hard|commit.*--no-verify)' && echo '{"decision":"block","reason":"Destructive git operation blocked by Engram. Ask the user first."}' || true`,
             timeout: 5,
           },
         ],

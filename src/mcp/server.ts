@@ -3,9 +3,9 @@
 /**
  * Engram MCP Server — the Second Brain.
  *
- * Exposes 8 tools that let AI agents query the project knowledge
+ * 19 tools that let AI agents query and update the project knowledge
  * brain mid-session. Import graphs, export maps, test coverage,
- * learnings, and false positives — all from in-memory cache.
+ * learnings, false positives, task classification, and team orchestration.
  *
  * Run: npx engram-mcp
  * Configure in .claude/settings.json:
@@ -21,6 +21,9 @@ import {
 import { getBrain, detectProjectRoot, refreshBrain } from './cache.js';
 import { getToolDefinitions, handleToolCall } from './tools.js';
 
+// Cache project root at startup — doesn't change during a session
+const ROOT_PATH = detectProjectRoot();
+
 const server = new Server(
   { name: 'engram-brain', version: '0.1.0' },
   { capabilities: { tools: {} } },
@@ -31,25 +34,32 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: getToolDefinitions(),
 }));
 
-// Handle tool calls
+// Handle tool calls — with error boundary
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: params } = request.params;
-  const rootPath = detectProjectRoot();
 
-  // Special case: refresh rebuilds the cache
-  if (name === 'engram_refresh_index') {
-    refreshBrain(rootPath);
+  try {
+    // Special case: refresh rebuilds the cache
+    if (name === 'engram_refresh_index') {
+      refreshBrain(ROOT_PATH);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ status: 'refreshed', root: ROOT_PATH }) }],
+      };
+    }
+
+    const brain = getBrain(ROOT_PATH);
+    const result = handleToolCall(name, (params || {}) as Record<string, string>, brain);
+
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify({ status: 'refreshed', root: rootPath }) }],
+      content: [{ type: 'text' as const, text: result }],
+    };
+  } catch (error) {
+    // Never let an exception kill the MCP server process
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ error: `Internal error: ${message}` }) }],
     };
   }
-
-  const brain = getBrain(rootPath);
-  const result = handleToolCall(name, (params || {}) as Record<string, string>, brain);
-
-  return {
-    content: [{ type: 'text' as const, text: result }],
-  };
 });
 
 // Start the server

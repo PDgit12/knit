@@ -252,11 +252,38 @@ export function handleToolCall(
   params: Record<string, string>,
   brain: BrainCache,
 ): string {
-  // Path validation — prevent directory traversal
+  // ── Shared helpers ──────────────────────────────────────────────
+
+  function detectDomainsFromFiles(files: string[]): Set<string> {
+    const domains = new Set<string>();
+    for (const file of files) {
+      if (file.includes('api/') || file.includes('auth')) domains.add('API & Security');
+      if (file.includes('components/') || file.includes('.tsx')) domains.add('UI');
+      if (file.includes('lib/') || file.includes('utils') || file.includes('types')) domains.add('Business Logic');
+      if (file.includes('db') || file.includes('email') || file.includes('middleware')) domains.add('Infrastructure');
+      if (file.includes('test')) domains.add('QA');
+    }
+    return domains;
+  }
+
+  const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
+
+  // Path validation — prevent directory traversal (including URL-encoded)
   if (params.file_path) {
-    const normalized = params.file_path.replace(/\\/g, '/');
-    if (normalized.includes('..') || normalized.startsWith('/')) {
+    const decoded = decodeURIComponent(params.file_path).replace(/\\/g, '/');
+    if (decoded.includes('..') || decoded.startsWith('/') || decoded.includes('\0')) {
       return JSON.stringify({ error: 'Invalid file path — no traversal or absolute paths allowed' });
+    }
+    // Use decoded path for all lookups
+    params.file_path = decoded;
+  }
+
+  // Sanitize text params to prevent prompt injection
+  for (const key of ['summary', 'description', 'lesson', 'reason', 'goal', 'current_state', 'next_step']) {
+    if (params[key]) {
+      // Limit length and strip control characters
+      // eslint-disable-next-line no-control-regex
+      params[key] = params[key].slice(0, 5000).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
     }
   }
 
@@ -383,21 +410,12 @@ export function handleToolCall(
 
     case 'engram_classify_task': {
       const files = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
-      const domains = new Set<string>();
+      const domains = detectDomainsFromFiles(files);
       const crossDomainRipple: string[] = [];
 
-      // Map files to domains
       for (const file of files) {
-        // Check which domain each file belongs to based on knowledge
         const importers = brain.reverseDeps[file] || [];
         if (importers.length >= 3) crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
-
-        // Simple domain detection from path
-        if (file.includes('api/') || file.includes('auth')) domains.add('API & Security');
-        if (file.includes('components/') || file.includes('.tsx')) domains.add('UI');
-        if (file.includes('lib/') || file.includes('utils') || file.includes('types')) domains.add('Business Logic');
-        if (file.includes('db') || file.includes('email') || file.includes('middleware')) domains.add('Infrastructure');
-        if (file.includes('test')) domains.add('QA');
       }
 
       // Classify tier
@@ -432,19 +450,11 @@ export function handleToolCall(
 
     case 'engram_build_context': {
       const files = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
-      const affectedDomains = new Set<string>();
+      const affectedDomains = detectDomainsFromFiles(files);
       const knownPitfalls: string[] = [];
       const ripple: string[] = [];
 
       for (const file of files) {
-        // Detect domains
-        if (file.includes('api/') || file.includes('auth')) affectedDomains.add('API & Security');
-        if (file.includes('components/') || file.includes('.tsx')) affectedDomains.add('UI');
-        if (file.includes('lib/') || file.includes('utils') || file.includes('types')) affectedDomains.add('Business Logic');
-        if (file.includes('db') || file.includes('email') || file.includes('middleware')) affectedDomains.add('Infrastructure');
-        if (file.includes('test')) affectedDomains.add('QA');
-
-        // Check ripple
         const importers = brain.reverseDeps[file] || [];
         if (importers.length > 0) {
           ripple.push(`${file} is imported by: ${importers.join(', ')}`);
@@ -663,7 +673,7 @@ ${params.failed_attempts || 'None documented'}
         const raw = JSON.parse(params.findings || '[]');
         findings = raw.map((f: Record<string, string>) => ({
           team: params.team_name,
-          severity: f.severity || 'MEDIUM',
+          severity: VALID_SEVERITIES.has(String(f.severity).toUpperCase()) ? String(f.severity).toUpperCase() as TeamFinding['severity'] : 'MEDIUM',
           file: f.file || 'unknown',
           description: f.description || '',
           recommendation: f.recommendation || '',
