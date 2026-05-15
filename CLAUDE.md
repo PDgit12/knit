@@ -293,6 +293,6 @@ Built with TypeScript, compiled via tsup, tested with Vitest. The Engram Orchest
 
 ## Phase Status
 - **Phase 0** (project setup + workflow): ✅ Complete
-- **v0.1 MVP** (init + learnings + LEARN hook + knowledge brain): ✅ Complete — 64 tests, all gates green
+- **v0.1 MVP** (init + learnings + LEARN hook + knowledge brain + enforcement + CI): ✅ Complete — 88 tests, CI green, npm ready
 - **v0.2** (status + learn commands, integration tests): Not started
 - **v0.3** (Cursor/Codex adapters): Not started

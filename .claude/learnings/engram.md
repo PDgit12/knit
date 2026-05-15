@@ -53,3 +53,17 @@
 **Outcome:** Success — the audit revealed 70% of the generated output was aspirational prose. Built the knowledge brain, replaced fake token numbers, wired false positives.
 **Lesson:** ALWAYS follow the protocol. The user built it for a reason — the pre-flight catch saves re-work, the classification prevents over/under-engineering, and the LEARN phase prevents context loss. Skipping the protocol while building the protocol tool is the worst possible look.
 **Tags:** #workflow #all #meta-lesson
+
+## 2026-05-15 Enforcement gap closed — 4 Stop hooks now fire automatically
+**Domain(s):** Generators, Engine, QA, CI
+**Approach:** Added LEARN enforcement Stop hook (checks if learnings file was modified in last 5 min), KB metrics Stop hook (updates knowledgebase.json with session data via node -e), GitHub Actions CI (Node 18/20/22 matrix), npm publish readiness (repository, homepage, exports fields).
+**Outcome:** Success — 88 tests, CI green on all 3 Node versions, npm pack produces 5 files / 25.6 KB
+**Lesson:** The ESLint peer dependency (@eslint/js@10 vs eslint@9) broke CI immediately. Always test with `npm ci` not `npm install` — `ci` is strict about peer deps. Local install with --legacy-peer-deps hides the problem.
+**Tags:** #generators #ci #npm #enforcement
+
+## 2026-05-15 Knowledge brain import regex fixed for single-line files
+**Domain(s):** Engine
+**Approach:** Import regex `.*?` was too greedy on single-line files with multiple imports. Changed to `[^'"]*?`. Export regex `^` anchor missed exports after semicolons — changed to `(?:^|;\s*)`. Also added `normalize()` to path resolution for correct `../../` traversal.
+**Outcome:** Success — import graph now correctly maps nested imports (e.g., app/api/users → lib/types via ../../../)
+**Lesson:** ALWAYS test regex against single-line files. TypeScript ESM projects commonly use `import { X } from "./foo.js"` which resolves to `foo.ts` — the .js→.ts extension stripping in resolveImport() is critical.
+**Tags:** #engine #knowledge #regex #import-graph
