@@ -1,0 +1,166 @@
+/**
+ * Core types for Engram — the universal contract.
+ * Every domain depends on these. Changes here = Complex tier.
+ */
+
+/** Detected project characteristics */
+export interface ProjectScan {
+  /** Absolute path to project root */
+  rootPath: string;
+  /** Package manager: npm, yarn, pnpm, bun */
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'unknown';
+  /** Detected language/framework */
+  stack: StackInfo;
+  /** Detected domains from file structure */
+  domains: Domain[];
+  /** Whether .claude/ already exists */
+  hasExistingSetup: boolean;
+  /** Whether CLAUDE.md already exists */
+  hasExistingClaudeMd: boolean;
+  /** Git info */
+  git: GitInfo;
+}
+
+export interface StackInfo {
+  language: 'typescript' | 'javascript' | 'python' | 'go' | 'rust' | 'java' | 'unknown';
+  framework: string | null;
+  /** Key dependencies detected */
+  dependencies: string[];
+  /** Test framework if detected */
+  testFramework: string | null;
+  /** Build command if detected */
+  buildCommand: string | null;
+  /** Lint command if detected */
+  lintCommand: string | null;
+  /** Typecheck command if detected */
+  typecheckCommand: string | null;
+}
+
+export interface Domain {
+  name: string;
+  description: string;
+  /** Glob patterns for files in this domain */
+  filePatterns: string[];
+  /** Agents recommended for this domain */
+  agents: string[];
+}
+
+export interface GitInfo {
+  isRepo: boolean;
+  defaultBranch: string | null;
+  hasRemote: boolean;
+}
+
+/** Learnings entry format */
+export interface LearningEntry {
+  date: string;
+  summary: string;
+  domains: string[];
+  approach: string;
+  outcome: 'success' | 'partial' | 'failure';
+  lesson: string;
+  tags: string[];
+}
+
+/** Tier classification */
+export type TaskTier = 'trivial' | 'standard' | 'complex';
+
+/** Task classification result */
+export interface TaskClassification {
+  tier: TaskTier;
+  domains: string[];
+  reasoning: string;
+  phases: string[];
+}
+
+/** Domain Context Object — passed to every agent prompt */
+export interface DomainContext {
+  affectedDomains: string[];
+  filesToTouch: string[];
+  crossDomainRipple: string[];
+  knownPitfalls: string[];
+  falsePositives: string[];
+  toolAvailability: {
+    semanticSearch: boolean;
+    browserQA: boolean;
+    devServer: boolean;
+  };
+  scoutFindings: string[];
+  selectedApproach: string | null;
+  approvedPlan: string | null;
+}
+
+/** Configuration for generated workflow */
+export interface EngramConfig {
+  /** Project name */
+  name: string;
+  /** Package manager */
+  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun' | 'unknown';
+  /** Detected or user-specified stack */
+  stack: StackInfo;
+  /** Domains for this project */
+  domains: Domain[];
+  /** Which agent to target: claude-code, cursor, codex */
+  targetAgent: 'claude-code' | 'cursor' | 'codex';
+  /** Token optimization level */
+  tokenOptimization: 'minimal' | 'standard' | 'aggressive';
+}
+
+/** ── Knowledge Brain ─────────────────────────────────────────── */
+
+/** Complete project knowledge index — Engram's own brain */
+export interface ProjectKnowledge {
+  generatedAt: string;
+  summary: KnowledgeSummary;
+  files: FileEntry[];
+  /** file → files it imports (relative paths) */
+  importGraph: Record<string, string[]>;
+  /** file → what it exports */
+  exports: Record<string, ExportEntry[]>;
+  /** test file mapping */
+  testMap: TestMapping;
+}
+
+export interface KnowledgeSummary {
+  totalFiles: number;
+  totalLines: number;
+  /** extension → file count */
+  languageBreakdown: Record<string, number>;
+  entryPoints: string[];
+  /** Files imported by 5+ other files */
+  highFanoutFiles: string[];
+  /** Source files with no matching test */
+  untestedFiles: string[];
+  /** Top 10 largest files */
+  largestFiles: Array<{ path: string; lines: number }>;
+}
+
+export interface FileEntry {
+  path: string;
+  extension: string;
+  lines: number;
+  sizeBytes: number;
+}
+
+export interface ExportEntry {
+  name: string;
+  kind: 'function' | 'class' | 'interface' | 'type' | 'const' | 'default' | 'other';
+  line: number;
+}
+
+export interface TestMapping {
+  /** source file → test files that test it */
+  tested: Record<string, string[]>;
+  /** source files with no test */
+  untested: string[];
+  /** all test files */
+  testFiles: string[];
+}
+
+/** Output of the init command */
+export interface InitResult {
+  filesCreated: string[];
+  filesSkipped: string[];
+  warnings: string[];
+  config: EngramConfig;
+}
