@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, lstatSync, existsSync } from 'node:fs';
-import { join, relative, extname, basename, dirname } from 'node:path';
+import { join, normalize, relative, extname, basename, dirname } from 'node:path';
 import type {
   ProjectKnowledge,
   KnowledgeSummary,
@@ -117,10 +117,10 @@ const IMPORT_PATTERNS: Array<{ ext: Set<string>; patterns: RegExp[] }> = [
     // TypeScript / JavaScript
     ext: new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte']),
     patterns: [
-      /import\s+.*?\s+from\s+['"]([^'"]+)['"]/g,
+      /import\s+(?:[^'"]*?)\s+from\s+['"]([^'"]+)['"]/g,
       /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
       /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-      /export\s+.*?\s+from\s+['"]([^'"]+)['"]/g,
+      /export\s+(?:[^'"]*?)\s+from\s+['"]([^'"]+)['"]/g,
     ],
   },
   {
@@ -195,7 +195,7 @@ function buildImportGraph(rootPath: string, files: FileEntry[]): Record<string, 
 /** Resolve a relative import to a file in the project */
 function resolveImport(fromFile: string, importPath: string, fileSet: Set<string>): string | null {
   const dir = dirname(fromFile);
-  const base = join(dir, importPath).replace(/\\/g, '/');
+  const base = normalize(join(dir, importPath)).replace(/\\/g, '/');
 
   // Try exact match
   if (fileSet.has(base)) return base;
@@ -230,13 +230,13 @@ const EXPORT_PATTERNS: Array<{ ext: Set<string>; patterns: Array<{ regex: RegExp
   {
     ext: new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']),
     patterns: [
-      { regex: /^export\s+function\s+(\w+)/gm, kind: 'function' },
-      { regex: /^export\s+async\s+function\s+(\w+)/gm, kind: 'function' },
-      { regex: /^export\s+class\s+(\w+)/gm, kind: 'class' },
-      { regex: /^export\s+interface\s+(\w+)/gm, kind: 'interface' },
-      { regex: /^export\s+type\s+(\w+)/gm, kind: 'type' },
-      { regex: /^export\s+const\s+(\w+)/gm, kind: 'const' },
-      { regex: /^export\s+default\s+(?:function|class)\s+(\w+)/gm, kind: 'default' },
+      { regex: /(?:^|;\s*)export\s+function\s+(\w+)/gm, kind: 'function' },
+      { regex: /(?:^|;\s*)export\s+async\s+function\s+(\w+)/gm, kind: 'function' },
+      { regex: /(?:^|;\s*)export\s+class\s+(\w+)/gm, kind: 'class' },
+      { regex: /(?:^|;\s*)export\s+interface\s+(\w+)/gm, kind: 'interface' },
+      { regex: /(?:^|;\s*)export\s+type\s+(\w+)/gm, kind: 'type' },
+      { regex: /(?:^|;\s*)export\s+const\s+(\w+)/gm, kind: 'const' },
+      { regex: /(?:^|;\s*)export\s+default\s+(?:function|class)\s+(\w+)/gm, kind: 'default' },
     ],
   },
   {
