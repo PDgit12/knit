@@ -17,18 +17,20 @@ export function generateClaudeMd(
     generateHeader(config),
     generateBuildVerify(config),
     generateSessionStartup(config, learningsFile),
+    generateEngramTools(),
     knowledge ? generateProjectMap(knowledge) : null,
     knowledge ? generateKnowledgeUsage() : null,
     generateDomainArchitecture(config, knowledge),
     falsePositives && falsePositives.length > 0 ? generateFalsePositivesSection(falsePositives) : null,
     generateOrchestrationProtocol(config),
     generatePhaseDetails(config),
+    generateTDDWorkflow(),
     generateLearnPhase(learningsFile),
     generateToolRouting(),
     generateEffortScaling(),
-    generateSlashCommands(),
+    generateCommitAndShipWorkflow(config),
+    generateProductionChecklist(config),
     generateHandoffProtocol(),
-    generateGitRules(),
     generatePhaseStatus(),
   ];
 
@@ -637,36 +639,209 @@ The workflow scales effort with complexity. Do not run Complex-tier overhead on 
 **Session tracking:** The Stop hook logs files modified, branch state, and commits to \`.claude/learnings/sessions.md\`. Review this file to see actual session patterns over time.`;
 }
 
-// ── Slash Commands ───────────────────────────────────────────────
+// (Slash Commands removed — replaced by Engram MCP Tools section which is self-contained)
 
-function generateSlashCommands(): string {
-  return `## Slash Command Routing
+// ── Handoff Protocol ─────────────────────────────────────────────
 
-When the user's request matches a pattern below, invoke the relevant skill:
+// ── Engram MCP Tools (how agents use the brain) ─────────────────
 
-### Core Development
-| User says | Action |
-|-----------|--------|
-| "plan this", "how should we build" | Enter plan mode, run full protocol |
-| "ship", "create PR" | Ship workflow: test → review → commit → push → PR |
-| "review", "check my code" | Code review with domain-appropriate agents |
-| "debug", "investigate", "why broken" | Root cause investigation with evidence |
-| "build failed", "fix errors" | Build error resolution |
+function generateEngramTools(): string {
+  return `## Engram Brain Tools (MCP)
 
-### Quality & Testing
-| User says | Action |
-|-----------|--------|
-| "QA", "test the site" | Systematic QA testing |
-| "check in browser" | Browser navigation + screenshot |
-| "security audit" | Security review across all domains |
-| "health check" | Code quality dashboard |
+This project has the Engram MCP server configured. These tools are available mid-session — use them instead of grepping or reading files manually.
 
-### Context & Memory
-| User says | Action |
-|-----------|--------|
-| "save progress" | Capture context for session recovery |
-| "resume", "where was I" | Load saved context and continue |
-| "what did we learn" | Review learnings file |`;
+### Query Tools (read the brain)
+| Tool | When to use | Instead of |
+|------|------------|-----------|
+| \`engram_query_imports\` | Before editing a file — check what depends on it | \`grep -r "from.*filename" src/\` |
+| \`engram_query_dependents\` | Understand what a file needs | Reading import lines manually |
+| \`engram_query_exports\` | Find the right function without reading the file | \`grep "export" filename\` |
+| \`engram_query_tests\` | Check if a file has tests, or list all untested files | \`find tests/ -name "*.test.*"\` |
+| \`engram_find_fanout\` | Identify high-risk files before refactoring | Manual investigation |
+| \`engram_search_learnings\` | Check if we solved this before | Reading entire learnings file |
+| \`engram_get_false_positives\` | Get known non-issues for review prompts | Grepping for #false-positive |
+| \`engram_brain_status\` | Check knowledge base health | No equivalent |
+
+### Action Tools (update the brain)
+| Tool | When to use | Replaces |
+|------|------------|---------|
+| \`engram_classify_task\` | FIRST thing — before starting any task. Send the files you plan to touch. | Manual tier classification |
+| \`engram_build_context\` | After classification — get the Domain Context Object. | Building DCO manually from instructions |
+| \`engram_record_learning\` | LEARN phase — call this before saying "done". | Writing markdown entries manually |
+| \`engram_record_false_positive\` | When a review agent flags a non-issue. | Manually editing learnings file |
+| \`engram_save_handoff\` | When context degrades — save state for next session. | Writing handoff.md manually |
+
+### Workflow Integration
+
+Every task follows this MCP-powered flow:
+
+\`\`\`
+1. engram_classify_task     → get tier + phases + domains
+2. engram_build_context     → get Domain Context Object
+3. engram_search_learnings  → check for prior knowledge
+4. [DO THE WORK]            → using query tools as needed
+5. engram_record_learning   → persist what was learned
+\`\`\`
+
+**Rule:** Always call \`engram_classify_task\` BEFORE starting work. Always call \`engram_record_learning\` BEFORE saying "done".`;
+}
+
+// ── TDD Workflow ─────────────────────────────────────────────────
+
+function generateTDDWorkflow(): string {
+  return `## TDD Workflow (Test-Driven Development)
+
+For new features and bug fixes, follow the RED → GREEN → REFACTOR cycle:
+
+### New Feature
+\`\`\`
+1. WRITE FAILING TEST (RED)
+   - Write a test that describes the expected behavior
+   - Run tests — the new test MUST fail
+   - If it passes, the test isn't testing anything new
+
+2. IMPLEMENT MINIMUM CODE (GREEN)
+   - Write the simplest code that makes the test pass
+   - No extra features, no optimization, no cleanup
+   - Run tests — all must pass including the new one
+
+3. REFACTOR (IMPROVE)
+   - Clean up the implementation
+   - Extract helpers, improve naming, remove duplication
+   - Run tests after EVERY change — must stay green
+
+4. VERIFY COVERAGE
+   - Check: does the new code have tests? (use engram_query_tests)
+   - Check: are edge cases covered?
+   - Target: 80%+ coverage for new code
+\`\`\`
+
+### Bug Fix
+\`\`\`
+1. REPRODUCE — find the exact input that triggers the bug
+2. WRITE FAILING TEST — this test captures the bug
+3. FIX — minimum change to make the test pass
+4. VERIFY — run full test suite, no regressions
+\`\`\`
+
+### When NOT to TDD
+- Config changes, typo fixes, version bumps (Trivial tier)
+- Documentation updates
+- Refactoring that doesn't change behavior (run existing tests instead)`;
+}
+
+// ── Commit and Ship Workflow ─────────────────────────────────────
+
+function generateCommitAndShipWorkflow(config: EngramConfig): string {
+  const pm = config.packageManager !== 'unknown' ? config.packageManager : 'npm';
+
+  return `## Commit & Ship Workflow
+
+### Before Every Commit
+\`\`\`bash
+${config.stack.typecheckCommand ? `${config.stack.typecheckCommand}   # zero errors\n` : ''}${config.stack.lintCommand ? `${config.stack.lintCommand}        # zero errors\n` : ''}${pm} run test        # all tests pass
+${config.stack.buildCommand ? `${config.stack.buildCommand}       # clean build\n` : ''}\`\`\`
+
+All four gates must pass. The Stop hook runs these automatically at session end.
+
+### Commit Message Format
+\`\`\`
+<type>: <description>
+
+<optional body — what and why, not how>
+\`\`\`
+
+Types: \`feat\`, \`fix\`, \`refactor\`, \`docs\`, \`test\`, \`chore\`, \`perf\`
+
+Examples:
+- \`feat: add user authentication with JWT\`
+- \`fix: prevent duplicate submissions on double-click\`
+- \`refactor: extract email validation into shared utility\`
+
+### Shipping a PR
+\`\`\`
+1. VERIFY — all 4 gates pass (typecheck, lint, test, build)
+2. REVIEW — run engram_build_context, check for cross-domain ripple
+3. COMMIT — atomic commits, one concern per commit
+4. PUSH — push to feature branch
+5. PR — create PR with:
+   - Summary: what changed and why (1-3 bullets)
+   - Test plan: how to verify it works
+6. LEARN — call engram_record_learning before closing the task
+\`\`\`
+
+### Branch Strategy
+- \`main\` — production, always deployable
+- \`feature/<name>\` — new features, branch from main
+- \`fix/<name>\` — bug fixes, branch from main
+- Squash merge to main, delete branch after merge`;
+}
+
+// ── Production Checklist ─────────────────────────────────────────
+
+function generateProductionChecklist(config: EngramConfig): string {
+  const isWeb = config.stack.framework && ['nextjs', 'react', 'vue', 'svelte', 'nuxt'].includes(config.stack.framework);
+  const isApi = config.stack.framework && ['express', 'fastify', 'hono', 'django', 'fastapi', 'flask'].includes(config.stack.framework || '');
+
+  let content = `## Production Readiness Checklist
+
+Before shipping to production, verify every item:
+
+### Code Quality
+- [ ] All 4 gates pass (typecheck, lint, test, build)
+- [ ] No \`console.log\` or debug statements in production code
+- [ ] No hardcoded secrets or API keys (use environment variables)
+- [ ] Error handling on all external calls (APIs, database, file I/O)
+- [ ] Input validation on all user-facing endpoints
+
+### Security
+- [ ] No secrets in git history (\`git log -p --all -S "sk-" | head\`)
+- [ ] \`.env\` is in \`.gitignore\`
+- [ ] \`.env.example\` exists with placeholder values
+- [ ] All user input is validated and sanitized
+- [ ] Authentication on all protected routes
+- [ ] Rate limiting on auth and submission endpoints
+`;
+
+  if (isWeb) {
+    content += `
+### Web-Specific
+- [ ] HTTPS enforced
+- [ ] Security headers set (CSP, HSTS, X-Frame-Options)
+- [ ] Images have explicit width/height (no layout shift)
+- [ ] Loading states for async operations
+- [ ] Error boundaries for React/Vue components
+- [ ] Mobile responsive (test 320px, 768px, 1024px, 1440px)
+- [ ] Lighthouse score > 90 (performance, accessibility)
+`;
+  }
+
+  if (isApi) {
+    content += `
+### API-Specific
+- [ ] All endpoints documented (OpenAPI/Swagger or README)
+- [ ] Consistent error response format
+- [ ] Pagination on list endpoints
+- [ ] Request/response logging (not PII)
+- [ ] Health check endpoint (\`GET /health\`)
+`;
+  }
+
+  content += `
+### Deployment
+- [ ] Environment variables documented in \`.env.example\`
+- [ ] Database migrations run cleanly
+- [ ] Build succeeds in clean environment (\`rm -rf node_modules && npm ci && npm run build\`)
+- [ ] README has setup instructions for new developers
+- [ ] CI/CD pipeline configured and green
+
+### Post-Deploy
+- [ ] Verify the app loads in production
+- [ ] Check error monitoring (if configured)
+- [ ] Verify critical user flows work end-to-end
+- [ ] Run \`engram refresh\` to update the knowledge brain`;
+
+  return content;
 }
 
 // ── Handoff Protocol ─────────────────────────────────────────────
@@ -694,16 +869,7 @@ When context degrades (circular debugging, repeated failures, post-compaction co
 When user says "continue" / "pick up" / "resume" → read \`handoff.md\` first.`;
 }
 
-// ── Git Rules ────────────────────────────────────────────────────
-
-function generateGitRules(): string {
-  return `## Git & Commits
-
-- Conventional commits: \`feat:\`, \`fix:\`, \`refactor:\`, \`docs:\`, \`test:\`, \`chore:\`, \`perf:\`
-- Branches: \`feature/<descriptive-name>\`, squash merge to main
-- Pre-merge: all build checks must pass
-- No destructive git operations without explicit user consent`;
-}
+// (Git Rules removed — merged into Commit & Ship Workflow section)
 
 // ── Phase Status ─────────────────────────────────────────────────
 
