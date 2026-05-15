@@ -1,5 +1,7 @@
+import { writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { BrainCache } from './cache.js';
-import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit } from '../engine/knowledgebase.js';
+import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
 
 /** MCP tool definition */
 interface ToolDef {
@@ -94,6 +96,76 @@ export function getToolDefinitions(): ToolDef[] {
       inputSchema: {
         type: 'object',
         properties: {},
+      },
+    },
+    // ── Action tools (write operations) ──────────────────────────
+    {
+      name: 'engram_classify_task',
+      description: 'Classify a task by complexity tier (trivial/standard/complex) based on which files will be touched. Returns the tier, affected domains, recommended phases, and cross-domain ripple effects. Call this BEFORE starting any task.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          files_to_touch: { type: 'string', description: 'Comma-separated list of files that will be modified' },
+          description: { type: 'string', description: 'Brief description of the task' },
+        },
+        required: ['files_to_touch'],
+      },
+    },
+    {
+      name: 'engram_build_context',
+      description: 'Build a Domain Context Object for the current task. Assembles affected domains, files, cross-domain ripple, known pitfalls, and false positives into a single object. Pass this to every agent prompt.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          files_to_touch: { type: 'string', description: 'Comma-separated list of files that will be modified' },
+        },
+        required: ['files_to_touch'],
+      },
+    },
+    {
+      name: 'engram_record_learning',
+      description: 'Record a learning from the current task. This is the LEARN phase — call this before saying "done". Every task must record what was learned.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'One-line summary of what was learned' },
+          domains: { type: 'string', description: 'Comma-separated domains (e.g., "api,auth")' },
+          approach: { type: 'string', description: 'What approach was taken' },
+          outcome: { type: 'string', description: 'success, partial, or failure' },
+          lesson: { type: 'string', description: 'What to repeat or avoid next time' },
+          tags: { type: 'string', description: 'Space-separated tags (e.g., "#api #auth #security")' },
+        },
+        required: ['summary', 'lesson', 'tags'],
+      },
+    },
+    {
+      name: 'engram_record_false_positive',
+      description: 'Mark a finding as a confirmed non-issue. Future agent prompts will include this so agents stop re-reporting it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'What was flagged (e.g., "Missing types for UserSchema")' },
+          reason: { type: 'string', description: 'Why it is not a real issue' },
+          tags: { type: 'string', description: 'Space-separated domain tags' },
+        },
+        required: ['summary', 'reason'],
+      },
+    },
+    {
+      name: 'engram_save_handoff',
+      description: 'Save session state for the next session to pick up. Use when context degrades or before ending a long session. The next session reads this first.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: 'What we are trying to accomplish' },
+          current_state: { type: 'string', description: 'Where we are right now' },
+          files_in_flight: { type: 'string', description: 'Comma-separated files being modified' },
+          what_changed: { type: 'string', description: 'Commits, edits since session start' },
+          failed_attempts: { type: 'string', description: 'What was tried and why it failed (MANDATORY)' },
+          decisions_made: { type: 'string', description: 'Important choices and reasoning' },
+          next_step: { type: 'string', description: 'The ONE most important thing to do next' },
+        },
+        required: ['goal', 'current_state', 'failed_attempts', 'next_step'],
       },
     },
   ];
@@ -229,6 +301,192 @@ export function handleToolCall(
           exports_mapped: Object.keys(brain.knowledge.exports).length,
         },
         cache_age_ms: Date.now() - brain.loadedAt,
+      });
+    }
+
+    // ── Action tools ──────────────────────────────────────────────
+
+    case 'engram_classify_task': {
+      const files = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
+      const domains = new Set<string>();
+      const crossDomainRipple: string[] = [];
+
+      // Map files to domains
+      for (const file of files) {
+        // Check which domain each file belongs to based on knowledge
+        const importers = brain.reverseDeps[file] || [];
+        if (importers.length >= 3) crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
+
+        // Simple domain detection from path
+        if (file.includes('api/') || file.includes('auth')) domains.add('API & Security');
+        if (file.includes('components/') || file.includes('.tsx')) domains.add('UI');
+        if (file.includes('lib/') || file.includes('utils') || file.includes('types')) domains.add('Business Logic');
+        if (file.includes('db') || file.includes('email') || file.includes('middleware')) domains.add('Infrastructure');
+        if (file.includes('test')) domains.add('QA');
+      }
+
+      // Classify tier
+      const isTypes = files.some((f) => f.includes('types') || f.includes('schema'));
+      const isAuth = files.some((f) => f.includes('auth') || f.includes('security'));
+      const tier = (domains.size >= 3 || isTypes || isAuth || files.length > 3)
+        ? 'complex'
+        : (domains.size >= 2 || files.length > 1)
+          ? 'standard'
+          : 'trivial';
+
+      const phases = tier === 'complex'
+        ? ['RESEARCH', 'IDEATE', 'PLAN', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
+        : tier === 'standard'
+          ? ['RESEARCH', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
+          : ['EXECUTE', 'VERIFY', 'LEARN'];
+
+      return JSON.stringify({
+        tier,
+        affected_domains: [...domains],
+        phases,
+        files_count: files.length,
+        cross_domain_ripple: crossDomainRipple,
+        auto_plan_mode: tier === 'complex',
+        reasoning: tier === 'complex'
+          ? `Complex: ${domains.size} domains affected${isTypes ? ', touches shared types' : ''}${isAuth ? ', security-sensitive' : ''}`
+          : tier === 'standard'
+            ? `Standard: ${domains.size} domain(s), ${files.length} file(s)`
+            : `Trivial: 1 domain, simple change`,
+      });
+    }
+
+    case 'engram_build_context': {
+      const files = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
+      const affectedDomains = new Set<string>();
+      const knownPitfalls: string[] = [];
+      const ripple: string[] = [];
+
+      for (const file of files) {
+        // Detect domains
+        if (file.includes('api/') || file.includes('auth')) affectedDomains.add('API & Security');
+        if (file.includes('components/') || file.includes('.tsx')) affectedDomains.add('UI');
+        if (file.includes('lib/') || file.includes('utils') || file.includes('types')) affectedDomains.add('Business Logic');
+        if (file.includes('db') || file.includes('email') || file.includes('middleware')) affectedDomains.add('Infrastructure');
+        if (file.includes('test')) affectedDomains.add('QA');
+
+        // Check ripple
+        const importers = brain.reverseDeps[file] || [];
+        if (importers.length > 0) {
+          ripple.push(`${file} is imported by: ${importers.join(', ')}`);
+        }
+      }
+
+      // Search learnings for affected domains
+      const domainTags = [...affectedDomains].map((d) => d.toLowerCase().replace(/[^a-z]/g, ''));
+      const learnings = queryByDomains(brain.knowledgeBase, domainTags);
+      for (const l of learnings) {
+        knownPitfalls.push(`${l.summary}: ${l.lesson}`);
+      }
+
+      const fps = getFalsePositives(brain.knowledgeBase);
+
+      return JSON.stringify({
+        domain_context: {
+          affected_domains: [...affectedDomains],
+          files_to_touch: files,
+          cross_domain_ripple: ripple,
+          known_pitfalls: knownPitfalls,
+          false_positives: fps.map((fp) => `${fp.summary}: ${fp.lesson}`),
+        },
+        instruction: 'Pass this entire object to every agent prompt in EXECUTE, OPTIMIZE, and REVIEW phases.',
+      });
+    }
+
+    case 'engram_record_learning': {
+      const date = new Date().toISOString().split('T')[0];
+      const entry = {
+        date,
+        summary: params.summary || 'Untitled learning',
+        domains: (params.domains || 'general').split(',').map((d) => d.trim()),
+        approach: params.approach || '',
+        outcome: (['success', 'partial', 'failure'].includes(params.outcome) ? params.outcome : 'success') as 'success' | 'partial' | 'failure',
+        lesson: params.lesson || '',
+        tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
+      };
+
+      addEntry(brain.knowledgeBase, entry);
+
+      // Save KB to disk
+      const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
+      saveKnowledgeBase(kbPath, brain.knowledgeBase);
+
+      // Also append to markdown learnings file for human readability
+      const learningsDir = join(brain.rootPath, '.claude/learnings');
+      const mdFiles = existsSync(learningsDir)
+        ? readdirSync(learningsDir).filter((f: string) => f.endsWith('.md') && f !== 'sessions.md')
+        : [];
+      if (mdFiles.length > 0) {
+        const mdPath = join(learningsDir, mdFiles[0]);
+        const mdEntry = `\n## ${date} ${entry.summary}\n**Domain(s):** ${entry.domains.join(', ')}\n**Approach:** ${entry.approach}\n**Outcome:** ${entry.outcome}\n**Lesson:** ${entry.lesson}\n**Tags:** ${entry.tags.join(' ')}\n`;
+        const existing = readFileSync(mdPath, 'utf-8');
+        writeFileSync(mdPath, existing + mdEntry, 'utf-8');
+      }
+
+      return JSON.stringify({
+        status: 'recorded',
+        entry: { date, summary: entry.summary, tags: entry.tags },
+        kb_total: brain.knowledgeBase.entries.length,
+      });
+    }
+
+    case 'engram_record_false_positive': {
+      const date = new Date().toISOString().split('T')[0];
+      const entry = {
+        date,
+        summary: params.summary || 'Untitled FP',
+        domains: ['General'],
+        approach: 'Verified manually',
+        outcome: 'success' as const,
+        lesson: params.reason || 'Confirmed non-issue',
+        tags: [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')), '#false-positive'],
+      };
+
+      addEntry(brain.knowledgeBase, entry);
+      const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
+      saveKnowledgeBase(kbPath, brain.knowledgeBase);
+
+      return JSON.stringify({
+        status: 'recorded',
+        summary: entry.summary,
+        total_false_positives: getFalsePositives(brain.knowledgeBase).length,
+        instruction: 'This will be included in future agent prompts as a DO NOT FLAG item.',
+      });
+    }
+
+    case 'engram_save_handoff': {
+      const handoffPath = join(brain.rootPath, 'handoff.md');
+      const content = `# Session Handoff
+
+**Goal:** ${params.goal || 'Not specified'}
+
+**Current State:** ${params.current_state || 'Not specified'}
+
+**Files in Flight:** ${params.files_in_flight || 'None'}
+
+**What Changed:** ${params.what_changed || 'Nothing'}
+
+**Failed Attempts:**
+${params.failed_attempts || 'None documented'}
+
+**Decisions Made:** ${params.decisions_made || 'None'}
+
+**Next Step:** ${params.next_step || 'Not specified'}
+
+---
+*Saved: ${new Date().toISOString()}*
+`;
+
+      writeFileSync(handoffPath, content, 'utf-8');
+
+      return JSON.stringify({
+        status: 'saved',
+        path: 'handoff.md',
+        instruction: 'Next session will read handoff.md first. User should run /clear then open a fresh session.',
       });
     }
 

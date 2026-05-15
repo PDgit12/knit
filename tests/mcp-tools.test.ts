@@ -95,9 +95,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 8 tool definitions', () => {
+  it('returns 13 tool definitions', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(8);
+    expect(tools).toHaveLength(13);
   });
 
   it('all tools have name, description, and inputSchema', () => {
@@ -199,5 +199,66 @@ describe('handleToolCall', () => {
   it('returns error for unknown tool', () => {
     const result = JSON.parse(handleToolCall('unknown_tool', {}, brain));
     expect(result.error).toContain('Unknown tool');
+  });
+
+  // ── Action tools ──────────────────────────────────────────────
+
+  it('engram_classify_task — trivial for single file', () => {
+    const result = JSON.parse(handleToolCall('engram_classify_task', { files_to_touch: 'src/utils.ts' }, brain));
+    expect(result.tier).toBe('trivial');
+    expect(result.phases).toContain('EXECUTE');
+    expect(result.phases).toContain('LEARN');
+    expect(result.auto_plan_mode).toBe(false);
+  });
+
+  it('engram_classify_task — complex for types + auth', () => {
+    const result = JSON.parse(handleToolCall('engram_classify_task', {
+      files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
+    }, brain));
+    expect(result.tier).toBe('complex');
+    expect(result.auto_plan_mode).toBe(true);
+    expect(result.phases).toContain('RESEARCH');
+    expect(result.phases).toContain('IDEATE');
+    expect(result.phases).toContain('PLAN');
+  });
+
+  it('engram_build_context — assembles domain context', () => {
+    const result = JSON.parse(handleToolCall('engram_build_context', {
+      files_to_touch: 'src/api.ts,src/types.ts',
+    }, brain));
+    expect(result.domain_context).toBeDefined();
+    expect(result.domain_context.affected_domains.length).toBeGreaterThan(0);
+    expect(result.domain_context.cross_domain_ripple.length).toBeGreaterThan(0);
+    expect(result.instruction).toContain('Pass this entire object');
+  });
+
+  it('engram_record_learning — persists to KB', () => {
+    const kbBefore = brain.knowledgeBase.entries.length;
+    const result = JSON.parse(handleToolCall('engram_record_learning', {
+      summary: 'Test learning',
+      lesson: 'Always test MCP tools',
+      tags: '#test #mcp',
+      outcome: 'success',
+    }, brain));
+    expect(result.status).toBe('recorded');
+    expect(brain.knowledgeBase.entries.length).toBe(kbBefore + 1);
+  });
+
+  it('engram_record_false_positive — adds FP tag', () => {
+    const fpBefore = brain.knowledgeBase.entries.filter((e) => e.tags.includes('#false-positive')).length;
+    const result = JSON.parse(handleToolCall('engram_record_false_positive', {
+      summary: 'Missing types for X',
+      reason: 'Types are inferred at runtime',
+    }, brain));
+    expect(result.status).toBe('recorded');
+    const fpAfter = brain.knowledgeBase.entries.filter((e) => e.tags.includes('#false-positive')).length;
+    expect(fpAfter).toBe(fpBefore + 1);
+  });
+
+  it('engram_classify_task — standard for 2 domains', () => {
+    const result = JSON.parse(handleToolCall('engram_classify_task', {
+      files_to_touch: 'src/api.ts,tests/utils.test.ts',
+    }, brain));
+    expect(result.tier).toBe('standard');
   });
 });
