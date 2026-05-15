@@ -176,26 +176,26 @@ describe('generateClaudeMd', () => {
 
 describe('generateSettings', () => {
   it('includes destructive git hook', () => {
-    const settings = generateSettings(testConfig, '/tmp/test') as Record<string, unknown>;
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.PreToolUse).toBeDefined();
     expect(hooks.PreToolUse.length).toBeGreaterThan(0);
   });
 
   it('includes typecheck hook for TypeScript', () => {
-    const settings = generateSettings(testConfig, '/tmp/test') as Record<string, unknown>;
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.PostToolUse.length).toBeGreaterThan(0);
   });
 
   it('includes stop hooks', () => {
-    const settings = generateSettings(testConfig, '/tmp/test') as Record<string, unknown>;
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.Stop.length).toBeGreaterThanOrEqual(2); // build verification + session capture
   });
 
   it('has hooks structure', () => {
-    const settings = generateSettings(testConfig, '/tmp/test') as Record<string, unknown>;
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
     expect(settings.hooks).toBeDefined();
   });
 });

@@ -2,15 +2,18 @@ import type { EngramConfig } from '../engine/types.js';
 
 /**
  * Generates .claude/settings.json with hooks for the detected stack.
- * No third-party tool references — pure Engram configuration.
+ * All hooks use dynamic root detection — no hardcoded absolute paths.
  */
-export function generateSettings(config: EngramConfig, rootPath: string): object {
+export function generateSettings(config: EngramConfig): object {
   return {
-    hooks: generateHooks(config, rootPath),
+    hooks: generateHooks(config),
   };
 }
 
-function generateHooks(config: EngramConfig, rootPath: string) {
+/** Shell snippet that finds project root dynamically */
+const ROOT_CMD = 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
+
+function generateHooks(config: EngramConfig) {
   const hooks: Record<string, unknown[]> = {
     PreToolUse: [
       {
@@ -35,7 +38,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
       hooks: [
         {
           type: 'command',
-          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.ts|*.tsx) cd ${rootPath} && npx tsc --noEmit --pretty false 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
+          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.ts|*.tsx) ${ROOT_CMD} && cd "$ROOT" && npx tsc --noEmit --pretty false 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
           timeout: 30,
           statusMessage: 'Type checking...',
         },
@@ -50,7 +53,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
       hooks: [
         {
           type: 'command',
-          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.py) cd ${rootPath} && python3 -m py_compile "$f" 2>&1 ;; esac; } 2>/dev/null || true`,
+          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.py) ${ROOT_CMD} && cd "$ROOT" && python3 -m py_compile "$f" 2>&1 ;; esac; } 2>/dev/null || true`,
           timeout: 15,
           statusMessage: 'Checking Python syntax...',
         },
@@ -65,7 +68,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
       hooks: [
         {
           type: 'command',
-          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.go) cd ${rootPath} && go vet ./... 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
+          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.go) ${ROOT_CMD} && cd "$ROOT" && go vet ./... 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
           timeout: 30,
           statusMessage: 'Running go vet...',
         },
@@ -80,7 +83,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
       hooks: [
         {
           type: 'command',
-          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.rs) cd ${rootPath} && cargo check 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
+          command: `jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case "$f" in *.rs) ${ROOT_CMD} && cd "$ROOT" && cargo check 2>&1 | head -10 ;; esac; } 2>/dev/null || true`,
           timeout: 60,
           statusMessage: 'Running cargo check...',
         },
@@ -99,7 +102,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
       hooks: [
         {
           type: 'command',
-          command: `cd ${rootPath} && ${stopCommands.join(' && ')} || true`,
+          command: `${ROOT_CMD} && cd "$ROOT" && ${stopCommands.join(' && ')} || true`,
           timeout: 120,
           statusMessage: 'Engram: final build verification...',
         },
@@ -112,7 +115,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
     hooks: [
       {
         type: 'command',
-        command: `cd ${rootPath} && mkdir -p .claude/learnings && FILE=".claude/learnings/sessions.md" && if [ ! -f "$FILE" ]; then echo '# Session Log' > "$FILE"; fi && echo '' >> "$FILE" && echo "## Session $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$FILE" && BRANCH=$(git branch --show-current 2>/dev/null) && COMMITS=$(git log --oneline -3 2>/dev/null | sed 's/^/  - /') && echo "- Branch: $BRANCH" >> "$FILE" && echo "- Recent commits:" >> "$FILE" && echo "$COMMITS" >> "$FILE" && CHANGED=$(git diff --stat HEAD 2>/dev/null | tail -1) && [ -n "$CHANGED" ] && echo "- Uncommitted: $CHANGED" >> "$FILE" || true && echo '' >> "$FILE"`,
+        command: `${ROOT_CMD} && cd "$ROOT" && mkdir -p .claude/learnings && FILE=".claude/learnings/sessions.md" && if [ ! -f "$FILE" ]; then echo '# Session Log' > "$FILE"; fi && echo '' >> "$FILE" && echo "## Session $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$FILE" && BRANCH=$(git branch --show-current 2>/dev/null) && COMMITS=$(git log --oneline -3 2>/dev/null | sed 's/^/  - /') && echo "- Branch: $BRANCH" >> "$FILE" && echo "- Recent commits:" >> "$FILE" && echo "$COMMITS" >> "$FILE" && CHANGED=$(git diff --stat HEAD 2>/dev/null | tail -1) && [ -n "$CHANGED" ] && echo "- Uncommitted: $CHANGED" >> "$FILE" || true && echo '' >> "$FILE"`,
         timeout: 10,
         statusMessage: 'Engram: capturing session state...',
       },

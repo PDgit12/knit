@@ -111,7 +111,7 @@ export async function initCommand(targetDir: string, options: InitOptions): Prom
   if (knowledge) {
     writeOrSkip(join(rootPath, '.claude/knowledge.json'), JSON.stringify(knowledge, null, 2), options.force, result, '.claude/knowledge.json');
   }
-  writeOrSkip(join(rootPath, '.claude/settings.json'), JSON.stringify(generateSettings(config, rootPath), null, 2), options.force, result, '.claude/settings.json');
+  writeOrSkip(join(rootPath, '.claude/settings.json'), JSON.stringify(generateSettings(config), null, 2), options.force, result, '.claude/settings.json');
   writeOrSkip(join(rootPath, '.claude/settings.local.json'), JSON.stringify(generateSettingsLocal(config), null, 2), options.force, result, '.claude/settings.local.json');
 
   const learningsFileName = config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';

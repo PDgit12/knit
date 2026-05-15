@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync, existsSync } from 'node:fs';
 import { join, relative, extname, basename, dirname } from 'node:path';
 import type {
   ProjectKnowledge,
@@ -73,7 +73,10 @@ function walkFiles(rootPath: string, dir: string): FileEntry[] {
     const fullPath = join(dir, item);
     let stat;
     try {
-      stat = statSync(fullPath);
+      // Use lstat to detect symlinks without following them
+      const lstat = lstatSync(fullPath);
+      if (lstat.isSymbolicLink()) continue; // skip symlinks to prevent infinite loops
+      stat = lstat;
     } catch {
       continue;
     }
