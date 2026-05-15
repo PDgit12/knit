@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import type { ProjectKnowledge, KnowledgeBase } from '../engine/types.js';
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
@@ -57,7 +58,6 @@ export function refreshBrain(rootPath: string): BrainCache {
  */
 export function detectProjectRoot(): string {
   try {
-    const { execSync } = require('node:child_process');
     return execSync('git rev-parse --show-toplevel 2>/dev/null', { encoding: 'utf-8' }).trim();
   } catch {
     return process.cwd();
