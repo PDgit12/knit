@@ -122,6 +122,31 @@ function generateHooks(config: EngramConfig) {
     ],
   });
 
+  // LEARN enforcement — warn if learnings file wasn't updated this session
+  const learningsFileName = config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
+  hooks.Stop.push({
+    hooks: [
+      {
+        type: 'command',
+        command: `${ROOT_CMD} && cd "$ROOT" && LEARN_FILE=".claude/learnings/${learningsFileName}" && if [ -f "$LEARN_FILE" ]; then MODIFIED=$(find "$LEARN_FILE" -mmin -5 2>/dev/null); if [ -z "$MODIFIED" ]; then echo ""; echo "⚠  LEARN phase did not run — $LEARN_FILE was not updated this session."; echo "   The Engram protocol requires updating learnings after every task."; echo ""; fi; fi`,
+        timeout: 5,
+        statusMessage: 'Engram: checking LEARN compliance...',
+      },
+    ],
+  });
+
+  // KB metrics — update knowledgebase.json with session data
+  hooks.Stop.push({
+    hooks: [
+      {
+        type: 'command',
+        command: `${ROOT_CMD} && cd "$ROOT" && node -e "const fs=require('fs'),cp=require('child_process');const p='.claude/knowledgebase.json';if(!fs.existsSync(p))process.exit(0);try{const kb=JSON.parse(fs.readFileSync(p,'utf-8'));const files=parseInt(cp.execSync('git diff --name-only HEAD 2>/dev/null|wc -l').toString().trim())||0;const branch=cp.execSync('git branch --show-current 2>/dev/null').toString().trim()||null;kb.metrics.totalSessions++;kb.metrics.sessions.push({date:new Date().toISOString().split('T')[0],branch,filesModified:files,learningsAccessed:0,learningsAdded:0,domainsTouched:[]});if(kb.metrics.sessions.length>20)kb.metrics.sessions=kb.metrics.sessions.slice(-20);fs.writeFileSync(p,JSON.stringify(kb,null,2))}catch(e){}" 2>/dev/null || true`,
+        timeout: 10,
+        statusMessage: 'Engram: updating session metrics...',
+      },
+    ],
+  });
+
   return hooks;
 }
 

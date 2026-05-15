@@ -27,6 +27,14 @@
   ],
   "author": "Piyush Dua",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PDgit12/engram.git"
+  },
+  "homepage": "https://github.com/PDgit12/engram",
+  "bugs": {
+    "url": "https://github.com/PDgit12/engram/issues"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/gradient-string": "^1.1.6",
@@ -47,8 +55,13 @@
   "engines": {
     "node": ">=18"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/cli.js",
+      "types": "./dist/cli.d.ts"
+    }
+  },
   "files": [
-    "dist",
-    "templates"
+    "dist"
   ]
 }

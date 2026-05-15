@@ -188,15 +188,32 @@ describe('generateSettings', () => {
     expect(hooks.PostToolUse.length).toBeGreaterThan(0);
   });
 
-  it('includes stop hooks', () => {
+  it('includes stop hooks with enforcement', () => {
     const settings = generateSettings(testConfig) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
-    expect(hooks.Stop.length).toBeGreaterThanOrEqual(2); // build verification + session capture
+    // build verification + session capture + LEARN enforcement + KB metrics = 4
+    expect(hooks.Stop.length).toBeGreaterThanOrEqual(4);
   });
 
   it('has hooks structure', () => {
     const settings = generateSettings(testConfig) as Record<string, unknown>;
     expect(settings.hooks).toBeDefined();
+  });
+
+  it('includes LEARN enforcement hook', () => {
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const hooks = settings.hooks as Record<string, unknown[]>;
+    const stopCommands = hooks.Stop.map((h: any) => h.hooks?.[0]?.command || '').join(' ');
+    expect(stopCommands).toContain('LEARN phase did not run');
+    expect(stopCommands).toContain('test-project.md');
+  });
+
+  it('includes KB metrics hook', () => {
+    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const hooks = settings.hooks as Record<string, unknown[]>;
+    const stopCommands = hooks.Stop.map((h: any) => h.hooks?.[0]?.command || '').join(' ');
+    expect(stopCommands).toContain('knowledgebase.json');
+    expect(stopCommands).toContain('totalSessions');
   });
 });
 
