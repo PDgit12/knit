@@ -1,0 +1,54 @@
+{
+  "name": "engram",
+  "version": "0.1.0",
+  "description": "Agent memory & workflow intelligence CLI — compounding project intelligence for AI coding agents",
+  "type": "module",
+  "bin": {
+    "engram": "./dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup src/cli.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ tests/ --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "memory",
+    "workflow",
+    "claude-code",
+    "cursor",
+    "codex",
+    "developer-tools"
+  ],
+  "author": "Piyush Dua",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/gradient-string": "^1.1.6",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0",
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "gradient-string": "^3.0.0",
+    "ora": "^8.0.0",
+    "prompts": "^2.4.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ]
+}
