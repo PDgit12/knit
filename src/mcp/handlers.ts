@@ -294,36 +294,80 @@ export function handleSetupProject(params: Record<string, string>, brain: BrainC
 }
 
 /** Infer domains from a project description when none are specified */
+/** Project type → domain templates. Covers common non-code use cases. */
+const DOMAIN_TEMPLATES: Record<string, string[]> = {
+  // Code (handled by scanner, these are fallbacks)
+  code: ['frontend', 'backend', 'database', 'testing', 'devops'],
+
+  // Business
+  startup: ['market-research', 'business-model', 'financial-projections', 'competitive-analysis', 'pitch-preparation'],
+  marketing: ['market-research', 'content-strategy', 'campaign-creation', 'analytics', 'optimization'],
+  sales: ['prospecting', 'outreach', 'pipeline-management', 'deal-analysis', 'forecasting'],
+
+  // Research & Analysis
+  research: ['literature-review', 'data-collection', 'analysis', 'synthesis', 'reporting'],
+  finance: ['market-analysis', 'risk-assessment', 'portfolio-strategy', 'compliance', 'reporting'],
+  'data-science': ['data-collection', 'data-cleaning', 'feature-engineering', 'model-training', 'evaluation'],
+
+  // Creative
+  writing: ['research', 'outlining', 'drafting', 'editing', 'publishing'],
+  journalism: ['source-management', 'investigation', 'fact-checking', 'writing', 'editorial-review'],
+  music: ['songwriting', 'arrangement', 'production', 'mixing-mastering', 'distribution'],
+  video: ['pre-production', 'scripting', 'filming', 'editing', 'distribution'],
+
+  // Design & Product
+  design: ['user-research', 'information-architecture', 'visual-design', 'prototyping', 'usability-testing'],
+  product: ['discovery', 'requirements', 'design', 'development', 'launch'],
+  gamedev: ['game-design', 'level-design', 'art-assets', 'programming', 'playtesting'],
+
+  // Technical
+  devops: ['inventory', 'migration-planning', 'implementation', 'security-review', 'monitoring'],
+  security: ['threat-modeling', 'vulnerability-assessment', 'penetration-testing', 'remediation', 'compliance'],
+  architecture: ['requirements-analysis', 'system-design', 'component-design', 'integration', 'documentation'],
+
+  // Domain-specific
+  legal: ['document-review', 'risk-identification', 'compliance-check', 'contract-analysis', 'recommendations'],
+  medical: ['data-collection', 'clinical-analysis', 'safety-review', 'statistical-analysis', 'reporting'],
+  education: ['curriculum-design', 'content-creation', 'assessment-design', 'review', 'delivery'],
+  realestate: ['market-research', 'property-valuation', 'financial-analysis', 'risk-assessment', 'recommendations'],
+  hr: ['job-analysis', 'candidate-sourcing', 'screening', 'interview-assessment', 'onboarding'],
+  consulting: ['discovery', 'analysis', 'strategy', 'recommendations', 'implementation-planning'],
+};
+
 function inferDomainsFromDescription(description: string, projectType: string): string[] {
+  // 1. Exact project type match
+  if (DOMAIN_TEMPLATES[projectType]) {
+    return DOMAIN_TEMPLATES[projectType];
+  }
+
   const desc = description.toLowerCase();
 
-  // Research projects
-  if (projectType === 'research' || desc.includes('research') || desc.includes('analysis')) {
-    const domains: string[] = ['research'];
-    if (desc.includes('market') || desc.includes('stock') || desc.includes('financ')) domains.push('market-analysis', 'risk-assessment');
-    if (desc.includes('data') || desc.includes('dataset')) domains.push('data-collection', 'data-processing');
-    if (desc.includes('ml') || desc.includes('model') || desc.includes('train')) domains.push('model-training', 'evaluation');
-    if (desc.includes('report') || desc.includes('present')) domains.push('reporting');
-    return domains.length > 1 ? domains : ['research', 'analysis', 'synthesis', 'reporting'];
+  // 2. Fuzzy match project type from description keywords
+  const typeScores: Array<[string, number]> = [];
+  for (const [type, domains] of Object.entries(DOMAIN_TEMPLATES)) {
+    let score = 0;
+    // Check if type name appears in description
+    if (desc.includes(type.replace('-', ' '))) score += 10;
+    if (desc.includes(type)) score += 10;
+
+    // Check if domain keywords appear in description
+    for (const domain of domains) {
+      const keywords = domain.replace(/-/g, ' ').split(' ');
+      for (const kw of keywords) {
+        if (kw.length > 3 && desc.includes(kw)) score += 2;
+      }
+    }
+
+    if (score > 0) typeScores.push([type, score]);
   }
 
-  // Writing projects
-  if (projectType === 'writing' || desc.includes('write') || desc.includes('content') || desc.includes('blog')) {
-    return ['planning', 'drafting', 'editing', 'review'];
+  typeScores.sort((a, b) => b[1] - a[1]);
+  if (typeScores.length > 0 && typeScores[0][1] >= 4) {
+    return DOMAIN_TEMPLATES[typeScores[0][0]];
   }
 
-  // Design projects
-  if (projectType === 'design' || desc.includes('design') || desc.includes('ui') || desc.includes('ux')) {
-    return ['research', 'wireframing', 'visual-design', 'prototyping', 'review'];
-  }
-
-  // Data / analytics projects
-  if (desc.includes('data') || desc.includes('analytics') || desc.includes('dashboard')) {
-    return ['data-ingestion', 'transformation', 'analysis', 'visualization'];
-  }
-
-  // Default: generic project domains
-  return ['planning', 'execution', 'review', 'quality'];
+  // 3. Final fallback — generic project domains
+  return ['planning', 'research', 'execution', 'review', 'delivery'];
 }
 
 // ── Team handlers ────────────────────────────────────────────────
