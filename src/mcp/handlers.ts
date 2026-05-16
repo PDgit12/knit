@@ -90,7 +90,8 @@ export function handleFindFanout(params: Record<string, string>, brain: BrainCac
 }
 
 export function handleSearchLearnings(params: Record<string, string>, brain: BrainCache): string {
-  const domains = params.domains.split(',').map((d) => d.trim());
+  const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
+  if (domains.length === 0) return JSON.stringify({ error: 'domains parameter is required', query: [], results: [], count: 0 });
   const results = queryByDomains(brain.knowledgeBase, domains);
   if (results.length > 0) recordCacheHit(brain.knowledgeBase);
   return JSON.stringify({

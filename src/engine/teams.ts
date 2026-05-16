@@ -145,6 +145,13 @@ export function startTeamBoard(taskId: string, taskDescription: string, teams: s
   };
   boards.set(taskId, board);
   latestBoardId = taskId;
+
+  // Cap boards at 10 to prevent unbounded memory growth
+  if (boards.size > 10) {
+    const oldest = boards.keys().next().value;
+    if (oldest) boards.delete(oldest);
+  }
+
   return board;
 }
 

@@ -8,11 +8,12 @@ import type { ProjectScan, StackInfo, Domain, GitInfo } from './types.js';
  * This is the entry point — everything else flows from scan results.
  */
 export function scanProject(rootPath: string): ProjectScan {
+  const stack = detectStack(rootPath);
   return {
     rootPath,
     packageManager: detectPackageManager(rootPath),
-    stack: detectStack(rootPath),
-    domains: detectDomains(rootPath),
+    stack,
+    domains: detectDomains(rootPath, stack.language),
     hasExistingSetup: existsSync(join(rootPath, '.claude')),
     hasExistingClaudeMd: existsSync(join(rootPath, 'CLAUDE.md')),
     git: detectGit(rootPath),
@@ -42,7 +43,13 @@ function detectStack(root: string): StackInfo {
   // Node/JS/TS projects
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let pkg: any;
+    try {
+      pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    } catch {
+      return stack; // malformed package.json — return what we have
+    }
     const allDeps = {
       ...pkg.dependencies,
       ...pkg.devDependencies,
@@ -118,9 +125,8 @@ function detectStack(root: string): StackInfo {
   return stack;
 }
 
-function detectDomains(root: string): Domain[] {
+function detectDomains(root: string, lang: StackInfo['language'] = 'unknown'): Domain[] {
   const domains: Domain[] = [];
-  const lang = detectStack(root).language;
 
   // ── Language-aware agent selection ─────────────────────────────
   const coreAgents = getAgentsForLanguage(lang, 'core');

@@ -183,7 +183,7 @@ export function handleToolCall(
   }
 
   // Sanitize text params to prevent prompt injection
-  for (const key of ['summary', 'description', 'lesson', 'reason', 'goal', 'current_state', 'next_step']) {
+  for (const key of ['summary', 'description', 'lesson', 'reason', 'goal', 'current_state', 'next_step', 'files_in_flight', 'what_changed', 'failed_attempts', 'decisions_made', 'task_description', 'approach', 'tags', 'team_name']) {
     if (params[key]) {
       // eslint-disable-next-line no-control-regex
       params[key] = params[key].slice(0, 5000).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');

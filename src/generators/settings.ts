@@ -9,7 +9,7 @@ export function generateSettings(config: EngramConfig): object {
     mcpServers: {
       'engram-brain': {
         command: 'npx',
-        args: ['-y', 'engram-mcp'],
+        args: ['-y', 'engram-dev'],
       },
     },
     hooks: generateHooks(config),
