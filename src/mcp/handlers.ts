@@ -8,6 +8,7 @@ import { writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
+import { scanProject } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
@@ -250,19 +251,11 @@ export function handleGetTeams(_params: Record<string, string>, brain: BrainCach
   const custom = loadCustomTeams(brain.rootPath);
   if (custom) return JSON.stringify({ source: 'custom', teams: custom, count: custom.length });
 
-  const hasDomains = brain.knowledge.summary.highFanoutFiles.length > 0 || brain.knowledge.summary.totalFiles > 3;
-  const defaults = buildDefaultTeams(hasDomains
-    ? [
-        { name: 'UI', description: 'Frontend', filePatterns: ['components/**', 'app/**/*.tsx'], agents: ['code-reviewer', 'typescript-reviewer'] },
-        { name: 'API & Security', description: 'Backend', filePatterns: ['app/api/**', 'src/api/**'], agents: ['security-reviewer', 'code-reviewer'] },
-        { name: 'Business Logic', description: 'Core logic', filePatterns: ['lib/**', 'src/lib/**'], agents: ['type-design-analyzer', 'code-reviewer', 'silent-failure-hunter'] },
-        { name: 'Infrastructure', description: 'Platform', filePatterns: ['lib/db.*', 'prisma/**'], agents: ['database-reviewer', 'performance-optimizer'] },
-        { name: 'Quality Assurance', description: 'Testing', filePatterns: ['tests/**'], agents: ['tdd-guide', 'pr-test-analyzer'] },
-      ]
-    : [{ name: 'Core', description: 'Main code', filePatterns: ['src/**'], agents: ['code-reviewer'] },
-       { name: 'Quality Assurance', description: 'Testing', filePatterns: ['tests/**'], agents: ['tdd-guide'] }]
-  );
-  return JSON.stringify({ source: 'default', teams: defaults, count: defaults.length });
+  // Use the ACTUAL detected domains from the scanner — not hardcoded ones
+  // The brain is built from scanProject() which detects language-appropriate domains
+  const scan = scanProject(brain.rootPath);
+  const defaults = buildDefaultTeams(scan.domains);
+  return JSON.stringify({ source: 'auto-detected', teams: defaults, count: defaults.length });
 }
 
 export function handleDefineTeam(params: Record<string, string>, brain: BrainCache): string {
