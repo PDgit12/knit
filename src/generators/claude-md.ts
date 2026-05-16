@@ -46,7 +46,7 @@ function generateHeader(config: EngramConfig): string {
 
   return `# ${config.name}
 
-${stackDesc}Workflow powered by [Engram](https://github.com/piyushdua/engram) — the Engram Orchestration Protocol.`;
+${stackDesc}Workflow powered by [Engram](https://github.com/PDgit12/engram) — the Engram Orchestration Protocol.`;
 }
 
 function generateBuildVerify(config: EngramConfig): string {

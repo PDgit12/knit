@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { AgentTeam, TeamFinding, TeamBoard, Domain } from './types.js';
 
@@ -184,7 +184,7 @@ export function getOtherTeamFindings(excludeTeam: string, taskId?: string): Team
 }
 
 /** Check if all teams are done */
-export function allTeamsDone(taskId?: string): boolean {
+function allTeamsDone(taskId?: string): boolean {
   const board = getTeamBoard(taskId);
   if (!board) return false;
   return Object.values(board.status).every((s) => s === 'done');
@@ -232,7 +232,11 @@ export function loadCustomTeams(rootPath: string): AgentTeam[] | null {
   if (!existsSync(teamsPath)) return null;
 
   try {
-    return JSON.parse(readFileSync(teamsPath, 'utf-8'));
+    const stat = statSync(teamsPath);
+    if (stat.size > 10 * 1024 * 1024) return null; // 10MB guard
+    const teams = JSON.parse(readFileSync(teamsPath, 'utf-8'));
+    if (!Array.isArray(teams)) return null;
+    return teams;
   } catch {
     return null;
   }

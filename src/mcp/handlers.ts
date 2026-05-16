@@ -186,6 +186,9 @@ export function handleBuildContext(params: Record<string, string>, brain: BrainC
 }
 
 export function handleRecordLearning(params: Record<string, string>, brain: BrainCache): string {
+  if (!params.summary?.trim() && !params.lesson?.trim()) {
+    return JSON.stringify({ error: 'summary and lesson are required — cannot record empty learning' });
+  }
   const date = new Date().toISOString().split('T')[0];
   const entry = {
     date,
@@ -434,7 +437,7 @@ export function handleGetTeamPrompt(params: Record<string, string>, brain: Brain
   return JSON.stringify({ team: team.name, prompt, agents_to_use: team.agents, instruction: 'Spawn an Agent with this prompt.' });
 }
 
-export function handlePostTeamFindings(params: Record<string, string>): string {
+export function handlePostTeamFindings(params: Record<string, string>, _brain: BrainCache): string {
   let findings: TeamFinding[];
   try {
     const raw = JSON.parse(params.findings || '[]');
@@ -462,7 +465,7 @@ export function handlePostTeamFindings(params: Record<string, string>): string {
   });
 }
 
-export function handleGetBoardSummary(): string {
+export function handleGetBoardSummary(_params: Record<string, string>, _brain: BrainCache): string {
   const board = getTeamBoard();
   if (!board) return JSON.stringify({ error: 'No active review board. Call engram_start_team_review first.' });
 

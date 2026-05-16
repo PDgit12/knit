@@ -163,8 +163,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_define_team: handleDefineTeam,
   engram_start_team_review: handleStartTeamReview,
   engram_get_team_prompt: handleGetTeamPrompt,
-  engram_post_team_findings: (params) => handlePostTeamFindings(params),
-  engram_get_board_summary: () => handleGetBoardSummary(),
+  engram_post_team_findings: handlePostTeamFindings,
+  engram_get_board_summary: handleGetBoardSummary,
 };
 
 /** Handle a tool call — validate inputs, route to handler */
@@ -183,7 +183,7 @@ export function handleToolCall(
   }
 
   // Sanitize text params to prevent prompt injection
-  for (const key of ['summary', 'description', 'lesson', 'reason', 'goal', 'current_state', 'next_step', 'files_in_flight', 'what_changed', 'failed_attempts', 'decisions_made', 'task_description', 'approach', 'tags', 'team_name']) {
+  for (const key of ['summary', 'description', 'lesson', 'reason', 'goal', 'current_state', 'next_step', 'files_in_flight', 'what_changed', 'failed_attempts', 'decisions_made', 'task_description', 'approach', 'tags', 'team_name', 'name', 'role', 'focus', 'file_patterns', 'checklist', 'domains', 'team_roles', 'project_type']) {
     if (params[key]) {
       // eslint-disable-next-line no-control-regex
       params[key] = params[key].slice(0, 5000).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
