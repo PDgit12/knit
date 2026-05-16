@@ -130,11 +130,12 @@ Only report findings you've VERIFIED against the actual code. Do not hallucinate
 
 // ── Team Board (shared findings) ─────────────────────────────────
 
-let activeBoard: TeamBoard | null = null;
+const boards = new Map<string, TeamBoard>();
+let latestBoardId: string | null = null;
 
 /** Start a new team board for a task */
 export function startTeamBoard(taskId: string, taskDescription: string, teams: string[]): TeamBoard {
-  activeBoard = {
+  const board: TeamBoard = {
     taskId,
     taskDescription,
     teams,
@@ -142,42 +143,48 @@ export function startTeamBoard(taskId: string, taskDescription: string, teams: s
     status: Object.fromEntries(teams.map((t) => [t, 'pending' as const])),
     createdAt: new Date().toISOString(),
   };
-  return activeBoard;
+  boards.set(taskId, board);
+  latestBoardId = taskId;
+  return board;
 }
 
-/** Get the active board */
-export function getTeamBoard(): TeamBoard | null {
-  return activeBoard;
+/** Get the active board (latest or by ID) */
+export function getTeamBoard(taskId?: string): TeamBoard | null {
+  if (taskId) return boards.get(taskId) || null;
+  if (latestBoardId) return boards.get(latestBoardId) || null;
+  return null;
 }
 
 /** Mark a team as working */
-export function markTeamWorking(teamName: string): void {
-  if (activeBoard) {
-    activeBoard.status[teamName] = 'working';
-  }
+export function markTeamWorking(teamName: string, taskId?: string): void {
+  const board = getTeamBoard(taskId);
+  if (board) board.status[teamName] = 'working';
 }
 
 /** Post findings from a team */
-export function postTeamFindings(teamName: string, findings: TeamFinding[]): void {
-  if (!activeBoard) return;
-  activeBoard.findings.push(...findings);
-  activeBoard.status[teamName] = 'done';
+export function postTeamFindings(teamName: string, findings: TeamFinding[], taskId?: string): void {
+  const board = getTeamBoard(taskId);
+  if (!board) return;
+  board.findings.push(...findings);
+  board.status[teamName] = 'done';
 }
 
 /** Get findings from other teams (for cross-team communication) */
-export function getOtherTeamFindings(excludeTeam: string): TeamFinding[] {
-  if (!activeBoard) return [];
-  return activeBoard.findings.filter((f) => f.team !== excludeTeam);
+export function getOtherTeamFindings(excludeTeam: string, taskId?: string): TeamFinding[] {
+  const board = getTeamBoard(taskId);
+  if (!board) return [];
+  return board.findings.filter((f) => f.team !== excludeTeam);
 }
 
 /** Check if all teams are done */
-export function allTeamsDone(): boolean {
-  if (!activeBoard) return false;
-  return Object.values(activeBoard.status).every((s) => s === 'done');
+export function allTeamsDone(taskId?: string): boolean {
+  const board = getTeamBoard(taskId);
+  if (!board) return false;
+  return Object.values(board.status).every((s) => s === 'done');
 }
 
 /** Get summary of all findings across all teams */
-export function getBoardSummary(): {
+export function getBoardSummary(taskId?: string): {
   total: number;
   critical: number;
   high: number;
@@ -186,11 +193,12 @@ export function getBoardSummary(): {
   byTeam: Record<string, number>;
   allDone: boolean;
 } {
-  if (!activeBoard) {
+  const board = getTeamBoard(taskId);
+  if (!board) {
     return { total: 0, critical: 0, high: 0, medium: 0, low: 0, byTeam: {}, allDone: false };
   }
 
-  const findings = activeBoard.findings;
+  const findings = board.findings;
   const byTeam: Record<string, number> = {};
   for (const f of findings) {
     byTeam[f.team] = (byTeam[f.team] || 0) + 1;
@@ -203,7 +211,7 @@ export function getBoardSummary(): {
     medium: findings.filter((f) => f.severity === 'MEDIUM').length,
     low: findings.filter((f) => f.severity === 'LOW').length,
     byTeam,
-    allDone: allTeamsDone(),
+    allDone: allTeamsDone(taskId),
   };
 }
 

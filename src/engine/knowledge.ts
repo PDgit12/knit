@@ -94,8 +94,10 @@ function walkFiles(rootPath: string, dir: string): FileEntry[] {
         const content = readFileSync(fullPath, 'utf-8');
         lines = content.split('\n').length;
       } catch {
-        // skip unreadable/binary files
+        continue; // skip unreadable/binary files entirely
       }
+
+      if (lines === 0) continue; // skip empty files
 
       entries.push({
         path: relPath,

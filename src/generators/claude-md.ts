@@ -152,7 +152,9 @@ function summarizeDomainKnowledge(domain: Domain, knowledge: ProjectKnowledge): 
 function matchesGlob(filePath: string, pattern: string): boolean {
   const regex = pattern
     .replace(/\*\*/g, '@@DOUBLESTAR@@')
-    .replace(/\*/g, '[^/]*')
+    .replace(/\*/g, '@@STAR@@')
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex metacharacters
+    .replace(/@@STAR@@/g, '[^/]*')
     .replace(/@@DOUBLESTAR@@/g, '.*');
   return new RegExp(`^${regex}`).test(filePath);
 }

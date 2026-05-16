@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { KnowledgeBase, KBEntry, SessionRecord, LearningEntry } from './types.js';
@@ -63,7 +64,7 @@ export function saveKnowledgeBase(filePath: string, kb: KnowledgeBase): void {
  */
 export function addEntry(kb: KnowledgeBase, entry: LearningEntry): KBEntry {
   const kbEntry: KBEntry = {
-    id: `${entry.date}-${kb.entries.length}`,
+    id: randomUUID(),
     ...entry,
     accessCount: 0,
     lastAccessed: null,
