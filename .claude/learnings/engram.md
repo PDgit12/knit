@@ -67,3 +67,22 @@
 **Outcome:** Success — import graph now correctly maps nested imports (e.g., app/api/users → lib/types via ../../../)
 **Lesson:** ALWAYS test regex against single-line files. TypeScript ESM projects commonly use `import { X } from "./foo.js"` which resolves to `foo.ts` — the .js→.ts extension stripping in resolveImport() is critical.
 **Tags:** #engine #knowledge #regex #import-graph
+
+## 2026-05-16 AVOID — Agent repeatedly skips workflow protocol
+**Domain(s):** All — workflow infrastructure
+**Approach:** User called out 4+ times that the agent jumps to code without pre-flight, classification, or LEARN. Each time the agent promises to follow the protocol, does it for one task, then reverts.
+**Outcome:** Failure — behavioral pattern, not a code bug
+**Lesson:** AVOID — Skipping the workflow is the #1 recurring failure on this project. The protocol exists because it prevents wasted work, missed edge cases, and scrappy output. EVERY task must:
+  1. State pre-flight (learnings loaded, tools available)
+  2. Classify (trivial/standard/complex) BEFORE touching code
+  3. Follow the phases the classification returns
+  4. Run LEARN at the end — no exceptions
+  If the task seems too small for the protocol, it's Trivial tier — the protocol still applies, it just skips to EXECUTE → VERIFY → LEARN.
+**Tags:** #workflow #all #avoid #protocol-compliance
+
+## 2026-05-16 AVOID — Building features without verifying they work end-to-end
+**Domain(s):** All
+**Approach:** Multiple features were built (token discipline, knowledge brain, MCP tools) and unit-tested but never verified against real projects until the user demanded it. The knowledge brain had wrong import resolution for 2+ levels of `../` — found only during real E2E testing.
+**Outcome:** Failure — bugs shipped because testing was string-matching, not behavioral
+**Lesson:** AVOID — Unit tests that check `toContain('some string')` prove nothing about correctness. After building any feature: (1) run it against the engram project itself, (2) run it against a realistic test project with nested imports, (3) verify the actual output matches reality by reading the files manually.
+**Tags:** #qa #testing #avoid #e2e
