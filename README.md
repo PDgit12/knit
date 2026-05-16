@@ -17,32 +17,97 @@
 
 <br/>
 
-## One-Time Setup
+## Setup (one time, 30 seconds)
 
 ```bash
-npx engram-dev@latest setup
+npx @piyushdua/engram-dev@latest setup
 ```
 
-That's it. Open any project in Claude Code. The brain activates automatically.
+This does ONE thing: adds the Engram MCP server to your Claude Code config (`~/.claude.json`).
 
 No per-project setup. No config files to write. No framework to learn.
 
-## What Happens
+## How Data Gets Initialized
+
+You don't initialize anything. The MCP handles everything automatically:
 
 ```
-You open Claude Code
-    |
-    v
-Engram MCP starts (from your Claude settings)
-    |
-    v
-First tool call -> auto-detects project, builds knowledge brain
-    |
-    v
-Agent has 20 tools: imports, exports, tests, learnings, teams
-    |
-    v
-Brain compounds with every session
+Step 1: You open Claude Code in any project
+        └─ Claude reads ~/.claude.json → starts engram-dev as MCP subprocess
+
+Step 2: Agent makes first tool call (any of the 20 tools)
+        └─ MCP detects: is .claude/knowledge.json here?
+           │
+           ├─ NO (first time) → Auto-initializes:
+           │   • Scans project (detects language, framework, package manager)
+           │   • Builds import graph, export map, test coverage mapping
+           │   • Generates CLAUDE.md (650+ line workflow protocol)
+           │   • Creates .claude/knowledgebase.json (learnings database)
+           │   • Creates .claude/learnings/{project}.md (human-readable)
+           │   • All in ~1 second. Zero user action.
+           │
+           └─ YES (returning) → Loads from disk into memory cache
+               • All subsequent tool calls: <5ms from cache
+               • Learnings from past sessions are available immediately
+
+Step 3: Session ends
+        └─ Stop hooks fire automatically:
+           • Build verification (typecheck + lint + build)
+           • Session state captured to learnings/sessions.md
+           • KB metrics updated (totalSessions++)
+           • MCP process dies. Cache gone.
+
+Step 4: Next session → repeat from Step 1
+        └─ Brain reloads. Learnings persist. Intelligence compounds.
+```
+
+**Data stored per project** (in your project directory):
+```
+your-project/
+├── CLAUDE.md                         ← workflow protocol (auto-generated)
+└── .claude/
+    ├── knowledge.json                ← import graph, exports, test map
+    ├── knowledgebase.json            ← learnings + access metrics
+    ├── teams.json                    ← custom teams (if defined)
+    └── learnings/
+        ├── {project-name}.md         ← human-readable learnings
+        └── sessions.md              ← session history log
+```
+
+All data stays in the project. Nothing shared between projects. Nothing leaves your machine.
+
+## CLI Dashboard
+
+The CLI is for visibility into what the brain knows. Not required for daily use.
+
+```bash
+# See brain health, session history, learnings, hit rate
+npx @piyushdua/engram-dev status
+
+# Force rebuild after major refactoring
+npx @piyushdua/engram-dev refresh
+
+# Re-run setup (fixes config, migrates from old versions)
+npx @piyushdua/engram-dev setup
+```
+
+Example `status` output:
+```
+Knowledge Index
+  Files:        47 indexed (12,340 lines)
+  Imports:      23 edges mapped
+  Exports:      31 files with exports
+  Untested:     8 files
+
+Knowledge Base
+  Learnings:      12 total
+  Accessed:       8 (67% hit rate)
+  Cache hits:     5 (re-investigations prevented)
+
+Recent Sessions
+  Date         Branch               Files   Learnings
+  2026-05-16   feature/payments     12      +2
+  2026-05-15   main                 5       +1
 ```
 
 ## 20 MCP Tools
