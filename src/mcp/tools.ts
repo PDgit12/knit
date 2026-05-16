@@ -9,7 +9,7 @@ import {
   handleQueryTests, handleFindFanout, handleSearchLearnings,
   handleGetFalsePositives, handleBrainStatus,
   handleClassifyTask, handleBuildContext, handleRecordLearning,
-  handleRecordFalsePositive, handleSaveHandoff,
+  handleRecordFalsePositive, handleSaveHandoff, handleSetupProject,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
 } from './handlers.js';
@@ -95,6 +95,20 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Save session state for the next session to pick up.',
       inputSchema: { type: 'object', properties: { goal: { type: 'string', description: 'What we are trying to accomplish' }, current_state: { type: 'string', description: 'Where we are now' }, files_in_flight: { type: 'string', description: 'Files being modified' }, what_changed: { type: 'string', description: 'Commits and edits' }, failed_attempts: { type: 'string', description: 'What was tried and why it failed (MANDATORY)' }, decisions_made: { type: 'string', description: 'Important choices' }, next_step: { type: 'string', description: 'ONE most important thing to do next' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
     },
+    {
+      name: 'engram_setup_project',
+      description: 'Describe what this project is about. Generates appropriate teams and domains based on the description. Use for non-code projects (research, analysis, writing) or to override auto-detected teams. Call this when the user first describes their project.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          project_type: { type: 'string', description: 'Type of project: "code", "research", "analysis", "writing", "design", or any custom type' },
+          description: { type: 'string', description: 'What the project does and what the user is trying to accomplish' },
+          domains: { type: 'string', description: 'Comma-separated domain areas (e.g., "data-collection,analysis,risk,strategy" or "frontend,api,database")' },
+          team_roles: { type: 'string', description: 'Comma-separated team roles (e.g., "market-analyst,risk-assessor,portfolio-manager")' },
+        },
+        required: ['description'],
+      },
+    },
     // ── Team orchestration tools ─────────────────────────────────
     {
       name: 'engram_get_teams',
@@ -144,6 +158,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_record_learning: handleRecordLearning,
   engram_record_false_positive: handleRecordFalsePositive,
   engram_save_handoff: handleSaveHandoff,
+  engram_setup_project: handleSetupProject,
   engram_get_teams: handleGetTeams,
   engram_define_team: handleDefineTeam,
   engram_start_team_review: handleStartTeamReview,

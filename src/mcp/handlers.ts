@@ -245,6 +245,87 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
 
+// ── Project setup (universal — code and non-code) ────────────────
+
+export function handleSetupProject(params: Record<string, string>, brain: BrainCache): string {
+  const description = params.description || '';
+  const projectType = params.project_type || 'auto';
+  const domainNames = params.domains
+    ? params.domains.split(',').map((d) => d.trim())
+    : inferDomainsFromDescription(description, projectType);
+  const teamRoles = params.team_roles
+    ? params.team_roles.split(',').map((r) => r.trim())
+    : domainNames;
+
+  // Build teams from the description
+  const teams = domainNames.map((domain, i) => ({
+    name: domain.charAt(0).toUpperCase() + domain.slice(1).replace(/-/g, ' '),
+    role: `${teamRoles[i] || domain} specialist`,
+    focus: `${domain} domain for: ${description.slice(0, 200)}`,
+    agents: ['code-reviewer'], // generic — the PROMPT is what matters, not the agent type
+    filePatterns: ['**/*'],
+    reviewChecklist: [`Review ${domain} quality`, `Check ${domain} completeness`, `Verify ${domain} accuracy`],
+  }));
+
+  // Save as custom teams
+  saveCustomTeams(brain.rootPath, teams);
+
+  // Record this as a learning so future sessions know what the project is
+  addEntry(brain.knowledgeBase, {
+    date: new Date().toISOString().split('T')[0],
+    summary: `Project setup: ${description.slice(0, 100)}`,
+    domains: domainNames,
+    approach: `Project type: ${projectType}. Domains: ${domainNames.join(', ')}`,
+    outcome: 'success',
+    lesson: `This is a ${projectType} project. Key domains: ${domainNames.join(', ')}`,
+    tags: ['#project-setup', ...domainNames.map((d) => `#${d.toLowerCase().replace(/\s+/g, '-')}`)],
+  });
+  const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
+  saveKnowledgeBase(kbPath, brain.knowledgeBase);
+
+  return JSON.stringify({
+    status: 'configured',
+    project_type: projectType,
+    domains: domainNames,
+    teams_created: teams.length,
+    teams: teams.map((t) => ({ name: t.name, role: t.role })),
+    instruction: `Project configured with ${teams.length} teams. Use engram_start_team_review to run parallel team analysis. Use engram_classify_task to classify tasks before starting.`,
+  });
+}
+
+/** Infer domains from a project description when none are specified */
+function inferDomainsFromDescription(description: string, projectType: string): string[] {
+  const desc = description.toLowerCase();
+
+  // Research projects
+  if (projectType === 'research' || desc.includes('research') || desc.includes('analysis')) {
+    const domains: string[] = ['research'];
+    if (desc.includes('market') || desc.includes('stock') || desc.includes('financ')) domains.push('market-analysis', 'risk-assessment');
+    if (desc.includes('data') || desc.includes('dataset')) domains.push('data-collection', 'data-processing');
+    if (desc.includes('ml') || desc.includes('model') || desc.includes('train')) domains.push('model-training', 'evaluation');
+    if (desc.includes('report') || desc.includes('present')) domains.push('reporting');
+    return domains.length > 1 ? domains : ['research', 'analysis', 'synthesis', 'reporting'];
+  }
+
+  // Writing projects
+  if (projectType === 'writing' || desc.includes('write') || desc.includes('content') || desc.includes('blog')) {
+    return ['planning', 'drafting', 'editing', 'review'];
+  }
+
+  // Design projects
+  if (projectType === 'design' || desc.includes('design') || desc.includes('ui') || desc.includes('ux')) {
+    return ['research', 'wireframing', 'visual-design', 'prototyping', 'review'];
+  }
+
+  // Data / analytics projects
+  if (desc.includes('data') || desc.includes('analytics') || desc.includes('dashboard')) {
+    return ['data-ingestion', 'transformation', 'analysis', 'visualization'];
+  }
+
+  // Default: generic project domains
+  return ['planning', 'execution', 'review', 'quality'];
+}
+
 // ── Team handlers ────────────────────────────────────────────────
 
 export function handleGetTeams(_params: Record<string, string>, brain: BrainCache): string {
