@@ -37,12 +37,15 @@ const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 export function handleQueryImports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const importers = brain.reverseDeps[filePath] || [];
+  const risk = importers.length >= 5 ? 'HIGH' : importers.length >= 3 ? 'MEDIUM' : 'LOW';
   return JSON.stringify({
     file: filePath,
     imported_by: importers,
     count: importers.length,
-    risk: importers.length >= 5 ? 'HIGH — many dependents, change carefully' :
-          importers.length >= 3 ? 'MEDIUM — several dependents' : 'LOW',
+    risk,
+    instruction: importers.length >= 3
+      ? `This file has ${importers.length} dependents. Changes here will ripple. Update/test these files after editing: ${importers.slice(0, 5).join(', ')}`
+      : 'Low risk — few dependents.',
   });
 }
 
@@ -64,11 +67,21 @@ export function handleQueryExports(params: Record<string, string>, brain: BrainC
 
 export function handleQueryTests(params: Record<string, string>, brain: BrainCache): string {
   if (params.filter === 'untested') {
-    return JSON.stringify({ untested_files: brain.knowledge.testMap.untested, count: brain.knowledge.testMap.untested.length });
+    const untested = brain.knowledge.testMap.untested;
+    return JSON.stringify({
+      untested_files: untested,
+      count: untested.length,
+      instruction: untested.length > 0
+        ? `${untested.length} files have no tests. Write tests for these before shipping.`
+        : 'All files have test coverage.',
+    });
   }
   if (params.file_path) {
     const tests = brain.knowledge.testMap.tested[params.file_path] || [];
-    return JSON.stringify({ file: params.file_path, tested_by: tests, has_tests: tests.length > 0 });
+    return JSON.stringify({
+      file: params.file_path, tested_by: tests, has_tests: tests.length > 0,
+      instruction: tests.length > 0 ? `Tested by: ${tests.join(', ')}` : 'NO TESTS. Write tests for this file before making changes.',
+    });
   }
   return JSON.stringify({
     tested_files: Object.keys(brain.knowledge.testMap.tested).length,
@@ -94,6 +107,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   if (domains.length === 0) return JSON.stringify({ error: 'domains parameter is required', query: [], results: [], count: 0 });
   const results = queryByDomains(brain.knowledgeBase, domains);
   if (results.length > 0) recordCacheHit(brain.knowledgeBase);
+  const hasFailures = results.some((r) => r.outcome === 'failure');
   return JSON.stringify({
     query: domains,
     results: results.map((r) => ({
@@ -101,6 +115,11 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
       date: r.date, tags: r.tags, access_count: r.accessCount,
     })),
     count: results.length,
+    instruction: results.length > 0
+      ? hasFailures
+        ? `Found ${results.length} past learnings including FAILURES. Read the lessons carefully — avoid repeating past mistakes.`
+        : `Found ${results.length} past learnings. Apply these lessons to your current task.`
+      : 'No past learnings for these domains. This is new territory — be thorough and record what you learn.',
   });
 }
 
@@ -124,6 +143,7 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
       exports_mapped: Object.keys(brain.knowledge.exports).length,
     },
     cache_age_ms: Date.now() - brain.loadedAt,
+    instruction: 'Brain is ready. Next: call engram_classify_task with the files you plan to touch to get your tier and phases.',
   });
 }
 
@@ -223,7 +243,12 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
     writeFileSync(mdPath, existing + mdEntry, 'utf-8');
   }
 
-  return JSON.stringify({ status: 'recorded', entry: { date, summary: entry.summary, tags: entry.tags }, kb_total: brain.knowledgeBase.entries.length });
+  return JSON.stringify({
+    status: 'recorded',
+    entry: { date, summary: entry.summary, tags: entry.tags },
+    kb_total: brain.knowledgeBase.entries.length,
+    instruction: 'Learning recorded. You may now report task as complete.',
+  });
 }
 
 export function handleRecordFalsePositive(params: Record<string, string>, brain: BrainCache): string {
