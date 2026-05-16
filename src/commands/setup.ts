@@ -19,11 +19,12 @@ const MCP_CONFIG = {
 export async function setupCommand(options: SetupOptions): Promise<void> {
   const isGlobal = options.global || !options.local; // default to global
 
+  // Claude Code reads MCP config from ~/.claude.json (NOT ~/.claude/settings.json)
   const settingsPath = isGlobal
-    ? join(homedir(), '.claude', 'settings.json')
+    ? join(homedir(), '.claude.json')
     : join(process.cwd(), '.claude', 'settings.json');
 
-  const label = isGlobal ? 'global (~/.claude/settings.json)' : 'local (.claude/settings.json)';
+  const label = isGlobal ? 'global (~/.claude.json)' : 'local (.claude/settings.json)';
 
   console.log(`  Adding Engram MCP to ${chalk.cyan(label)}`);
   console.log();
