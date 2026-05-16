@@ -12,7 +12,7 @@ interface SetupOptions {
 const MCP_CONFIG = {
   'engram-brain': {
     command: 'npx',
-    args: ['-y', 'engram-dev@latest'],
+    args: ['-y', '@piyushdua/engram-dev@latest'],
   },
 };
 
