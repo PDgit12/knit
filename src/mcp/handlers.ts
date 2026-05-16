@@ -150,9 +150,16 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
       ? ['RESEARCH', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
       : ['EXECUTE', 'VERIFY', 'LEARN'];
 
+  const instruction = tier === 'complex'
+    ? 'ENTER PLAN MODE NOW. Call EnterPlanMode tool immediately. Do NOT start coding without a plan. This task touches 3+ domains and requires RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW → LEARN.'
+    : tier === 'standard'
+      ? 'Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.'
+      : 'Simple task. EXECUTE → VERIFY → LEARN. Do it directly, then record what you learned.';
+
   return JSON.stringify({
     tier, affected_domains: [...domains], phases, files_count: files.length,
     cross_domain_ripple: crossDomainRipple, auto_plan_mode: tier === 'complex',
+    instruction,
     reasoning: tier === 'complex'
       ? `Complex: ${domains.size} domains affected${isTypes ? ', touches shared types' : ''}${isAuth ? ', security-sensitive' : ''}`
       : tier === 'standard' ? `Standard: ${domains.size} domain(s), ${files.length} file(s)` : `Trivial: 1 domain, simple change`,
