@@ -31,6 +31,21 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
 
   const spinner = ora({ text: chalk.dim('Configuring...'), spinner: 'dots' }).start();
 
+  // Migrate: clean up old wrong location if it exists
+  if (isGlobal) {
+    const oldPath = join(homedir(), '.claude', 'settings.json');
+    if (existsSync(oldPath)) {
+      try {
+        const old = JSON.parse(readFileSync(oldPath, 'utf-8'));
+        if (old.mcpServers?.['engram-brain']) {
+          delete old.mcpServers['engram-brain'];
+          if (Object.keys(old.mcpServers).length === 0) delete old.mcpServers;
+          writeFileSync(oldPath, JSON.stringify(old, null, 2), 'utf-8');
+        }
+      } catch { /* skip if can't read */ }
+    }
+  }
+
   // Read or create settings
   let settings: Record<string, unknown> = {};
   const dir = dirname(settingsPath);
