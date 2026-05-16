@@ -3,9 +3,9 @@
 import { Command } from 'commander';
 import gradient from 'gradient-string';
 import chalk from 'chalk';
-import { initCommand } from './commands/init.js';
-import { refreshCommand } from './commands/refresh.js';
+import { setupCommand } from './commands/setup.js';
 import { statusCommand } from './commands/status.js';
+import { refreshCommand } from './commands/refresh.js';
 
 const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -32,37 +32,20 @@ const program = new Command();
 
 program
   .name('engram')
-  .description('Agent memory & workflow intelligence — compounding project intelligence for AI coding agents')
+  .description('Engram — the second brain for AI coding agents. MCP server + analytics dashboard.')
   .version('0.1.0')
-  .hook('preAction', (thisCommand) => {
-    if (thisCommand.args[0] !== 'help') {
-      showBanner();
-    }
+  .hook('preAction', () => {
+    showBanner();
   });
 
 program
-  .command('init')
-  .description('Initialize Engram workflow in a project')
-  .argument('[directory]', 'Target project directory', '.')
-  .option('--agent <type>', 'Target agent: claude-code, cursor, codex', 'claude-code')
-  .option('--force', 'Overwrite existing files', false)
-  .option('--name <name>', 'Project name (auto-detected if not specified)')
-  .action(async (directory: string, options: Record<string, unknown>) => {
+  .command('setup')
+  .description('Add Engram MCP to your Claude Code settings (one time, ever)')
+  .option('--global', 'Add to global ~/.claude/settings.json (recommended)', false)
+  .option('--local', 'Add to project .claude/settings.json only', false)
+  .action(async (options: Record<string, unknown>) => {
     try {
-      await initCommand(directory, options);
-    } catch (error) {
-      console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
-
-program
-  .command('refresh')
-  .description('Re-scan project, rebuild knowledge index, update CLAUDE.md')
-  .argument('[directory]', 'Target project directory', '.')
-  .action(async (directory: string) => {
-    try {
-      await refreshCommand(directory);
+      await setupCommand(options);
     } catch (error) {
       console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
       process.exit(1);
@@ -71,8 +54,8 @@ program
 
 program
   .command('status')
-  .description('Show knowledge base health, learnings usage, and session metrics')
-  .argument('[directory]', 'Target project directory', '.')
+  .description('Dashboard — session history, learnings, hit rate, knowledge health')
+  .argument('[directory]', 'Project directory', '.')
   .action(async (directory: string) => {
     try {
       await statusCommand(directory);
@@ -83,10 +66,16 @@ program
   });
 
 program
-  .command('learn')
-  .description('Manually add a learning entry')
-  .action(() => {
-    console.log(chalk.dim('  Coming in v0.2 — interactive learning entry creation'));
+  .command('refresh')
+  .description('Force rebuild knowledge index and CLAUDE.md')
+  .argument('[directory]', 'Project directory', '.')
+  .action(async (directory: string) => {
+    try {
+      await refreshCommand(directory);
+    } catch (error) {
+      console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
   });
 
 program.parse();

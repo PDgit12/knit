@@ -1,11 +1,11 @@
 {
-  "name": "engram",
+  "name": "engram-dev",
   "version": "0.1.0",
-  "description": "Agent memory & workflow intelligence CLI — compounding project intelligence for AI coding agents",
+  "description": "Second brain for AI coding agents — MCP server with 19 tools for code intelligence, learnings, and team orchestration",
   "type": "module",
   "bin": {
     "engram": "./dist/cli.js",
-    "engram-mcp": "./dist/mcp/server.js"
+    "engram-dev": "./dist/mcp/server.js"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
@@ -24,6 +24,9 @@
     "claude-code",
     "cursor",
     "codex",
+    "mcp",
+    "mcp-server",
+    "second-brain",
     "developer-tools"
   ],
   "author": "Piyush Dua",
