@@ -72,8 +72,8 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Action tools (update the brain) ──────────────────────────
     {
       name: 'engram_classify_task',
-      description: 'Classify a task by complexity tier based on files to be touched. Returns tier, affected domains, phases, and cross-domain ripple.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated list of files' }, description: { type: 'string', description: 'Brief task description' } }, required: ['files_to_touch'] },
+      description: 'CALL THIS FIRST on every task. Classifies complexity (trivial/standard/complex), returns which phases to follow, which domains are affected, and whether to enter plan mode. Also triggers project auto-initialization if not done yet.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated list of files that will be modified (or "unknown" for new projects)' }, description: { type: 'string', description: 'Brief task description' } }, required: ['files_to_touch'] },
     },
     {
       name: 'engram_build_context',
@@ -82,7 +82,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'engram_record_learning',
-      description: 'Record a learning from the current task. Call this before saying "done".',
+      description: 'CALL THIS LAST — before saying "done" or "complete". Records what was learned so the next session can find it. MANDATORY on every task. No task is complete without calling this.',
       inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'One-line summary' }, domains: { type: 'string', description: 'Comma-separated domains' }, approach: { type: 'string', description: 'What approach was taken' }, outcome: { type: 'string', description: 'success, partial, or failure' }, lesson: { type: 'string', description: 'What to repeat or avoid' }, tags: { type: 'string', description: 'Space-separated tags (e.g., "#api #auth")' } }, required: ['summary', 'lesson', 'tags'] },
     },
     {
