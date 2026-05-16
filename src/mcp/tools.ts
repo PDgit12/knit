@@ -10,6 +10,7 @@ import {
   handleGetFalsePositives, handleBrainStatus,
   handleClassifyTask, handleBuildContext, handleRecordLearning,
   handleRecordFalsePositive, handleSaveHandoff, handleSetupProject,
+  handleReflect, handleGetSuggestions,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
 } from './handlers.js';
@@ -140,6 +141,17 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Get cross-team findings summary with severity gate.',
       inputSchema: { type: 'object', properties: {} },
     },
+    // ── Reflection / Soul tools ──────────────────────────────────
+    {
+      name: 'engram_reflect',
+      description: 'Self-reflect on accumulated learnings. Detects patterns: repeated successes, recurring failures, domain co-occurrences, and high-value insights. Zero extra LLM calls — pure pattern analysis over your data. Use periodically to surface what the brain has learned about your workflow.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'engram_get_suggestions',
+      description: 'Get adaptive suggestions for the current task based on past patterns. "Based on history, watch out for X." Returns concrete warnings and recommendations derived from past successes and failures in the relevant domains.',
+      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domains for this task (e.g., "api,auth,payments")' } }, required: ['domains'] },
+    },
   ];
 }
 
@@ -165,6 +177,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_get_team_prompt: handleGetTeamPrompt,
   engram_post_team_findings: handlePostTeamFindings,
   engram_get_board_summary: handleGetBoardSummary,
+  engram_reflect: handleReflect,
+  engram_get_suggestions: handleGetSuggestions,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

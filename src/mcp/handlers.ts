@@ -481,3 +481,55 @@ export function handleGetBoardSummary(_params: Record<string, string>, _brain: B
       : summary.high > 0 ? 'WARNING — HIGH findings should be addressed' : 'PASSED — no blocking findings',
   });
 }
+
+// ── Reflection / Soul handlers ───────────────────────────────────
+
+import { reflect, getAdaptiveSuggestions } from '../engine/reflect.js';
+
+export function handleReflect(_params: Record<string, string>, brain: BrainCache): string {
+  const patterns = reflect(brain.knowledgeBase);
+
+  if (patterns.length === 0) {
+    return JSON.stringify({
+      patterns: [],
+      message: 'Not enough data yet. Record more learnings (minimum 3) for patterns to emerge.',
+    });
+  }
+
+  return JSON.stringify({
+    patterns: patterns.slice(0, 10).map((p) => ({
+      type: p.type,
+      description: p.description,
+      confidence: p.confidence,
+      occurrences: p.occurrences,
+      domains: p.domains,
+    })),
+    total_patterns: patterns.length,
+    insight: patterns[0].confidence >= 7
+      ? `Strongest pattern: ${patterns[0].description}`
+      : 'Patterns are forming but not yet high-confidence. Keep recording learnings.',
+  });
+}
+
+export function handleGetSuggestions(params: Record<string, string>, brain: BrainCache): string {
+  const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
+
+  if (domains.length === 0) {
+    return JSON.stringify({ error: 'domains parameter required', suggestions: [] });
+  }
+
+  const suggestions = getAdaptiveSuggestions(brain.knowledgeBase, domains);
+
+  if (suggestions.length === 0) {
+    return JSON.stringify({
+      suggestions: [],
+      message: `No patterns yet for domains: ${domains.join(', ')}. Record more learnings in these areas.`,
+    });
+  }
+
+  return JSON.stringify({
+    domains_queried: domains,
+    suggestions,
+    message: `${suggestions.length} adaptive suggestions based on past patterns.`,
+  });
+}
