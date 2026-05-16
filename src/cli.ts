@@ -57,7 +57,7 @@ async function runCLI() {
   program
     .name('engram-dev')
     .description('The second brain for Claude Code — MCP server + analytics dashboard')
-    .version('0.1.0')
+    .version('0.1.9')
     .hook('preAction', () => {
       console.log(ENGRAM_GRADIENT.multiline(banner));
       console.log();
@@ -130,7 +130,7 @@ async function runMCP() {
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
-    { name: 'engram-brain', version: '0.1.0' },
+    { name: 'engram-brain', version: '0.1.9' },
     { capabilities: { tools: {} } },
   );
 
