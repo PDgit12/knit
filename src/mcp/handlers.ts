@@ -150,7 +150,9 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
 // ── Action handlers ──────────────────────────────────────────────
 
 export function handleClassifyTask(params: Record<string, string>, brain: BrainCache): string {
-  const files = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
+  const rawFiles = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
+  const files = rawFiles.filter((f) => f !== 'unknown');
+  const description = (params.description || '').toLowerCase();
   const domains = detectDomainsFromFiles(files);
   const crossDomainRipple: string[] = [];
 
@@ -161,8 +163,17 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
 
   const isTypes = files.some((f) => f.includes('types') || f.includes('schema'));
   const isAuth = files.some((f) => f.includes('auth') || f.includes('security'));
-  const tier = (domains.size >= 3 || isTypes || isAuth || files.length > 3)
-    ? 'complex' : (domains.size >= 2 || files.length > 1) ? 'standard' : 'trivial';
+
+  // If files are unknown (new project), classify from description
+  const isNewProject = files.length === 0 || rawFiles.includes('unknown');
+  const descriptionIsComplex = description.includes('architect') || description.includes('build from scratch')
+    || description.includes('new project') || description.includes('system')
+    || description.length > 100; // long descriptions = complex tasks
+
+  const tier = isNewProject
+    ? (descriptionIsComplex ? 'complex' : 'standard')
+    : (domains.size >= 3 || isTypes || isAuth || files.length > 3)
+      ? 'complex' : (domains.size >= 2 || files.length > 1) ? 'standard' : 'trivial';
 
   const phases = tier === 'complex'
     ? ['RESEARCH', 'IDEATE', 'PLAN', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
