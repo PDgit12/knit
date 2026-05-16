@@ -160,7 +160,7 @@ engram_setup_project({
 | Architecture | Skill files agent reads | Agent definitions + rules | MCP server agent queries |
 | Memory | jsonl files | Memory directory | Structured KB with access tracking + metrics |
 | Code analysis | None | None | Import graphs, exports, test mapping |
-| Token cost | ~2-5k per skill loaded | ~19k for all rules | ~200 tokens per MCP call |
+| Token cost | Skills loaded into context | Rules loaded into context | MCP tools queried on demand (not in context) |
 | Non-code projects | No | No | 22 project types |
 
 ## CLI Dashboard

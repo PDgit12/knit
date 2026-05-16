@@ -1,7 +1,7 @@
 {
   "name": "@piyushdua/engram-dev",
-  "version": "0.1.1",
-  "description": "Second brain for AI coding agents — MCP server with 19 tools for code intelligence, learnings, and team orchestration",
+  "version": "0.1.2",
+  "description": "Second brain for Claude Code — MCP server with 20 tools for code intelligence, learnings, and team orchestration",
   "type": "module",
   "bin": {
     "engram-dev": "dist/cli.js"
