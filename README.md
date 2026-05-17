@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/npm/v/engram-dev?style=for-the-badge&color=7c3aed" alt="npm version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
   <a href="https://github.com/PDgit12/engram/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/engram/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/MCP_tools-27-06b6d4?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/MCP_tools-31-06b6d4?style=for-the-badge" alt="tools" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
@@ -84,7 +84,7 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 
 **Effect:** v0.1's CLAUDE.md was ~700 lines / ~20 KB per session, every session. v0.2's is ~100 lines / ~2.7 KB. Protocol depth pulled only when needed.
 
-## 27 MCP Tools
+## 31 MCP Tools
 
 ### Query the brain (read-only, cached, ~5ms)
 
@@ -138,7 +138,16 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 | `engram_post_team_findings` | Post findings to the shared board. |
 | `engram_get_board_summary` | Cross-team summary, severity-gated. |
 
-> Pattern reflection tools (`engram_reflect`, `engram_get_suggestions`) are deferred to v0.3 — they need ≥10 learnings per project before they surface useful patterns. Re-enabled when projects accumulate that mass.
+### Cross-project learnings (Model C, opt-in)
+
+| Tool | What it does |
+|------|--------------|
+| `engram_record_global_learning` | Opt-in: save an insight to `~/.engram/global/learnings.jsonl` when it generalizes beyond this project. |
+| `engram_search_global_learnings` | Free-text search across **all** of your projects' shared learnings. |
+| `engram_reflect` | Detect patterns across recorded learnings. Useful with ≥3 entries (which Model C makes easy to reach). |
+| `engram_get_suggestions` | Adaptive suggestions for the current task based on past patterns in given domains. |
+
+Per-project `engram_record_learning` stays primary. The global pool is for the lessons that travel between projects — "Stripe signature rules", "GitHub API pagination quirks", "Redis cluster failover behavior" — the kind of thing future-you will be glad you wrote down once, somewhere.
 
 ## Parallel team worktrees
 

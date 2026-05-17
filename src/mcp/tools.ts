@@ -19,6 +19,8 @@ import {
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
   handleSaveSessionSummary, handleSearchSessions, handleGetWorkflow,
   handleSpawnTeamWorktree, handleListTeamWorktrees, handleFinalizeTeamWorktree,
+  handleRecordGlobalLearning, handleSearchGlobalLearnings,
+  handleReflect, handleGetSuggestions,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -219,6 +221,46 @@ export function getToolDefinitions(): ToolDef[] {
         },
       },
     },
+    // ── Cross-project learnings (Model C — global pool) ─────────
+    {
+      name: 'engram_record_global_learning',
+      description: 'Opt-in. Record a learning to the cross-project pool when the insight generalizes beyond this project (e.g., Stripe webhook signature rules). Per-project engram_record_learning stays primary.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'One-line summary.' },
+          lesson: { type: 'string', description: 'Generalizable lesson.' },
+          tags: { type: 'string', description: 'Space-separated tags.' },
+          outcome: { type: 'string', description: 'success | partial | failure (optional).' },
+        },
+        required: ['summary', 'lesson', 'tags'],
+      },
+    },
+    {
+      name: 'engram_search_global_learnings',
+      description: 'Search the cross-project learnings pool. Use to check whether a similar lesson has been recorded in any project on this machine.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Free text or tag.' },
+          limit: { type: 'string', description: 'Max results (default 10).' },
+        },
+        required: ['query'],
+      },
+    },
+
+    // ── Pattern reflection (now backed by Model C, useful with ≥3 entries) ──
+    {
+      name: 'engram_reflect',
+      description: 'Detect patterns across recorded learnings (per-project + global pool). Returns recurring themes, repeated failures, domain co-occurrences. Needs ≥3 learnings to surface anything meaningful.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'engram_get_suggestions',
+      description: 'Adaptive suggestions for the current task based on past patterns in given domains. "Based on history, watch out for X."',
+      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domains for this task.' } }, required: ['domains'] },
+    },
+
     {
       name: 'engram_finalize_team_worktree',
       description: 'Merge or discard a team\'s worktree. Merge surfaces conflict files without destroying the worktree on failure.',
@@ -263,6 +305,10 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_spawn_team_worktree: handleSpawnTeamWorktree,
   engram_list_team_worktrees: handleListTeamWorktrees,
   engram_finalize_team_worktree: handleFinalizeTeamWorktree,
+  engram_record_global_learning: handleRecordGlobalLearning,
+  engram_search_global_learnings: handleSearchGlobalLearnings,
+  engram_reflect: handleReflect,
+  engram_get_suggestions: handleGetSuggestions,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

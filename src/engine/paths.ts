@@ -54,6 +54,16 @@ export function worktreesRegistryPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'worktrees.json');
 }
 
+/** ~/.engram/global/ — opt-in cross-project data, never auto-populated. */
+export function globalDataDir(): string {
+  return join(engramRoot(), 'global');
+}
+
+/** ~/.engram/global/learnings.jsonl — opt-in cross-project learnings pool. */
+export function globalLearningsPath(): string {
+  return join(globalDataDir(), 'learnings.jsonl');
+}
+
 /** ~/.engram/projects/<hash>/sessions.jsonl — reserved for C4. */
 export function sessionsJsonlPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'sessions.jsonl');

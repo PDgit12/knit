@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { worktreesRegistryPath, projectDataDir } from './paths.js';
 import { canonicalRepoRoot } from './project-id.js';
@@ -204,7 +204,12 @@ function loadRegistry(rootPath: string): Registry {
 function saveRegistry(rootPath: string, registry: Registry): void {
   const path = worktreesRegistryPath(rootPath);
   mkdirSync(projectDataDir(rootPath), { recursive: true });
-  writeFileSync(path, JSON.stringify(registry, null, 2), 'utf-8');
+  // Atomic write: temp + rename. Prevents the partial-file race that would
+  // happen if two engram MCP processes spawned worktrees concurrently and
+  // one overwrote mid-write of the other.
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(registry, null, 2), 'utf-8');
+  renameSync(tmp, path);
 }
 
 function slugify(s: string): string {

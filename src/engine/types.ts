@@ -240,6 +240,31 @@ export interface SessionRecord {
 }
 
 /**
+ * Cross-project learning entry, stored in ~/.engram/global/learnings.jsonl.
+ * Opt-in: agent only writes here when an insight applies beyond this project
+ * (e.g., "Stripe webhook signature verification" — relevant to any project
+ * that integrates Stripe, not just the one where you discovered it).
+ */
+export interface GlobalLearning {
+  /** Stable id, agent-supplied or generated. */
+  id: string;
+  /** YYYY-MM-DD when recorded. */
+  date: string;
+  /** sha256 hash of the project this insight came from. */
+  projectId: string;
+  /** Display name of the source project (for context, not for matching). */
+  projectName: string;
+  /** One-line summary. */
+  summary: string;
+  /** The generalizable lesson — what to repeat or avoid. */
+  lesson: string;
+  /** Tags for search. */
+  tags: string[];
+  /** Optional: outcome that produced this learning. */
+  outcome?: 'success' | 'partial' | 'failure';
+}
+
+/**
  * Searchable session entity stored in sessions.jsonl.
  *
  * Two write paths:

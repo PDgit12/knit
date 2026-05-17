@@ -109,15 +109,21 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 27 tool definitions (v0.2 — reflect/suggestions deferred to v0.3)', () => {
+  it('returns 31 tool definitions (v0.3 — reflect/suggestions re-enabled, +2 global learnings)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(27);
+    expect(tools).toHaveLength(31);
   });
 
-  it('no longer publishes the premature pattern-reflection tools', () => {
+  it('exposes the cross-project learnings tools', () => {
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).not.toContain('engram_reflect');
-    expect(names).not.toContain('engram_get_suggestions');
+    expect(names).toContain('engram_record_global_learning');
+    expect(names).toContain('engram_search_global_learnings');
+  });
+
+  it('re-exposes pattern reflection tools (paired with Model C)', () => {
+    const names = getToolDefinitions().map((t) => t.name);
+    expect(names).toContain('engram_reflect');
+    expect(names).toContain('engram_get_suggestions');
   });
 
   it('descriptions stay under 200 chars (terse-by-design)', () => {

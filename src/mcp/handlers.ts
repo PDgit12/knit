@@ -19,6 +19,10 @@ import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
 import {
+  appendGlobalLearning, searchGlobalLearnings, buildGlobalLearning,
+} from '../engine/global-learnings.js';
+import { getAdaptiveSuggestions } from '../engine/reflect.js';
+import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
   getOtherTeamFindings, getBoardSummary,
@@ -550,12 +554,107 @@ export function handleGetBoardSummary(_params: Record<string, string>, _brain: B
 }
 
 
-// Pattern reflection (engram_reflect / engram_get_suggestions MCP tools) was
-// removed in v0.2 — premature with ~1 learning per project. The reflect()
-// function is still used internally by handleLoadSession to surface patterns
-// in the load-session payload. Re-enable the standalone tools in v0.3 once
-// projects accumulate enough learnings (≥10) for patterns to be meaningful.
+// Pattern reflection — re-enabled in v0.3 alongside the cross-project (Model C)
+// learnings pool. With Model C, a fresh project can benefit from patterns
+// across all other projects on the machine, so reflect() is no longer
+// "useless with 1 learning" — the global pool provides the data.
 import { reflect } from '../engine/reflect.js';
+
+export function handleReflect(_params: Record<string, string>, brain: BrainCache): string {
+  const patterns = reflect(brain.knowledgeBase);
+
+  if (patterns.length === 0) {
+    return JSON.stringify({
+      patterns: [],
+      message: 'Not enough data yet. Record more learnings (minimum 3) for patterns to emerge. Also try engram_search_global_learnings for cross-project patterns.',
+    });
+  }
+
+  return JSON.stringify({
+    patterns: patterns.slice(0, 10).map((p) => ({
+      type: p.type,
+      description: p.description,
+      confidence: p.confidence,
+      occurrences: p.occurrences,
+      domains: p.domains,
+    })),
+    total_patterns: patterns.length,
+    insight: patterns[0].confidence >= 7
+      ? `Strongest pattern: ${patterns[0].description}`
+      : 'Patterns are forming but not yet high-confidence. Keep recording learnings.',
+  });
+}
+
+export function handleGetSuggestions(params: Record<string, string>, brain: BrainCache): string {
+  const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
+  if (domains.length === 0) {
+    return JSON.stringify({ error: 'domains parameter required', suggestions: [] });
+  }
+
+  const suggestions = getAdaptiveSuggestions(brain.knowledgeBase, domains);
+  if (suggestions.length === 0) {
+    return JSON.stringify({
+      suggestions: [],
+      message: `No patterns yet for domains: ${domains.join(', ')}. Try engram_search_global_learnings for cross-project insights.`,
+    });
+  }
+
+  return JSON.stringify({
+    domains_queried: domains,
+    suggestions,
+    message: `${suggestions.length} adaptive suggestions based on past patterns in these domains.`,
+  });
+}
+
+export function handleRecordGlobalLearning(params: Record<string, string>, brain: BrainCache): string {
+  const summary = (params.summary || '').slice(0, 500);
+  const lesson = (params.lesson || '').slice(0, 2000);
+  const tags = (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#'));
+  const outcomeRaw = (params.outcome || '').toLowerCase();
+  const outcome = ['success', 'partial', 'failure'].includes(outcomeRaw)
+    ? (outcomeRaw as 'success' | 'partial' | 'failure')
+    : undefined;
+
+  if (!summary || !lesson || tags.length === 0) {
+    return JSON.stringify({ error: 'summary, lesson, and tags are all required' });
+  }
+
+  const entry = buildGlobalLearning(brain.rootPath, { summary, lesson, tags, outcome });
+  appendGlobalLearning(entry);
+
+  return JSON.stringify({
+    status: 'saved',
+    id: entry.id,
+    project: entry.projectName,
+    instruction: 'Cross-project learning saved. Future engram_search_global_learnings calls from any project will find it.',
+  });
+}
+
+export function handleSearchGlobalLearnings(params: Record<string, string>, _brain: BrainCache): string {
+  const query = (params.query || '').trim();
+  const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
+  if (!query) {
+    return JSON.stringify({ error: 'query is required', results: [] });
+  }
+
+  const matches = searchGlobalLearnings(query, limit);
+  return JSON.stringify({
+    query,
+    count: matches.length,
+    results: matches.map((m) => ({
+      id: m.id,
+      date: m.date,
+      from_project: m.projectName,
+      summary: m.summary,
+      lesson: m.lesson,
+      tags: m.tags,
+      outcome: m.outcome,
+    })),
+    instruction: matches.length === 0
+      ? 'No cross-project matches. This area might be new across all your projects.'
+      : `Found ${matches.length} cross-project learning(s). Review before duplicating work.`,
+  });
+}
 
 
 export function handleLoadSession(_params: Record<string, string>, brain: BrainCache): string {
