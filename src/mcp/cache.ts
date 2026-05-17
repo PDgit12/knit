@@ -8,6 +8,7 @@ import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../eng
 import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd, spliceEngramBlock, ENGRAM_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
+import { pruneSessionsByAge } from '../engine/sessions.js';
 import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings } from '../generators/settings.js';
 import {
@@ -140,6 +141,18 @@ function autoInitialize(rootPath: string): void {
     // Never let an install failure abort autoInit. Log to stderr; agents are
     // best-effort and the rest of engram works without them.
     process.stderr.write(`[engram] agent install background error: ${err?.message ?? err}\n`);
+  });
+
+  // Fire-and-forget: prune sessions.jsonl entries older than 90 days. Deferred
+  // to the next tick so autoInit stays synchronous and never blocks the first
+  // tool call on disk I/O. Failures are non-fatal — log and move on.
+  Promise.resolve().then(() => {
+    try {
+      pruneSessionsByAge(rootPath, 90);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`[engram] session prune background error: ${msg}\n`);
+    }
   });
 
   // Learnings markdown (centralized)

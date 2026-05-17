@@ -11,7 +11,8 @@
  * - Adaptive hints: "based on history, check X before doing Y"
  */
 
-import type { KnowledgeBase, KBEntry } from './types.js';
+import type { KnowledgeBase, KBEntry, GlobalLearning } from './types.js';
+import { getRecentGlobalLearnings } from './global-learnings.js';
 
 /** A detected behavioral pattern */
 export interface Pattern {
@@ -23,6 +24,14 @@ export interface Pattern {
   domains: string[];
   lastSeen: string;
   occurrences: number;
+  /**
+   * Origin of the evidence backing this pattern.
+   *  - 'local': only entries from the project knowledgebase contributed
+   *  - 'global': only cross-project pool entries contributed
+   *  - 'mixed': both contributed
+   * Omitted when the field hasn't been computed (e.g., legacy callers).
+   */
+  source?: 'local' | 'global' | 'mixed';
 }
 
 /** Adaptive suggestion based on patterns */
@@ -38,13 +47,34 @@ export interface Suggestion {
  * This is the "self-reflection" — but computed, not LLM-generated.
  * Zero extra tokens. Pure data analysis.
  */
+/** KBEntry tagged with its origin so we can attribute the resulting pattern. */
+type SourcedEntry = KBEntry & { _origin: 'local' | 'global' };
+
 export function reflect(kb: KnowledgeBase): Pattern[] {
   const patterns: Pattern[] = [];
 
-  if (kb.entries.length < 3) return patterns; // need minimum data
+  const localEntries: SourcedEntry[] = kb.entries.map((e) => ({ ...e, _origin: 'local' as const }));
+
+  // When local is sparse, merge in the cross-project pool so reflect() is
+  // useful on fresh projects. The input kb is NOT mutated — we only assemble
+  // a merged view for pattern detection.
+  let entries: SourcedEntry[] = localEntries;
+  if (kb.entries.length < 3) {
+    try {
+      // Pull a generous slice — analysis filters by counts anyway.
+      const globals = getRecentGlobalLearnings(200);
+      const globalEntries: SourcedEntry[] = globals.map((g) => globalToKBEntry(g));
+      entries = [...localEntries, ...globalEntries];
+    } catch {
+      // Global pool unreadable: fall back to local-only behavior.
+      entries = localEntries;
+    }
+  }
+
+  if (entries.length < 3) return patterns; // still not enough data
 
   // 1. Find success patterns — what approaches keep working?
-  const successes = kb.entries.filter((e) => e.outcome === 'success');
+  const successes = entries.filter((e) => e.outcome === 'success');
   const successTagCounts = countTags(successes);
   for (const [tag, count] of Object.entries(successTagCounts)) {
     if (count >= 3) {
@@ -58,12 +88,13 @@ export function reflect(kb: KnowledgeBase): Pattern[] {
         domains: [tag],
         lastSeen: relevant[relevant.length - 1].date,
         occurrences: count,
+        source: classifyOrigin(relevant),
       });
     }
   }
 
   // 2. Find failure patterns — what keeps going wrong?
-  const failures = kb.entries.filter((e) => e.outcome === 'failure');
+  const failures = entries.filter((e) => e.outcome === 'failure');
   const failureTagCounts = countTags(failures);
   for (const [tag, count] of Object.entries(failureTagCounts)) {
     if (count >= 2) {
@@ -77,15 +108,17 @@ export function reflect(kb: KnowledgeBase): Pattern[] {
         domains: [tag],
         lastSeen: relevant[relevant.length - 1].date,
         occurrences: count,
+        source: classifyOrigin(relevant),
       });
     }
   }
 
   // 3. Find tag co-occurrences — what domains always appear together?
-  const tagPairs = findTagPairs(kb.entries);
+  const tagPairs = findTagPairs(entries);
   for (const [pair, count] of tagPairs) {
     if (count >= 3) {
       const [tag1, tag2] = pair.split('+');
+      const supporting = entries.filter((e) => e.tags.includes(tag1) && e.tags.includes(tag2));
       patterns.push({
         id: `cooccur-${pair}`,
         type: 'co-occurrence',
@@ -93,14 +126,16 @@ export function reflect(kb: KnowledgeBase): Pattern[] {
         confidence: Math.min(count * 2, 10),
         evidence: [],
         domains: [tag1, tag2],
-        lastSeen: kb.entries[kb.entries.length - 1].date,
+        lastSeen: entries[entries.length - 1].date,
         occurrences: count,
+        source: classifyOrigin(supporting),
       });
     }
   }
 
-  // 4. Domain insights — most-accessed learnings reveal what matters
-  const accessed = kb.entries.filter((e) => e.accessCount >= 3);
+  // 4. Domain insights — most-accessed learnings reveal what matters.
+  // Only local entries have meaningful accessCount; globals default to 0.
+  const accessed = entries.filter((e) => e.accessCount >= 3);
   for (const entry of accessed) {
     patterns.push({
       id: `insight-${entry.id}`,
@@ -111,11 +146,42 @@ export function reflect(kb: KnowledgeBase): Pattern[] {
       domains: entry.tags,
       lastSeen: entry.lastAccessed || entry.date,
       occurrences: entry.accessCount,
+      source: entry._origin,
     });
   }
 
   // Sort by confidence descending
   return patterns.sort((a, b) => b.confidence - a.confidence);
+}
+
+/** Convert a GlobalLearning to a KBEntry-compatible shape for analysis. */
+function globalToKBEntry(g: GlobalLearning): SourcedEntry {
+  return {
+    id: `global:${g.id}`,
+    date: g.date,
+    summary: g.summary,
+    domains: g.tags,
+    approach: '',
+    outcome: g.outcome ?? 'success',
+    lesson: g.lesson,
+    tags: g.tags,
+    accessCount: 0,
+    lastAccessed: null,
+    _origin: 'global',
+  };
+}
+
+/** Classify a pattern's source by inspecting the entries that support it. */
+function classifyOrigin(supporting: SourcedEntry[]): 'local' | 'global' | 'mixed' {
+  let local = false;
+  let global = false;
+  for (const e of supporting) {
+    if (e._origin === 'local') local = true;
+    else global = true;
+    if (local && global) return 'mixed';
+  }
+  if (local && global) return 'mixed';
+  return local ? 'local' : 'global';
 }
 
 /**

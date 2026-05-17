@@ -14,7 +14,7 @@ import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath,
 } from '../engine/paths.js';
-import { appendSession, searchSessions, getRecentSessions, sessionCount } from '../engine/sessions.js';
+import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge } from '../engine/sessions.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
@@ -985,4 +985,29 @@ export function handleSearchSessions(params: Record<string, string>, brain: Brai
       ? 'No matching sessions. This might be the first time we tackle this area.'
       : `Found ${matches.length} matching past session(s). Review summaries before duplicating prior work.`,
   });
+}
+
+/**
+ * Prune entries from this project's sessions.jsonl older than max_age_days.
+ * Default 90 days. Atomically rewrites the file.
+ */
+export function handlePruneSessions(params: Record<string, string>, brain: BrainCache): string {
+  const raw = parseInt(params.max_age_days || '90', 10);
+  const maxAgeDays = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 36500) : 90;
+
+  try {
+    const { kept, pruned } = pruneSessionsByAge(brain.rootPath, maxAgeDays);
+    return JSON.stringify({
+      status: 'ok',
+      kept,
+      pruned,
+      max_age_days: maxAgeDays,
+      instruction: pruned === 0
+        ? `No sessions older than ${maxAgeDays} days. Nothing to prune.`
+        : `Pruned ${pruned} session(s) older than ${maxAgeDays} days. ${kept} kept.`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return JSON.stringify({ status: 'error', error: msg });
+  }
 }

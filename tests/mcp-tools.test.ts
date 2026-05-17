@@ -109,9 +109,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 32 tool definitions (v0.4 — +engram_install_agent)', () => {
+  it('returns 33 tool definitions (v0.4.1 — +engram_prune_sessions)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(32);
+    expect(tools).toHaveLength(33);
   });
 
   it('exposes the subagent installer tool', () => {
