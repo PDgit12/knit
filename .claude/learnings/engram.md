@@ -86,3 +86,17 @@
 **Outcome:** Failure — bugs shipped because testing was string-matching, not behavioral
 **Lesson:** AVOID — Unit tests that check `toContain('some string')` prove nothing about correctness. After building any feature: (1) run it against the engram project itself, (2) run it against a realistic test project with nested imports, (3) verify the actual output matches reality by reading the files manually.
 **Tags:** #qa #testing #avoid #e2e
+
+## 2026-05-17 engram_load_session tool added — one-call context restore
+**Domain(s):** MCP, Engine
+**Approach:** Added engram_load_session that returns full context in one call: last session, handoff, top learnings, false positives, patterns, teams, knowledge. Also fixed classify_task to handle "unknown" files by checking description length/keywords.
+**Outcome:** Success — 23 tools, v0.1.11 published
+**Lesson:** Tool responses must include explicit instructions telling the agent what to do next. Data alone is not enough — the agent needs "ENTER PLAN MODE NOW" not just "auto_plan_mode: true". Also, "unknown" for files_to_touch is a valid input for new projects — classify from description instead.
+**Tags:** #mcp #engine #session-management #workflow
+
+## 2026-05-17 Reflection engine (soul) added — pattern detection from learnings
+**Domain(s):** Engine
+**Approach:** Built reflect.ts — detects success patterns, failure patterns, tag co-occurrences, and domain insights from accumulated learnings. Zero extra LLM calls. Added engram_reflect + engram_get_suggestions tools.
+**Outcome:** Success — patterns emerge from data without any LLM invocation
+**Lesson:** Claude Soul's core concept (self-reflection) can be implemented as pure computation over structured data. No need for expensive LLM reflection calls — count tag occurrences, track outcomes by domain, surface high-access learnings as validated wisdom.
+**Tags:** #engine #reflection #soul #token-optimization
