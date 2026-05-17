@@ -56,7 +56,7 @@ What stays in the project:
 your-project/
 ├── CLAUDE.md                           ← ≤150-line thin shape, marker-wrapped
 └── .claude/
-    └── settings.json                   ← per-project hooks (engram-managed)
+    └── settings.local.json             ← per-machine hooks (engram-managed; gitignored by convention)
 ```
 
 The project's own `CLAUDE.md` is wrapped in `<!-- engram:start --> ... <!-- engram:end -->` markers. Engram regenerates only the block between markers — never clobbers anything else you write. If your project already has a `CLAUDE.md` without markers, engram writes a sidecar at `.claude/ENGRAM.md` instead.
@@ -257,7 +257,7 @@ per-project, in ~/.engram/projects/<hash>/
 
 per-project, in <project>/
 ├── CLAUDE.md                   # ≤150-line thin shape, marker-wrapped
-└── .claude/settings.json       # per-project hooks, engram-managed
+└── .claude/settings.local.json # per-machine hooks, engram-managed (gitignored by convention)
 ```
 
 Zero external dependencies for the knowledge brain. 181 tests. Strict-mode TypeScript.

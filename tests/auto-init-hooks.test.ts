@@ -31,12 +31,12 @@ describe('auto-init hooks integration', () => {
     try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
-  it('first MCP call writes <project>/.claude/settings.json with engram hooks', async () => {
+  it('first MCP call writes <project>/.claude/settings.local.json with engram hooks', async () => {
     const cacheMod = await import('../src/mcp/cache.js');
     // Force a fresh cache lookup for this project root
     (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
 
-    const settingsPath = join(projectRoot, '.claude', 'settings.json');
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     expect(existsSync(settingsPath)).toBe(true);
 
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
@@ -49,8 +49,8 @@ describe('auto-init hooks integration', () => {
     expect((settings.hooks.Stop as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it('does not clobber a user-curated settings.json (no _engramHooks marker)', async () => {
-    const settingsPath = join(projectRoot, '.claude', 'settings.json');
+  it('does not clobber a user-curated settings.local.json (no _engramHooks marker)', async () => {
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     mkdirSync(join(projectRoot, '.claude'), { recursive: true });
     const userContent = { permissions: { allow: ['Bash(custom:*)'] } };
     writeFileSync(settingsPath, JSON.stringify(userContent, null, 2), 'utf-8');
@@ -64,8 +64,28 @@ describe('auto-init hooks integration', () => {
     expect(after).not.toHaveProperty('hooks');
   });
 
+  it('never touches the team-shared settings.json (engram only writes settings.local.json)', async () => {
+    // Simulate a team-curated settings.json
+    const teamSettings = join(projectRoot, '.claude', 'settings.json');
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true });
+    const teamContent = { hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'echo team' }] }] } };
+    writeFileSync(teamSettings, JSON.stringify(teamContent, null, 2), 'utf-8');
+
+    const cacheMod = await import('../src/mcp/cache.js');
+    (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
+
+    const settingsAfter = JSON.parse(readFileSync(teamSettings, 'utf-8'));
+    expect(settingsAfter).toEqual(teamContent);
+
+    // And the engram-managed settings.local.json should exist alongside it
+    const engramLocal = join(projectRoot, '.claude', 'settings.local.json');
+    expect(existsSync(engramLocal)).toBe(true);
+    const engramContent = JSON.parse(readFileSync(engramLocal, 'utf-8'));
+    expect(engramContent).toHaveProperty('_engramHooks');
+  });
+
   it('regenerates over its own previous output (has _engramHooks marker)', async () => {
-    const settingsPath = join(projectRoot, '.claude', 'settings.json');
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     mkdirSync(join(projectRoot, '.claude'), { recursive: true });
     // Existing engram-owned file: stale generatedAt that we expect to be replaced
     writeFileSync(

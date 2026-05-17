@@ -123,7 +123,9 @@ function autoInitialize(rootPath: string): void {
   // Project root CLAUDE.md — three cases: fresh, has-markers, no-markers (sidecar)
   writeProjectClaudeMd(rootPath, config, knowledge);
 
-  // Per-project hooks at <project>/.claude/settings.json — skip if user owns the file
+  // Per-project hooks at <project>/.claude/settings.local.json — never settings.json,
+  // because settings.json gets committed and our hooks embed machine-specific
+  // ~/.engram/projects/<hash>/ paths.
   writeEngramHooks(rootPath, config);
 
   // Learnings markdown (centralized)
@@ -238,17 +240,23 @@ function copyIfExists(src: string, dst: string): void {
 }
 
 /**
- * Write <project>/.claude/settings.json with engram hooks.
+ * Write <project>/.claude/settings.local.json with engram hooks.
  *
- * Three cases:
+ * Why settings.local.json (and not settings.json): the hook shell commands
+ * embed absolute paths like /Users/alice/.engram/projects/<hash>/... which
+ * are machine-specific. settings.json is the conventional shared/committed
+ * file; settings.local.json is the per-machine file teams typically gitignore.
+ * Writing here keeps engram's machine-specific config out of the team's repo.
+ *
+ * Three cases (mirroring CLAUDE.md handling):
  *   - No file: write fresh.
  *   - File exists, was previously written by engram (has `_engramHooks` marker):
  *     overwrite with the current hook set (idempotent regeneration).
- *   - File exists, no marker: it's user-curated — skip, don't clobber. Log skip.
+ *   - File exists, no marker: it's user-curated — skip, don't clobber.
  */
 function writeEngramHooks(rootPath: string, config: EngramConfig): void {
   const claudeDir = join(rootPath, '.claude');
-  const settingsPath = join(claudeDir, 'settings.json');
+  const settingsPath = join(claudeDir, 'settings.local.json');
 
   if (existsSync(settingsPath)) {
     try {
