@@ -2,256 +2,231 @@
   <img src="https://img.shields.io/npm/v/engram-dev?style=for-the-badge&color=7c3aed" alt="npm version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
   <a href="https://github.com/PDgit12/engram/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/engram/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/MCP_tools-23-06b6d4?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/MCP_tools-27-06b6d4?style=for-the-badge" alt="tools" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
 <h1 align="center">engram</h1>
 
 <p align="center">
-  <strong>The second brain for Claude Code.</strong>
+  <strong>An intelligent command layer for Claude Code.</strong>
   <br/>
-  An MCP server that gives your agent project intelligence — import graphs, learnings,<br/>
-  team orchestration, and a workflow that compounds with every session.
+  Project-scoped memory, on-demand workflow protocol, parallel team worktrees,<br/>
+  and honest token accounting — all in one MCP server.
 </p>
 
 <br/>
 
-## Setup (one time, 30 seconds)
+## What engram is
+
+Engram makes Claude Code do the right thing automatically because it can't predict how a user will phrase a request. It does three jobs at once:
+
+- **Memory** — every project keeps a brain at `~/.engram/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session.
+- **Tokens** — `CLAUDE.md` is ~100 lines (project facts only). Workflow protocol is fetched on demand via `engram_get_workflow(phase)`. Engram is net-negative on context cost.
+- **Workflow** — a 4-tier classification (Inquiry / Trivial / Standard / Complex) with phase-triggered plan mode, quality-gated `LEARN`, and team-scoped git worktrees so parallel agents don't step on each other.
+
+It's a **single product**, not three. Every design choice has to win on memory + tokens + workflow together.
+
+## Setup (one time)
 
 ```bash
 npx @piyushdua/engram-dev@latest setup
 ```
 
-This does ONE thing: adds the Engram MCP server to your Claude Code config (`~/.claude.json`).
+Adds the Engram MCP server to your Claude Code config (`~/.claude.json`). No per-project setup. Open Claude Code in any project and the first MCP tool call auto-initializes everything.
 
-No per-project setup. No config files to write. No framework to learn.
+## How data is stored
 
-## How Data Gets Initialized
-
-You don't initialize anything. The MCP handles everything automatically:
+Engram data is centralized — not in every repo's working tree:
 
 ```
-Step 1: You open Claude Code in any project
-        └─ Claude reads ~/.claude.json → starts engram-dev as MCP subprocess
-
-Step 2: Agent makes first tool call (any of the 23 tools)
-        └─ MCP detects: is .claude/knowledge.json here?
-           │
-           ├─ NO (first time) → Auto-initializes:
-           │   • Scans project (detects language, framework, package manager)
-           │   • Builds import graph, export map, test coverage mapping
-           │   • Generates CLAUDE.md (650+ line workflow protocol)
-           │   • Creates .claude/knowledgebase.json (learnings database)
-           │   • Creates .claude/learnings/{project}.md (human-readable)
-           │   • All in ~1 second. Zero user action.
-           │
-           └─ YES (returning) → Loads from disk into memory cache
-               • All subsequent tool calls: <5ms from cache
-               • Learnings from past sessions are available immediately
-
-Step 3: Session ends
-        └─ Stop hooks fire automatically:
-           • Build verification (typecheck + lint + build)
-           • Session state captured to learnings/sessions.md
-           • KB metrics updated (totalSessions++)
-           • MCP process dies. Cache gone.
-
-Step 4: Next session → repeat from Step 1
-        └─ Brain reloads. Learnings persist. Intelligence compounds.
+~/.engram/
+└── projects/<hash>/                    ← one dir per project (sha256 of repo root)
+    ├── knowledge.json                  ← import graph, exports, test mapping
+    ├── knowledgebase.json              ← learnings + access metrics + false positives
+    ├── sessions.jsonl                  ← session memory, append-only
+    ├── teams.json                      ← custom teams (if defined)
+    ├── worktrees.json                  ← active team worktree registry
+    └── learnings/<project>.md          ← human-readable learnings
 ```
 
-**Data stored per project** (in your project directory):
+What stays in the project:
+
 ```
 your-project/
-├── CLAUDE.md                         ← workflow protocol (auto-generated)
+├── CLAUDE.md                           ← ≤150-line thin shape, marker-wrapped
 └── .claude/
-    ├── knowledge.json                ← import graph, exports, test map
-    ├── knowledgebase.json            ← learnings + access metrics
-    ├── teams.json                    ← custom teams (if defined)
-    └── learnings/
-        ├── {project-name}.md         ← human-readable learnings
-        └── sessions.md              ← session history log
+    └── settings.json                   ← per-project hooks (engram-managed)
 ```
 
-All data stays in the project. Nothing shared between projects. Nothing leaves your machine.
+The project's own `CLAUDE.md` is wrapped in `<!-- engram:start --> ... <!-- engram:end -->` markers. Engram regenerates only the block between markers — never clobbers anything else you write. If your project already has a `CLAUDE.md` without markers, engram writes a sidecar at `.claude/ENGRAM.md` instead.
 
-## CLI Dashboard
+Override the data location with `ENGRAM_HOME=/custom/path` (useful for sandboxes and tests).
 
-The CLI is for visibility into what the brain knows. Not required for daily use.
+## Workflow on demand
+
+The protocol is in MCP, not preloaded in every session. CLAUDE.md tells the agent to call `engram_get_workflow(phase)` when it needs the actual procedure. Sections:
+
+```
+engram_get_workflow({phase: "research"})    // RESEARCH phase details
+engram_get_workflow({phase: "plan"})        // PLAN + plan-mode rules
+engram_get_workflow({phase: "execute"})     // EXECUTE + TDD
+engram_get_workflow({phase: "optimize"})    // OPTIMIZE + role briefings
+engram_get_workflow({phase: "review"})      // REVIEW gates
+engram_get_workflow({phase: "learn"})       // LEARN quality gate
+engram_get_workflow({phase: "handoff"})     // session handoff
+engram_get_workflow({phase: "ship"})        // commit + ship + prod checklist
+engram_get_workflow({phase: "tdd"})         // RED → GREEN → REFACTOR
+engram_get_workflow({phase: "tools"})       // engram MCP tools reference
+```
+
+Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
+
+**Effect:** v0.1's CLAUDE.md was ~700 lines / ~20 KB per session, every session. v0.2's is ~100 lines / ~2.7 KB. Protocol depth pulled only when needed.
+
+## 27 MCP Tools
+
+### Query the brain (read-only, cached, ~5ms)
+
+| Tool | What it does |
+|------|--------------|
+| `engram_query_imports` | Reverse dependencies for a file. Use before edits. |
+| `engram_query_dependents` | What a file imports. |
+| `engram_query_exports` | What a file exposes. |
+| `engram_query_tests` | Test coverage for a file, or list all untested. |
+| `engram_find_fanout` | High-fanout files — the contracts. |
+| `engram_search_learnings` | Past lessons by domain tag. |
+| `engram_get_false_positives` | Confirmed non-issues to suppress in review. |
+| `engram_brain_status` | Brain health + **token accounting**. |
+| `engram_search_sessions` | Search past sessions by free text over summary+tags+branch. |
+| `engram_load_session` | Call at session start — returns last sessions, handoff, learnings, false positives, teams, project knowledge in one round trip. |
+
+### Update the brain (write — quality-gated)
+
+| Tool | What it does |
+|------|--------------|
+| `engram_classify_task` | First call on every task. Returns tier, phases, affected domains. |
+| `engram_build_context` | Domain context for the current task. |
+| `engram_record_learning` | Save a non-obvious insight. Quality check first. |
+| `engram_record_false_positive` | Mark a finding as a confirmed non-issue. |
+| `engram_save_session_summary` | Opt-in narrative summary of what this session did. |
+| `engram_save_handoff` | Save state when context degrades. |
+| `engram_setup_project` | Describe a non-code project (legal, marketing, research). |
+
+### Workflow on demand
+
+| Tool | What it does |
+|------|--------------|
+| `engram_get_workflow` | Fetch protocol depth for one phase. |
+
+### Parallel team worktrees
+
+| Tool | What it does |
+|------|--------------|
+| `engram_spawn_team_worktree` | Create a git worktree for a team. |
+| `engram_list_team_worktrees` | List active team worktrees. |
+| `engram_finalize_team_worktree` | Merge or discard a team's worktree. |
+
+### Team review board
+
+| Tool | What it does |
+|------|--------------|
+| `engram_get_teams` | List auto-detected or custom teams. |
+| `engram_define_team` | Create a custom team. |
+| `engram_start_team_review` | Start a parallel review with shared findings. |
+| `engram_get_team_prompt` | Per-team prompt including other teams' findings. |
+| `engram_post_team_findings` | Post findings to the shared board. |
+| `engram_get_board_summary` | Cross-team summary, severity-gated. |
+
+> Pattern reflection tools (`engram_reflect`, `engram_get_suggestions`) are deferred to v0.3 — they need ≥10 learnings per project before they surface useful patterns. Re-enabled when projects accumulate that mass.
+
+## Parallel team worktrees
+
+A Complex task gets broken across multiple teams. Each team works in its own git worktree (sibling to the main repo, native `git worktree` convention). Multiple agents within one team share the team's worktree. The orchestrator collects each team's work, runs gates, and merges back.
+
+```
+/Users/p/my-repo                          <- main
+/Users/p/my-repo-engram-ui-<ts>           <- UI team
+/Users/p/my-repo-engram-api-security-<ts> <- API & Security team
+```
+
+```js
+// Orchestrator workflow
+const ui = await engram_spawn_team_worktree({ team_name: "UI", task_description: "..." })
+// Spawn agents with ui.path; they cd there and work
+// ...
+await engram_finalize_team_worktree({ team_name: "UI", action: "merge" })
+```
+
+**Merge conflicts surface cleanly** — `engram_finalize_team_worktree` with `action: "merge"` returns `{status: "conflict", conflict_files: [...]}` without destroying the worktree. Resolve manually, then call again.
+
+Compatible with Claude Code's `EnterWorktree({path})` — engram's worktrees register via native `git worktree add`, so any session can switch into one.
+
+## Token accounting
+
+`engram_brain_status` answers the only question that matters: is engram saving more than it costs?
+
+```json
+{
+  "token_accounting": {
+    "claude_md_kb": 2.7,
+    "session_count": 12,
+    "learnings_hit_rate_pct": 67,
+    "note": "Healthy."
+  }
+}
+```
+
+Warnings surface when CLAUDE.md > 30 KB (engram is too heavy) or hit rate < 20 % on >10 learnings (most learnings unused — prune).
+
+## CLI
 
 ```bash
-# See brain health, session history, learnings, hit rate
-npx @piyushdua/engram-dev status
-
-# Force rebuild after major refactoring
-npx @piyushdua/engram-dev refresh
-
-# Re-run setup (fixes config, migrates from old versions)
-npx @piyushdua/engram-dev setup
+engram setup       # One time: add MCP to Claude settings
+engram status      # Dashboard: sessions, learnings, hit rate, knowledge health
+engram refresh     # Force rebuild knowledge brain
 ```
 
-Example `status` output:
+Example `engram status` output:
+
 ```
 Knowledge Index
   Files:        47 indexed (12,340 lines)
   Imports:      23 edges mapped
-  Exports:      31 files with exports
   Untested:     8 files
 
 Knowledge Base
   Learnings:      12 total
-  Accessed:       8 (67% hit rate)
-  Cache hits:     5 (re-investigations prevented)
+  Accessed:        8 (67% hit rate)
+  False positives: 3
 
-Recent Sessions
-  Date         Branch               Files   Learnings
-  2026-05-16   feature/payments     12      +2
-  2026-05-15   main                 5       +1
+Token accounting
+  CLAUDE.md:       2.7 KB
+  Sessions logged: 14
+  Hit rate:        67% → Healthy
 ```
 
-## 23 MCP Tools
+## How it's different
 
-### Query the brain (read-only, instant)
-
-| Tool | What the agent asks | Instead of |
-|------|-------------------|-----------|
-| `engram_query_imports` | "What depends on this file?" | Grepping the whole codebase |
-| `engram_query_dependents` | "What does this file need?" | Reading import lines manually |
-| `engram_query_exports` | "What does this file expose?" | Reading the entire file |
-| `engram_query_tests` | "Is this file tested?" | `find tests/ -name '*.test.*'` |
-| `engram_find_fanout` | "Which files are risky to change?" | No equivalent |
-| `engram_search_learnings` | "What do we know about auth?" | Reading entire learnings file |
-| `engram_get_false_positives` | "What are known non-issues?" | Grepping for #false-positive |
-| `engram_brain_status` | "How healthy is the brain?" | No equivalent |
-
-### Update the brain (workflow automation)
-
-| Tool | What it does |
-|------|-------------|
-| `engram_classify_task` | Classifies trivial/standard/complex, returns phases + auto_plan_mode |
-| `engram_build_context` | Assembles Domain Context Object with ripple effects + pitfalls |
-| `engram_record_learning` | Persists what was learned (the LEARN phase) |
-| `engram_record_false_positive` | Marks non-issues so agents stop re-reporting them |
-| `engram_save_handoff` | Saves session state for the next session to pick up |
-| `engram_setup_project` | Describes non-code projects (legal, marketing, research) |
-
-### Orchestrate parallel teams
-
-| Tool | What it does |
-|------|-------------|
-| `engram_get_teams` | Get auto-detected or custom teams for this project |
-| `engram_define_team` | Create custom teams (Performance, DevOps, Design...) |
-| `engram_start_team_review` | Start parallel review with shared findings board |
-| `engram_get_team_prompt` | Get specialized prompt for each team agent |
-| `engram_post_team_findings` | Post team findings, visible to other teams |
-| `engram_get_board_summary` | Cross-team findings with severity gate |
-
-## The Knowledge Brain
-
-Zero dependencies. Pure Node.js. Auto-built on first use.
-
-```
-engram_query_imports("src/lib/types.ts")
-
--> {
-     "imported_by": ["src/api/route.ts", "src/lib/users.ts", "tests/types.test.ts"],
-     "count": 3,
-     "risk": "MEDIUM - several dependents"
-   }
-```
-
-What it indexes:
-- **Import graph** -- which files depend on which (TS/JS/Python/Go/Rust)
-- **Export map** -- functions, classes, interfaces, types with line numbers
-- **Test mapping** -- which source files have tests, which don't
-- **High-fanout files** -- the contracts that break everything if changed
-
-## Compounding Intelligence
-
-Every task ends with `engram_record_learning`. Next session, `engram_search_learnings` finds it.
-
-```
-Session 1: "Always verify Stripe webhook signatures" (recorded)
-Session 2: Agent searches #payments -> finds the lesson -> skips the rabbit hole
-```
-
-`engram status` shows the metrics:
-
-```
-Knowledge Base Health
-
-  Learnings:      47 total
-  Accessed:       31 (66% hit rate)
-  Never used:     16
-  Cache hits:      14 (learnings prevented re-investigation)
-  Stale (30d+):    8 candidates for cleanup
-
-  Recent Sessions
-
-  Date         Branch               Files   Learnings
-  2026-05-16   feature/payments     12      +2
-  2026-05-15   main                 5       +1
-```
-
-## Works For Any Project
-
-Code projects get auto-detected domains (UI / API / Core Logic / Infrastructure / QA) based on the file tree. For anything else — research, legal, marketing, analysis — the agent describes the project and engram generates a custom team config:
-
-```bash
-# Agent calls this when user describes their project:
-engram_setup_project({
-  project_type: "legal",
-  description: "M&A due diligence for $50M acquisition",
-  domains: "document-review,risk,compliance,contract-analysis"
-})
-# -> Creates the teams from your description, scoped to your project
-```
-
-Domains and team shape come from the description, not a fixed list — works for any domain.
-
-## How It's Different
-
-| | gstack (142 skills) | ECC (53 agents) | Engram |
+|  | gstack (skills) | ECC (agents) | Engram |
 |--|---|---|---|
-| Setup | Install skills, configure per-project | Manual .claude/ setup | One command. Done forever. |
-| Architecture | Skill files agent reads | Agent definitions + rules | MCP server agent queries |
-| Memory | jsonl files | Memory directory | Structured KB with access tracking + metrics |
-| Code analysis | None | None | Import graphs, exports, test mapping |
-| Token cost | Skills loaded into context | Rules loaded into context | MCP tools queried on demand (not in context) |
-| Non-code projects | No | No | Description-driven domains |
+| Setup | Install skills per-project | Manual `.claude/` setup | One command. Done forever. |
+| Memory | jsonl files in-tree | Memory directory | `~/.engram/projects/<hash>/` — centralized, project-keyed, searchable sessions |
+| Token cost | Skills loaded into context | Rules loaded into context | Workflow fetched on-demand. CLAUDE.md is ~2.7 KB. |
+| Parallel work | None | None | Team-scoped git worktrees |
+| Self-measurement | None | None | `engram_brain_status.token_accounting` |
+| Non-code projects | No | No | Description-driven domains via `engram_setup_project` |
 
-## CLI Dashboard
+## Migration from v0.1
 
-```bash
-engram setup            # One time: add MCP to Claude settings
-engram status           # Analytics: sessions, learnings, hit rate
-engram refresh          # Force rebuild knowledge brain
-```
+If you have an existing project with engram v0.1 data at `<project>/.claude/`, engram v0.2 auto-migrates on the first MCP call:
 
-## Auto-Generated Workflow
+1. Detects `<project>/.claude/knowledge.json` (or `knowledgebase.json`)
+2. Copies all engram data forward to `~/.engram/projects/<hash>/`
+3. Writes `<project>/.claude/MIGRATED.txt` breadcrumb explaining where the data went
+4. Leaves the old `.claude/` directory intact (delete at your discretion)
 
-On first use, Engram generates a 650+ line `CLAUDE.md` with:
-
-- **Session Startup** -- step-by-step for new sessions
-- **6-Phase Protocol** -- RESEARCH, IDEATE, PLAN, EXECUTE, OPTIMIZE, REVIEW
-- **Task Classification** -- trivial/standard/complex with auto plan mode
-- **TDD Workflow** -- RED, GREEN, REFACTOR
-- **Commit & Ship** -- pre-commit gates, PR flow, branch strategy
-- **Production Checklist** -- security, code quality, deployment
-- **Effort Scaling** -- honest proxy metrics, not fake token numbers
-- **Session Handoff** -- structured context recovery
-
-Plus 6 enforcement hooks that fire automatically:
-
-| Hook | What it does |
-|------|-------------|
-| PreToolUse | Blocks `git push --force` and `--no-verify` |
-| PostToolUse | Runs typecheck after editing TS/Python/Go/Rust files |
-| Stop | Build verification (typecheck + lint + build) |
-| Stop | Session state capture to learnings |
-| Stop | LEARN compliance warning |
-| Stop | Knowledge base metrics update |
+No data loss, no dual-writes. Single migration per project.
 
 ## Development
 
@@ -259,26 +234,33 @@ Plus 6 enforcement hooks that fire automatically:
 git clone https://github.com/PDgit12/engram.git
 cd engram
 npm install
-npm run dev             # Run CLI locally
-npm run test            # 111 tests
-npm run typecheck       # TypeScript strict mode
-npm run build           # Compile CLI + MCP server
+npm run dev       # Run CLI locally
+npm run test      # 181 tests
+npm run typecheck # TypeScript strict mode
+npm run build     # Compile CLI + MCP server
 ```
 
 ## Architecture
 
 ```
 engram-dev (npm package)
-├── dist/cli.js          # CLI: setup, status, refresh
-├── dist/mcp/server.js   # MCP server: 23 tools, auto-init
-└── (generated per project)
-    ├── CLAUDE.md             # 650+ line workflow protocol
-    ├── .claude/knowledge.json    # Import graph, exports, test mapping
-    ├── .claude/knowledgebase.json # Learnings with access tracking
-    └── .claude/learnings/*.md    # Human-readable learnings
+├── dist/cli.js                 # CLI: setup, status, refresh
+└── dist/mcp/server.js          # MCP server: 27 tools, auto-init
+
+per-project, in ~/.engram/projects/<hash>/
+├── knowledge.json              # import graph + exports + test map
+├── knowledgebase.json          # learnings + access metrics
+├── sessions.jsonl              # session memory, append-only
+├── teams.json                  # custom teams
+├── worktrees.json              # active team worktree registry
+└── learnings/<project>.md      # human-readable learnings
+
+per-project, in <project>/
+├── CLAUDE.md                   # ≤150-line thin shape, marker-wrapped
+└── .claude/settings.json       # per-project hooks, engram-managed
 ```
 
-4,041 lines of TypeScript. Zero external dependencies for the knowledge brain.
+Zero external dependencies for the knowledge brain. 181 tests. Strict-mode TypeScript.
 
 ## License
 
