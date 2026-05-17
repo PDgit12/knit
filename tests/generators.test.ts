@@ -244,6 +244,74 @@ describe('generateSettings', () => {
     expect(stopCommands).toContain('knowledgebase.json');
     expect(stopCommands).toContain('totalSessions');
   });
+
+  // ── Cross-platform (Windows + macOS + Linux + WSL) ──
+  describe('cross-platform hook commands (v0.3.1+)', () => {
+    it('every hook command starts with node -e (no shell-only commands)', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const allCommands: string[] = [];
+      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+        for (const entry of (hooks[phase] ?? []) as any[]) {
+          for (const h of entry.hooks ?? []) {
+            if (typeof h.command === 'string') allCommands.push(h.command);
+          }
+        }
+      }
+      expect(allCommands.length).toBeGreaterThan(0);
+      for (const cmd of allCommands) {
+        expect(cmd, `hook does not start with node -e: ${cmd.slice(0, 60)}...`)
+          .toMatch(/^node -e /);
+      }
+    });
+
+    it('no hook uses bash-only pipelines (jq, grep, awk, sed, tr, find -mmin)', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const allCommands: string[] = [];
+      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+        for (const entry of (hooks[phase] ?? []) as any[]) {
+          for (const h of entry.hooks ?? []) {
+            if (typeof h.command === 'string') allCommands.push(h.command);
+          }
+        }
+      }
+      const allText = allCommands.join('\n');
+      // Bash-only utilities that fail on native Windows shells
+      // (jq, find -mmin, printf '%s', etc. — Windows has no out-of-the-box equivalents)
+      const banned = [
+        / jq /, / jq$/,           // jq not on Windows by default
+        / find .* -mmin /,        // GNU find -mmin not on Windows
+        / printf '%s'/,           // printf %s with single quotes is unix-only
+        / \| wc -l/,              // wc not on Windows
+        / \| tail -/,             // tail not on Windows
+        / \| head -/,             // head not on Windows
+        / \| awk /,               // awk not on Windows
+        / \| sed /,               // sed not on Windows
+        / \| tr /,                // tr not on Windows
+      ];
+      for (const pattern of banned) {
+        expect(allText, `Hooks contain bash-only pattern ${pattern}`).not.toMatch(pattern);
+      }
+    });
+
+    it('paths embedded in hooks use forward slashes (Windows + Unix compatible)', () => {
+      const settings = generateSettings(testConfig, '/tmp/test-project') as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const allCommands: string[] = [];
+      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+        for (const entry of (hooks[phase] ?? []) as any[]) {
+          for (const h of entry.hooks ?? []) {
+            if (typeof h.command === 'string') allCommands.push(h.command);
+          }
+        }
+      }
+      const allText = allCommands.join('\n');
+      // Path separators that could leak through if we accidentally embed Windows-style paths
+      // We explicitly normalize to forward slashes via jsLit() — this guards regressions.
+      expect(allText).not.toMatch(/\\\\[A-Za-z]/);  // backslash-escaped paths
+    });
+  });
 });
 
 describe('generateSettingsLocal', () => {

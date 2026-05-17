@@ -43,7 +43,7 @@ describe('auto-init hooks integration', () => {
     expect(settings).toHaveProperty('hooks');
     expect(settings).toHaveProperty('mcpServers');
     expect(settings).toHaveProperty('_engramHooks');
-    expect((settings._engramHooks as { version: number }).version).toBe(1);
+    expect((settings._engramHooks as { version: number }).version).toBe(2);
     expect(settings.hooks).toHaveProperty('Stop');
     expect(Array.isArray(settings.hooks.Stop)).toBe(true);
     expect((settings.hooks.Stop as unknown[]).length).toBeGreaterThan(0);

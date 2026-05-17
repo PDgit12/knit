@@ -2,6 +2,62 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] — 2026-05-17
+
+Cross-platform fix. v0.3.0 hooks worked on macOS/Linux/WSL but silently
+failed on native Windows shells (cmd.exe, PowerShell) because they used
+unix-only utilities: `jq`, `find -mmin`, `printf '%s'`, `awk`, `sed`, `tr`,
+`wc -l`, `tail`, `head`, `grep -qE`. None of those ship by default on
+Windows. v0.3.1 rewrites all seven hooks as inline `node -e '...'` scripts
+that run identically on every platform.
+
+### Changed
+
+- **All hooks rewritten as inline Node.** Each hook command is now a
+  single-quoted `node -e '<script>'` invocation. Node is already an engram
+  prerequisite (npm-installable), so no new runtime dependency. Scripts use
+  Node's `fs`, `child_process`, regex, and `process.stdin` — all of which
+  behave identically across Windows, macOS, Linux, and WSL.
+- **Quoting strategy: single-quoted outer, double-quoted inner.** Single
+  quotes preserve content literally on bash, zsh, PowerShell, and cmd.exe.
+  JS strings inside use double quotes. No escape-character minefields.
+- **Embedded paths use forward slashes.** `JSON.stringify(path.replace(/\\/g, '/'))`
+  produces a path literal valid in any JS source, on any OS. Node accepts
+  forward slashes on Windows too.
+- **`_engramHooks.version` bumped 1 → 2.** Lets engram tell a v0.3.0 hook
+  set (unix-only) from a v0.3.1 hook set (cross-platform) and regenerate
+  cleanly. Existing v0.3.0 users will see their hooks regenerated on the
+  next MCP call.
+- **Permissions allowlist now includes `Bash(node:*)`** so the hook scripts
+  themselves don't bump into Claude Code's command-permission system.
+
+### Affected hooks
+
+- **PreToolUse** Bash git-block — was `jq | grep -qE`; now Node regex over stdin
+- **PostToolUse** typecheck on edit (TS/Python/Go/Rust) — was `jq | case`; now Node
+- **Stop** build verification — was shell `&&`-chained; now Node sequential `execSync`
+- **Stop** session log to `sessions.md` — was bash with `git log | sed`; now Node
+- **Stop** sessions.jsonl tuple — was bash with `printf %s`; now Node
+- **Stop** LEARN compliance soft reminder — was `find -mmin`; now Node `fs.statSync().mtimeMs`
+- **Stop** KB metrics — already Node in v0.3.0, kept
+
+### Tests
+
+197 → 200 (+3): new cross-platform assertions in `generators.test.ts`:
+- every hook command starts with `node -e ` (no shell-only)
+- no hook contains `jq`, `find -mmin`, `printf '%s'`, `wc -l`, `tail`, `head`, `awk`, `sed`, `tr`
+- no Windows backslash-escape patterns leak into embedded paths
+
+Plus a live-fire smoke test confirmed the regenerated session.jsonl hook
+runs cleanly via raw `node -e` invocation against a tmp git repo —
+identical to how Claude Code would spawn it.
+
+### Notes for v0.3.0 users
+
+Open Claude Code in any engram-managed project. The first MCP call detects
+the `_engramHooks.version: 1` marker, regenerates `.claude/settings.local.json`
+to version 2, and from that point hooks work on every platform.
+
 ## [0.3.0] — 2026-05-17
 
 Released alongside v0.2's architectural rebuild. Brought forward the items
