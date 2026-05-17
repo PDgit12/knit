@@ -2,6 +2,101 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] — 2026-05-17
+
+Built across 4 parallel team worktrees using engram's own team-worktree
+feature on itself. Each team owned one domain; the orchestrator merged
+their branches back to main, ran integrated gates, shipped.
+
+### Fixed (Team A — Correctness)
+
+- **Agent-prefix wiring bug.** v0.4.0 had `agentsForRole()` returning
+  unprefixed names (e.g., `typescript-pro`) while installing files as
+  `engram-typescript-pro.md`. When the orchestrator said "spawn
+  typescript-pro", Claude Code's Agent registry looked for
+  `typescript-pro.md` and found either the user's own file or nothing —
+  engram's personalized file was never invoked. Fixed: `agentsForRole`
+  now returns `engram-`-prefixed names; `projectAgentFile` defensively
+  strips a leading `engram-` to prevent double-prefixing; the fetcher
+  accepts either form internally and looks up the bare name for category /
+  URL / bundled-core resolution.
+- **VoltAgent attribution gap.** v0.4.0 bundled-core agents had VoltAgent
+  attribution (added by `vendor-agents.mjs`), but network-fetched agents
+  were cached verbatim with no attribution. Fixed: `fetchAgent` now
+  injects the same attribution HTML comment after the YAML frontmatter
+  before caching. Both bundled and fetched agents now ship with proper
+  upstream notice — MIT compliant.
+- **`THIRD-PARTY-NOTICES.md`** added at the repo root and shipped in the
+  npm package (`package.json` `files:` extended). Lists VoltAgent's
+  project URL, license (MIT), pinned SHA, and the full MIT license text.
+
+### Added (Team B — Memory hygiene)
+
+- **`pruneSessionsByAge(rootPath, maxAgeDays)`** in `src/engine/sessions.ts`.
+  Atomic temp+rename rewrite. Keeps entries with corrupted dates (we don't
+  prove staleness from missing data).
+- **`engram_prune_sessions` MCP tool** (tool count 32 → 33). Default 90
+  days. Returns `{ kept, pruned, instruction }`.
+- **Auto-prune on autoInit.** Fires deferred via `Promise.resolve().then`
+  so it doesn't block MCP startup; errors swallowed to stderr.
+- **Reflect uses global pool when local is sparse.** `reflect()` in
+  `src/engine/reflect.ts` now merges entries from
+  `~/.engram/global/learnings.jsonl` when the local KnowledgeBase has
+  fewer than 3 entries. Each emitted `Pattern` carries a new
+  `source: 'local' | 'global' | 'mixed'` annotation so callers can
+  distinguish per-project from cross-project signals.
+
+### Added (Team C — Hybrid hook merging)
+
+- **Three-case `writeEngramHooks`:**
+  1. **No file** → write fresh (current behavior).
+  2. **File has `_engramHooks` marker** → overwrite (idempotent regen).
+  3. **File exists without `_engramHooks`** → MERGE engram's hooks into
+     existing user arrays, preserving user entries. Top-level keys
+     (mcpServers, permissions) are preserved verbatim. Stale engram
+     entries from prior merges (identified by `_engramOwned: true`) are
+     stripped and replaced with current ones; user entries untouched.
+- **Per-hook `_engramOwned: true` tag** on every entry engram pushes into
+  PreToolUse / PostToolUse / Stop arrays. Claude Code ignores unknown
+  fields, so this is purely metadata for engram's own regen logic.
+- **`_engramHooks.merged: true`** in the top-level marker on merged files
+  to distinguish from engram-owned files.
+
+### Added (Team D — Obsidian export)
+
+- **`engram export obsidian <vault-path>`** CLI command. Walks
+  `~/.engram/projects/*/knowledgebase.json` (per-project learnings) and
+  `~/.engram/global/learnings.jsonl` (global pool), writes one Markdown
+  file per entry into the target Obsidian vault with YAML frontmatter
+  (date, outcome, domains, source_project, tags) and inline `#tags`.
+- **`<vault>/Engram Index.md`** auto-generated index page grouping
+  learnings by tag, linked via `[[wikilinks]]`. Obsidian's graph view
+  picks it up automatically.
+- **`--filter <tag>`** option to scope export to a specific tag.
+- Format argument is `obsidian` only in 0.4.1; structured for future
+  extensibility (markdown plain, JSON dump, CSV, etc.).
+
+### Tests
+
+247 → 272 (+25 across the 4 teams):
+- Team A added agent-prefix expectation tests, attribution presence test,
+  prefix-handling for the fetcher, double-prefix protection for paths.
+- Team B added prune coverage (kept/pruned counts, corruption handling)
+  and a new `tests/reflect-global.test.ts` for the global-pool path.
+- Team C added merge-mode tests (preserves user entries, strips stale
+  engram entries, preserves top-level keys).
+- Team D added a new `tests/export.test.ts` covering Obsidian export with
+  seeded learnings + filter scoping.
+
+### Process note (engram eating its own dogfood)
+
+This release was built by spawning 4 parallel Agent calls with
+`isolation: "worktree"`, each handling one domain in an isolated git
+worktree. They committed their work to their branches; the orchestrator
+merged each branch back to main, ran integrated gates, shipped. Same
+team-worktree feature engram v0.4.0 exposed for users — used on engram
+itself, proving the workflow round-trips.
+
 ## [0.4.0] — 2026-05-17
 
 VoltAgent subagent integration with engram personalization. Closes the gap

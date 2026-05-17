@@ -27,7 +27,7 @@ import { getToolDefinitions, handleToolCall } from './tools.js';
 const ROOT_PATH = detectProjectRoot();
 
 const server = new Server(
-  { name: 'engram-brain', version: '0.4.0' },
+  { name: 'engram-brain', version: '0.4.1' },
   { capabilities: { tools: {} } },
 );
 
