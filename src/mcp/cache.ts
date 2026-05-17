@@ -262,32 +262,91 @@ function copyIfExists(src: string, dst: string): void {
  * file; settings.local.json is the per-machine file teams typically gitignore.
  * Writing here keeps engram's machine-specific config out of the team's repo.
  *
- * Three cases (mirroring CLAUDE.md handling):
- *   - No file: write fresh.
- *   - File exists, was previously written by engram (has `_engramHooks` marker):
- *     overwrite with the current hook set (idempotent regeneration).
- *   - File exists, no marker: it's user-curated — skip, don't clobber.
+ * Three cases:
+ *   - Case A — no file: write fresh.
+ *   - Case B — file exists with `_engramHooks` marker: overwrite with the
+ *     current hook set (idempotent regeneration of an engram-owned file).
+ *   - Case C — file exists WITHOUT `_engramHooks` marker: hybrid merge.
+ *     The user owns the file. We merge engram's hook entries (tagged
+ *     `_engramOwned: true`) into the user's PreToolUse/PostToolUse/Stop
+ *     arrays, preserving user entries and any other top-level keys
+ *     (mcpServers, permissions, etc.). On subsequent regen we filter out
+ *     stale engram-owned entries before appending fresh ones, so user
+ *     entries are never disturbed.
+ *
+ * If the existing file is unreadable / malformed JSON we bail out to avoid
+ * damaging the user's config.
  */
 function writeEngramHooks(rootPath: string, config: EngramConfig): void {
   const claudeDir = join(rootPath, '.claude');
   const settingsPath = join(claudeDir, 'settings.local.json');
+  const fresh = generateSettings(config, rootPath) as {
+    mcpServers?: unknown;
+    hooks: Record<string, unknown[]>;
+    _engramHooks: { version: number; generatedAt: string };
+  };
 
-  if (existsSync(settingsPath)) {
-    try {
-      const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-      if (!existing || typeof existing !== 'object' || !('_engramHooks' in existing)) {
-        // User-curated — never clobber
-        return;
-      }
-    } catch {
-      // Unreadable / malformed — bail, don't risk damage
-      return;
-    }
+  // Case A — no file: write fresh
+  if (!existsSync(settingsPath)) {
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
+    return;
   }
 
+  let existing: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      // Not a JSON object — bail
+      return;
+    }
+    existing = parsed as Record<string, unknown>;
+  } catch {
+    // Unreadable / malformed — bail, don't risk damage
+    return;
+  }
+
+  // Case B — engram-owned file: overwrite
+  if ('_engramHooks' in existing) {
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
+    return;
+  }
+
+  // Case C — user-owned file: merge engram hook entries into existing arrays
+  const userHooksRaw = existing.hooks;
+  let userHooks: Record<string, unknown[]>;
+  if (userHooksRaw === undefined) {
+    userHooks = {};
+  } else if (userHooksRaw && typeof userHooksRaw === 'object' && !Array.isArray(userHooksRaw)) {
+    // Validate every event value is an array; bail if any is not (don't risk damage)
+    for (const v of Object.values(userHooksRaw as Record<string, unknown>)) {
+      if (!Array.isArray(v)) return;
+    }
+    userHooks = { ...(userHooksRaw as Record<string, unknown[]>) };
+  } else {
+    // hooks key present but not a plain object — bail
+    return;
+  }
+
+  for (const event of Object.keys(fresh.hooks)) {
+    const userEntries = Array.isArray(userHooks[event]) ? userHooks[event] : [];
+    // Strip any stale engram-owned entries from a prior merge
+    const preserved = userEntries.filter((entry) => {
+      return !(entry && typeof entry === 'object' && (entry as { _engramOwned?: unknown })._engramOwned === true);
+    });
+    // Append fresh engram entries after user entries
+    userHooks[event] = [...preserved, ...fresh.hooks[event]];
+  }
+
+  const merged: Record<string, unknown> = {
+    ...existing,
+    hooks: userHooks,
+    _engramHooks: { ...fresh._engramHooks, merged: true },
+  };
+
   mkdirSync(claudeDir, { recursive: true });
-  const settings = generateSettings(config, rootPath);
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  writeFileSync(settingsPath, JSON.stringify(merged, null, 2), 'utf-8');
 }
 
 

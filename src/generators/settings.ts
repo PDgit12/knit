@@ -92,6 +92,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   const hooks: Record<string, unknown[]> = {
     PreToolUse: [
       {
+        _engramOwned: true,
         matcher: 'Bash',
         hooks: [
           {
@@ -121,6 +122,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // TypeScript typecheck on edit
   if (config.stack.language === 'typescript' && config.stack.typecheckCommand) {
     hooks.PostToolUse.push({
+      _engramOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -148,6 +150,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Python syntax check on edit
   if (config.stack.language === 'python') {
     hooks.PostToolUse.push({
+      _engramOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -175,6 +178,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Go vet on edit
   if (config.stack.language === 'go') {
     hooks.PostToolUse.push({
+      _engramOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -202,6 +206,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Rust check on edit
   if (config.stack.language === 'rust') {
     hooks.PostToolUse.push({
+      _engramOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -234,6 +239,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   if (steps.length > 0) {
     hooks.Stop.push({
+      _engramOwned: true,
       hooks: [
         {
           type: 'command',
@@ -256,6 +262,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // Session log on stop — narrative human-readable, to sessions.md
   hooks.Stop.push({
+    _engramOwned: true,
     hooks: [
       {
         type: 'command',
@@ -287,6 +294,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // Session JSONL tuple on stop — structured searchable session memory
   hooks.Stop.push({
+    _engramOwned: true,
     hooks: [
       {
         type: 'command',
@@ -322,6 +330,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // LEARN compliance soft reminder
   hooks.Stop.push({
+    _engramOwned: true,
     hooks: [
       {
         type: 'command',
@@ -347,6 +356,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // KB metrics — update knowledgebase.json with session summary tuple
   hooks.Stop.push({
+    _engramOwned: true,
     hooks: [
       {
         type: 'command',
