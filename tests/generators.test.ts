@@ -1,8 +1,23 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { generateClaudeMd } from '../src/generators/claude-md.js';
 import { generateSettings, generateSettingsLocal } from '../src/generators/settings.js';
 import { generateLearningsContent } from '../src/generators/learnings.js';
 import type { EngramConfig, ProjectKnowledge, LearningEntry } from '../src/engine/types.js';
+
+// Sandbox engram data writes; generateSettings embeds paths under ENGRAM_HOME.
+let engramHome: string;
+const TEST_ROOT = '/tmp/test-project';
+beforeAll(() => {
+  engramHome = mkdtempSync(join(tmpdir(), 'engram-gen-test-'));
+  process.env.ENGRAM_HOME = engramHome;
+});
+afterAll(() => {
+  delete process.env.ENGRAM_HOME;
+  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+});
 
 const testConfig: EngramConfig = {
   name: 'test-project',
@@ -176,40 +191,40 @@ describe('generateClaudeMd', () => {
 
 describe('generateSettings', () => {
   it('includes destructive git hook', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.PreToolUse).toBeDefined();
     expect(hooks.PreToolUse.length).toBeGreaterThan(0);
   });
 
   it('includes typecheck hook for TypeScript', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     expect(hooks.PostToolUse.length).toBeGreaterThan(0);
   });
 
   it('includes stop hooks with enforcement', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     // build verification + session capture + LEARN enforcement + KB metrics = 4
     expect(hooks.Stop.length).toBeGreaterThanOrEqual(4);
   });
 
   it('has hooks structure', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     expect(settings.hooks).toBeDefined();
   });
 
-  it('includes LEARN enforcement hook', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+  it('includes LEARN compliance hook (soft reminder, not enforcement)', () => {
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     const stopCommands = hooks.Stop.map((h: any) => h.hooks?.[0]?.command || '').join(' ');
-    expect(stopCommands).toContain('LEARN phase did not run');
+    expect(stopCommands).toContain('LEARN was not recorded this session');
     expect(stopCommands).toContain('test-project.md');
   });
 
   it('includes KB metrics hook', () => {
-    const settings = generateSettings(testConfig) as Record<string, unknown>;
+    const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
     const hooks = settings.hooks as Record<string, unknown[]>;
     const stopCommands = hooks.Stop.map((h: any) => h.hooks?.[0]?.command || '').join(' ');
     expect(stopCommands).toContain('knowledgebase.json');

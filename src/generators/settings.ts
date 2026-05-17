@@ -1,10 +1,22 @@
 import type { EngramConfig } from '../engine/types.js';
+import {
+  knowledgebasePath,
+  learningsFilePath,
+  sessionsLogPath,
+  sessionsJsonlPath,
+  projectDataDir,
+  learningsDir,
+} from '../engine/paths.js';
 
 /**
  * Generates .claude/settings.json with hooks for the detected stack.
- * All hooks use dynamic root detection — no hardcoded absolute paths.
+ * Engram data paths are resolved at generation time and embedded into the
+ * shell commands — keeps hooks fast, no runtime hash computation needed.
+ *
+ * rootPath must be the canonical repo root (not a worktree path) so that
+ * embedded paths resolve to the shared brain for all worktrees of this project.
  */
-export function generateSettings(config: EngramConfig): object {
+export function generateSettings(config: EngramConfig, rootPath: string): object {
   return {
     mcpServers: {
       'engram-brain': {
@@ -12,14 +24,29 @@ export function generateSettings(config: EngramConfig): object {
         args: ['-y', '@piyushdua/engram-dev@latest'],
       },
     },
-    hooks: generateHooks(config),
+    hooks: generateHooks(config, rootPath),
+    // Tag so engram can recognize a file it wrote (vs a user-curated settings.json)
+    _engramHooks: { version: 1, generatedAt: new Date().toISOString() },
   };
 }
 
-/** Shell snippet that finds project root dynamically */
+/** Shell snippet that finds project root dynamically (works inside worktrees too). */
 const ROOT_CMD = 'ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)';
 
-function generateHooks(config: EngramConfig) {
+/** Wrap a command to fail-soft (never block the agent). */
+function softCommand(cmd: string): string {
+  return `${cmd} 2>/dev/null || true`;
+}
+
+function generateHooks(config: EngramConfig, rootPath: string) {
+  // Centralized engram paths, resolved once at generation time
+  const KB_PATH = knowledgebasePath(rootPath);
+  const LEARN_FILE = learningsFilePath(rootPath, config.name);
+  const SESSIONS_MD = sessionsLogPath(rootPath);
+  const SESSIONS_JSONL = sessionsJsonlPath(rootPath);
+  const LEARN_DIR = learningsDir(rootPath);
+  const ENGRAM_DIR = projectDataDir(rootPath);
+
   const hooks: Record<string, unknown[]> = {
     PreToolUse: [
       {
@@ -116,37 +143,56 @@ function generateHooks(config: EngramConfig) {
     });
   }
 
-  // Session learnings capture on stop (always)
+  // Session learnings log on stop — narrative human-readable log (legacy format)
   hooks.Stop.push({
     hooks: [
       {
         type: 'command',
-        command: `${ROOT_CMD} && cd "$ROOT" && mkdir -p .claude/learnings && FILE=".claude/learnings/sessions.md" && if [ ! -f "$FILE" ]; then echo '# Session Log' > "$FILE"; fi && echo '' >> "$FILE" && echo "## Session $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$FILE" && BRANCH=$(git branch --show-current 2>/dev/null) && COMMITS=$(git log --oneline -3 2>/dev/null | sed 's/^/  - /') && echo "- Branch: $BRANCH" >> "$FILE" && echo "- Recent commits:" >> "$FILE" && echo "$COMMITS" >> "$FILE" && CHANGED=$(git diff --stat HEAD 2>/dev/null | tail -1) && [ -n "$CHANGED" ] && echo "- Uncommitted: $CHANGED" >> "$FILE" || true && echo '' >> "$FILE"`,
+        command: softCommand(
+          `${ROOT_CMD} && mkdir -p "${LEARN_DIR}" && FILE="${SESSIONS_MD}" && if [ ! -f "$FILE" ]; then echo '# Session Log' > "$FILE"; fi && echo '' >> "$FILE" && echo "## Session $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$FILE" && BRANCH=$(cd "$ROOT" && git branch --show-current 2>/dev/null) && COMMITS=$(cd "$ROOT" && git log --oneline -3 2>/dev/null | sed 's/^/  - /') && echo "- Branch: $BRANCH" >> "$FILE" && echo "- Recent commits:" >> "$FILE" && echo "$COMMITS" >> "$FILE" && CHANGED=$(cd "$ROOT" && git diff --stat HEAD 2>/dev/null | tail -1) && [ -n "$CHANGED" ] && echo "- Uncommitted: $CHANGED" >> "$FILE" && echo '' >> "$FILE"`,
+        ),
         timeout: 10,
         statusMessage: 'Engram: capturing session state...',
       },
     ],
   });
 
-  // LEARN enforcement — warn if learnings file wasn't updated this session
-  const learningsFileName = config.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.md';
+  // Session JSONL tuple on stop — structured searchable session memory (C4 consumes this)
   hooks.Stop.push({
     hooks: [
       {
         type: 'command',
-        command: `${ROOT_CMD} && cd "$ROOT" && LEARN_FILE=".claude/learnings/${learningsFileName}" && if [ -f "$LEARN_FILE" ]; then MODIFIED=$(find "$LEARN_FILE" -mmin -5 2>/dev/null); if [ -z "$MODIFIED" ]; then echo ""; echo "⚠  LEARN phase did not run — $LEARN_FILE was not updated this session."; echo "   The Engram protocol requires updating learnings after every task."; echo ""; fi; fi`,
+        command: softCommand(
+          `${ROOT_CMD} && mkdir -p "${ENGRAM_DIR}" && BRANCH=$(cd "$ROOT" && git branch --show-current 2>/dev/null | tr -d '"\\\\') && FILES=$(cd "$ROOT" && git diff --name-only HEAD 2>/dev/null | wc -l | tr -d ' ') && COMMITS=$(cd "$ROOT" && git log --oneline -3 2>/dev/null | awk '{print $1}' | head -3 | tr '\\n' ' ' | sed 's/ *$//') && DATE=$(date -u '+%Y-%m-%d') && TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ') && printf '{"id":"%s","date":"%s","timestamp":"%s","branch":"%s","filesModified":%s,"commits":"%s"}\\n' "$(date +%s)-$$" "$DATE" "$TS" "$BRANCH" "$FILES" "$COMMITS" >> "${SESSIONS_JSONL}"`,
+        ),
+        timeout: 10,
+        statusMessage: 'Engram: recording session tuple...',
+      },
+    ],
+  });
+
+  // LEARN compliance — warn if learnings file wasn't updated this session
+  hooks.Stop.push({
+    hooks: [
+      {
+        type: 'command',
+        command: softCommand(
+          `if [ -f "${LEARN_FILE}" ]; then MODIFIED=$(find "${LEARN_FILE}" -mmin -5 2>/dev/null); if [ -z "$MODIFIED" ]; then echo ""; echo "ℹ  LEARN was not recorded this session. That's fine if nothing reusable surfaced."; echo "   If something did, call engram_record_learning in your next session."; echo ""; fi; fi`,
+        ),
         timeout: 5,
         statusMessage: 'Engram: checking LEARN compliance...',
       },
     ],
   });
 
-  // KB metrics — update knowledgebase.json with session data
+  // KB metrics — update knowledgebase.json with session summary tuple (legacy SessionRecord shape)
   hooks.Stop.push({
     hooks: [
       {
         type: 'command',
-        command: `${ROOT_CMD} && cd "$ROOT" && node -e "const fs=require('fs'),cp=require('child_process');const p='.claude/knowledgebase.json';if(!fs.existsSync(p))process.exit(0);try{const kb=JSON.parse(fs.readFileSync(p,'utf-8'));const files=parseInt(cp.execSync('git diff --name-only HEAD 2>/dev/null|wc -l').toString().trim())||0;const branch=cp.execSync('git branch --show-current 2>/dev/null').toString().trim()||null;kb.metrics.totalSessions++;kb.metrics.sessions.push({date:new Date().toISOString().split('T')[0],branch,filesModified:files,learningsAccessed:0,learningsAdded:0,domainsTouched:[]});if(kb.metrics.sessions.length>20)kb.metrics.sessions=kb.metrics.sessions.slice(-20);fs.writeFileSync(p,JSON.stringify(kb,null,2))}catch(e){}" 2>/dev/null || true`,
+        command: softCommand(
+          `${ROOT_CMD} && cd "$ROOT" && node -e "const fs=require('fs'),cp=require('child_process');const p='${KB_PATH}';if(!fs.existsSync(p))process.exit(0);try{const kb=JSON.parse(fs.readFileSync(p,'utf-8'));const files=parseInt(cp.execSync('git diff --name-only HEAD 2>/dev/null|wc -l').toString().trim())||0;const branch=cp.execSync('git branch --show-current 2>/dev/null').toString().trim()||null;kb.metrics.totalSessions++;kb.metrics.sessions.push({date:new Date().toISOString().split('T')[0],branch,filesModified:files,learningsAccessed:0,learningsAdded:0,domainsTouched:[]});if(kb.metrics.sessions.length>20)kb.metrics.sessions=kb.metrics.sessions.slice(-20);fs.writeFileSync(p,JSON.stringify(kb,null,2))}catch(e){}"`,
+        ),
         timeout: 10,
         statusMessage: 'Engram: updating session metrics...',
       },

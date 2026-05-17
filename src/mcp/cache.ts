@@ -1,13 +1,14 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
-import type { ProjectKnowledge, KnowledgeBase } from '../engine/types.js';
+import type { ProjectKnowledge, KnowledgeBase, EngramConfig } from '../engine/types.js';
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd } from '../generators/claude-md.js';
 import { generateLearningsContent } from '../generators/learnings.js';
+import { generateSettings } from '../generators/settings.js';
 import {
   projectDataDir,
   knowledgePath,
@@ -95,13 +96,13 @@ function autoInitialize(rootPath: string): void {
   const knowledge = buildKnowledge(rootPath, scan);
   const projectName = detectProjectName(rootPath);
 
-  const config = {
+  const config: EngramConfig = {
     name: projectName,
     packageManager: scan.packageManager,
     stack: scan.stack,
     domains: scan.domains,
-    targetAgent: 'claude-code' as const,
-    tokenOptimization: 'standard' as const,
+    targetAgent: 'claude-code',
+    tokenOptimization: 'standard',
   };
 
   // Centralized data dirs
@@ -113,6 +114,9 @@ function autoInitialize(rootPath: string): void {
   if (!existsSync(claudeMdPath)) {
     writeFileSync(claudeMdPath, generateClaudeMd(config, knowledge), 'utf-8');
   }
+
+  // Per-project hooks at <project>/.claude/settings.json — skip if user owns the file
+  writeEngramHooks(rootPath, config);
 
   // Learnings markdown (centralized)
   const learningsPath = learningsFilePath(rootPath, projectName);
@@ -182,6 +186,38 @@ function copyIfExists(src: string, dst: string): void {
     copyFileSync(src, dst);
   }
 }
+
+/**
+ * Write <project>/.claude/settings.json with engram hooks.
+ *
+ * Three cases:
+ *   - No file: write fresh.
+ *   - File exists, was previously written by engram (has `_engramHooks` marker):
+ *     overwrite with the current hook set (idempotent regeneration).
+ *   - File exists, no marker: it's user-curated — skip, don't clobber. Log skip.
+ */
+function writeEngramHooks(rootPath: string, config: EngramConfig): void {
+  const claudeDir = join(rootPath, '.claude');
+  const settingsPath = join(claudeDir, 'settings.json');
+
+  if (existsSync(settingsPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      if (!existing || typeof existing !== 'object' || !('_engramHooks' in existing)) {
+        // User-curated — never clobber
+        return;
+      }
+    } catch {
+      // Unreadable / malformed — bail, don't risk damage
+      return;
+    }
+  }
+
+  mkdirSync(claudeDir, { recursive: true });
+  const settings = generateSettings(config, rootPath);
+  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+}
+
 
 function detectProjectName(rootPath: string): string {
   let name = basename(rootPath);
