@@ -292,7 +292,24 @@ Built with TypeScript, compiled via tsup, tested with Vitest. The Engram Orchest
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
 
 ## Phase Status
+
+All four releases below are live on npm as `@piyushdua/engram-dev`. `latest` → v0.4.1.
+
 - **Phase 0** (project setup + workflow): ✅ Complete
-- **v0.1** — shipped. 23 MCP tools, 111 tests, npm live as `@piyushdua/engram-dev`.
-- **v0.2** — built (9 commits, this branch). Centralized data path at `~/.engram/projects/<hash>/`, on-demand workflow via `engram_get_workflow`, searchable session memory, parallel team worktrees, hooks wired for real, marker-wrapped CLAUDE.md, token accounting. 27 MCP tools, 181 tests. Awaiting `npm publish` + push.
-- **v0.3** — not started. Candidates: re-enable `engram_reflect`/`engram_get_suggestions` once a project has ≥10 learnings; cross-project shared learnings (Model C); Cursor/Codex MCP client compatibility.
+- **v0.1.x** — shipped. 23 MCP tools, 111 tests. Original baseline.
+- **v0.3.0** — shipped. Centralized data at `~/.engram/projects/<hash>/`, marker-wrapped CLAUDE.md, on-demand workflow via `engram_get_workflow`, session memory in `sessions.jsonl`, team-scoped git worktrees, token-accounting metrics, hooks wired into auto-init. Model C: cross-project learnings pool at `~/.engram/global/learnings.jsonl`. Pattern reflection re-enabled. v0.2.0 was tagged in git but skipped on npm (jumped straight to 0.3.0). 31 MCP tools, 197 tests.
+- **v0.3.1** — git-tagged, NOT published to npm. Windows-compatible hooks (rewrote all 7 hooks as inline `node -e '…'` cross-platform). Folded into v0.4.0's npm release.
+- **v0.4.0** — shipped. VoltAgent subagent integration (`github.com/VoltAgent/awesome-claude-code-subagents`, MIT, pinned SHA `6f804f0c…`) with engram personalization layer. Bundled-core 6 agents in `dist/agents/core/`; specialized agents fetched on demand to `~/.engram/agents/cache/<sha>/`. `engram install-agents` CLI + `engram_install_agent` MCP tool. 32 MCP tools, 247 tests.
+- **v0.4.1** — shipped. Built across 4 parallel team worktrees via Claude Code's Agent `isolation:"worktree"` — engram eating its own dogfood. Fixed agent-prefix wiring bug (`agentsForRole` now returns `engram-<name>`). VoltAgent attribution added to fetched agents + `THIRD-PARTY-NOTICES.md` shipped. JSONL session pruning + `engram_prune_sessions` tool. Reflect falls back to global pool when local entries < 3. Hybrid hook merging (`_engramOwned: true` tag per entry; merge into existing user `settings.local.json` without clobbering). `engram export obsidian <vault>` CLI. 33 MCP tools, 272 tests.
+
+## v0.5 candidates (deferred, ranked by value × cost)
+
+1. **Hybrid search fusion** — engram's `searchSessions` / `searchGlobalLearnings` / `queryByDomains` use plain substring match. agentmemory (`rohitg00/agentmemory`, Apache-2.0) uses BM25 + vector embeddings + knowledge graph fused via Reciprocal Rank Fusion (k=60). ~95% R@5 vs ~86% BM25-only in their benchmarks. Local embeddings via `@xenova/transformers` or similar avoid the network. Biggest retrieval-quality win.
+2. **4-tier memory consolidation** — engram has flat learnings + sessions. agentmemory promotes through working → episodic → semantic → procedural tiers with Ebbinghaus decay. Lets old noise self-evict; surfaces stable patterns; matches how human memory actually consolidates. Real architecture change.
+3. **Privacy filter on the ingest path** — engram strips control chars + caps length on MCP tool inputs (`tools.ts:209`), but doesn't scan for secrets (`sk-…`, `AKIA…`, `ghp_…`) before persisting to learnings or sessions. Bake it into the ingest pipeline. Real defense for users who paste tokens by accident.
+4. **More auto-capture hooks** — engram has PreToolUse + PostToolUse + Stop. agentmemory has 12 lifecycle hooks (SessionStart, PreCompact, etc.) and captures from them automatically. Reduces the LEARN-discipline burden — closer to zero-effort capture.
+5. **Session-diversified retrieval** — cap retrieved results to N per session in final ranking so one verbose session doesn't dominate. Trivial add to `searchSessions` / `searchGlobalLearnings`.
+6. **/plugin install path** — Claude Code now supports `claude /plugin install`. Ship engram as a plugin alongside the MCP-server-via-npx path so users don't need to edit `~/.claude.json` manually.
+7. **Knowledge graph + entity extraction** — agentmemory extracts entities/relationships during consolidation and uses graph traversal as a reranking signal. Useful only AFTER (1) and (2) land.
+
+(Items 8+: REST/HTTP API for non-MCP clients, live observability viewer, native Windows shell outside hooks — all deferred until a real user need surfaces.)
