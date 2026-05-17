@@ -6,7 +6,7 @@ import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js
 import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
-import { generateClaudeMd } from '../generators/claude-md.js';
+import { generateClaudeMd, spliceEngramBlock, ENGRAM_MARKER_START } from '../generators/claude-md.js';
 import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings } from '../generators/settings.js';
 import {
@@ -30,6 +30,7 @@ export interface BrainCache {
   knowledge: ProjectKnowledge;
   reverseDeps: Record<string, string[]>;
   knowledgeBase: KnowledgeBase;
+  config: EngramConfig;
   loadedAt: number;
   autoInitialized: boolean;
 }
@@ -70,6 +71,15 @@ export function getBrain(rootPath: string): BrainCache {
   const projectName = detectProjectName(rootPath);
   const knowledgeBase = loadKnowledgeBase(knowledgebasePath(rootPath), projectName);
 
+  const config: EngramConfig = {
+    name: projectName,
+    packageManager: scan.packageManager,
+    stack: scan.stack,
+    domains: scan.domains,
+    targetAgent: 'claude-code',
+    tokenOptimization: 'standard',
+  };
+
   // Save refreshed knowledge index to disk
   writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
   saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
@@ -79,6 +89,7 @@ export function getBrain(rootPath: string): BrainCache {
     knowledge,
     reverseDeps,
     knowledgeBase,
+    config,
     loadedAt: Date.now(),
     autoInitialized,
   };
@@ -109,11 +120,8 @@ function autoInitialize(rootPath: string): void {
   mkdirSync(projectDataDir(rootPath), { recursive: true });
   mkdirSync(learningsDir(rootPath), { recursive: true });
 
-  // Project root CLAUDE.md (Claude Code expects it here)
-  const claudeMdPath = join(rootPath, 'CLAUDE.md');
-  if (!existsSync(claudeMdPath)) {
-    writeFileSync(claudeMdPath, generateClaudeMd(config, knowledge), 'utf-8');
-  }
+  // Project root CLAUDE.md — three cases: fresh, has-markers, no-markers (sidecar)
+  writeProjectClaudeMd(rootPath, config, knowledge);
 
   // Per-project hooks at <project>/.claude/settings.json — skip if user owns the file
   writeEngramHooks(rootPath, config);
@@ -178,6 +186,48 @@ session memory live in the new path.
       writeFileSync(breadcrumb, note, 'utf-8');
     } catch { /* breadcrumb is best-effort */ }
   }
+}
+
+/**
+ * Write the project's CLAUDE.md, handling three cases without ever clobbering
+ * user-written content:
+ *
+ *   - No file: write fresh with engram markers.
+ *   - Has file + markers: replace only the in-marker block, preserve everything else.
+ *   - Has file + no markers: it's user-curated. Write a sidecar at
+ *     <project>/.claude/ENGRAM.md instead, and tell the user (in the sidecar)
+ *     to add an `@.claude/ENGRAM.md` line if they want engram's section.
+ */
+function writeProjectClaudeMd(
+  rootPath: string,
+  config: EngramConfig,
+  knowledge: ProjectKnowledge,
+): void {
+  const claudeMdPath = join(rootPath, 'CLAUDE.md');
+  const block = generateClaudeMd(config, knowledge);
+
+  if (!existsSync(claudeMdPath)) {
+    writeFileSync(claudeMdPath, block, 'utf-8');
+    return;
+  }
+
+  const existing = readFileSync(claudeMdPath, 'utf-8');
+  if (existing.includes(ENGRAM_MARKER_START)) {
+    const { content } = spliceEngramBlock(existing, block);
+    writeFileSync(claudeMdPath, content, 'utf-8');
+    return;
+  }
+
+  // User-curated CLAUDE.md exists with no engram markers — never clobber.
+  const sidecarDir = join(rootPath, '.claude');
+  const sidecarPath = join(sidecarDir, 'ENGRAM.md');
+  mkdirSync(sidecarDir, { recursive: true });
+  const sidecar = `<!-- This file is engram's per-project workflow. -->
+<!-- Your CLAUDE.md exists without engram markers, so engram wrote here instead of clobbering it. -->
+<!-- To include this content in CLAUDE.md, add: @.claude/ENGRAM.md -->
+
+${block}`;
+  writeFileSync(sidecarPath, sidecar, 'utf-8');
 }
 
 function copyIfExists(src: string, dst: string): void {

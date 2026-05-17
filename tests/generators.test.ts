@@ -55,55 +55,62 @@ const testConfig: EngramConfig = {
   tokenOptimization: 'standard',
 };
 
-describe('generateClaudeMd', () => {
+describe('generateClaudeMd (v0.2 — thin shape)', () => {
   it('includes project name', () => {
     const md = generateClaudeMd(testConfig);
     expect(md).toContain('# test-project');
   });
 
-  it('includes build commands', () => {
+  it('is wrapped in engram markers for safe regeneration', () => {
+    const md = generateClaudeMd(testConfig);
+    expect(md).toContain('<!-- engram:start -->');
+    expect(md).toContain('<!-- engram:end -->');
+    // start must appear before end
+    expect(md.indexOf('<!-- engram:start -->')).toBeLessThan(md.indexOf('<!-- engram:end -->'));
+  });
+
+  it('emits 150 lines or fewer (v0.2 thin shape target)', () => {
+    const md = generateClaudeMd(testConfig);
+    const lineCount = md.split('\n').length;
+    expect(lineCount).toBeLessThanOrEqual(150);
+  });
+
+  it('includes build gates from the project config', () => {
     const md = generateClaudeMd(testConfig);
     expect(md).toContain('npm run typecheck');
     expect(md).toContain('npm run lint');
     expect(md).toContain('npm run build');
   });
 
-  it('includes all domains', () => {
+  it('includes all detected domains', () => {
     const md = generateClaudeMd(testConfig);
     expect(md).toContain('### UI');
     expect(md).toContain('### API & Security');
     expect(md).toContain('### Quality Assurance');
   });
 
-  it('includes orchestration protocol', () => {
+  it('contains the tier vocabulary (decision aid form)', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Engram Orchestration Protocol');
-    expect(md).toContain('LEARN');
-    expect(md).toContain('Domain Context Object');
-    expect(md).toContain('Task Classification');
+    expect(md).toContain('Tier vocabulary');
+    expect(md).toContain('Inquiry');
+    expect(md).toContain('Trivial');
+    expect(md).toContain('Standard');
+    expect(md).toContain('Complex');
   });
 
-  it('includes full phase details', () => {
+  it('points to engram_get_workflow for protocol depth (not inlined)', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Phase 1: RESEARCH');
-    expect(md).toContain('Phase 2: IDEATE');
-    expect(md).toContain('Phase 3: PLAN');
-    expect(md).toContain('Phase 4: EXECUTE');
-    expect(md).toContain('Phase 5: OPTIMIZE');
-    expect(md).toContain('Phase 6: REVIEW');
+    expect(md).toContain('engram_get_workflow');
+    // Must NOT inline the long-form protocol that v0.1 dumped here
+    expect(md).not.toContain('Phase 1: RESEARCH');
+    expect(md).not.toContain('Phase 6: REVIEW');
+    expect(md).not.toContain('Domain Context Object');
+    expect(md).not.toContain('MANDATORY, NEVER SKIP');
   });
 
-  it('includes agent learning loop', () => {
+  it('points to engram_load_session for session startup', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Agent Learning Loop');
-    expect(md).toContain('#false-positive');
-    expect(md).toContain('VERIFY');
-  });
-
-  it('includes auto-detection rules', () => {
-    const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Auto-detection rules');
-    expect(md).toContain('Touches shared types');
+    expect(md).toContain('engram_load_session');
   });
 
   it('does not reference ECC, gstack, or gbrain', () => {
@@ -136,7 +143,6 @@ describe('generateClaudeMd', () => {
     expect(md).toContain('src/index.ts');
     expect(md).toContain('src/types.ts');
     expect(md).toContain('src/utils.ts');
-    expect(md).toContain('knowledge.json');
   });
 
   it('includes False Positives section when provided', () => {
@@ -162,30 +168,38 @@ describe('generateClaudeMd', () => {
     const md = generateClaudeMd(testConfig);
     expect(md).not.toContain('## Project Map');
     expect(md).not.toContain('## Known False Positives');
-    expect(md).toContain('Engram Orchestration Protocol');
+    // Still has the workflow pointer + tier vocabulary
+    expect(md).toContain('engram_get_workflow');
+  });
+});
+
+describe('spliceEngramBlock', () => {
+  it('replaces only the in-marker block, preserving surrounding content', async () => {
+    const { spliceEngramBlock, ENGRAM_MARKER_START, ENGRAM_MARKER_END } = await import('../src/generators/claude-md.js');
+    const existing = `# My Project
+
+Some user content above.
+
+${ENGRAM_MARKER_START}
+old engram block
+${ENGRAM_MARKER_END}
+
+Some user content below.
+`;
+    const newBlock = `${ENGRAM_MARKER_START}\nnew engram block\n${ENGRAM_MARKER_END}`;
+    const { content, mode } = spliceEngramBlock(existing, newBlock);
+    expect(mode).toBe('replaced');
+    expect(content).toContain('Some user content above');
+    expect(content).toContain('Some user content below');
+    expect(content).toContain('new engram block');
+    expect(content).not.toContain('old engram block');
   });
 
-  it('includes effort scaling (not fake token numbers)', () => {
-    const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Effort Scaling');
-    expect(md).toContain('Trivial');
-    expect(md).toContain('Standard');
-    expect(md).toContain('Complex');
-    expect(md).not.toContain('~5-8k tokens');
-    expect(md).not.toContain('~20-30k tokens');
-    expect(md).toContain('proven, not estimated');
-  });
-
-  it('includes handoff protocol', () => {
-    const md = generateClaudeMd(testConfig);
-    expect(md).toContain('Handoff Protocol');
-    expect(md).toContain('Failed Attempts');
-  });
-
-  it('includes LEARN enforcement', () => {
-    const md = generateClaudeMd(testConfig);
-    expect(md).toContain('MANDATORY, NEVER SKIP');
-    expect(md).toContain('LEARN complete');
+  it('returns sidecar-needed when no markers exist', async () => {
+    const { spliceEngramBlock } = await import('../src/generators/claude-md.js');
+    const existing = `# My Project\n\nThis CLAUDE.md is user-curated.\n`;
+    const { mode } = spliceEngramBlock(existing, '## new content');
+    expect(mode).toBe('sidecar-needed');
   });
 });
 

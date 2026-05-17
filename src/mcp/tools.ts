@@ -13,7 +13,7 @@ import {
   handleReflect, handleGetSuggestions, handleLoadSession,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
-  handleSaveSessionSummary, handleSearchSessions,
+  handleSaveSessionSummary, handleSearchSessions, handleGetWorkflow,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -186,6 +186,16 @@ export function getToolDefinitions(): ToolDef[] {
         required: ['query'],
       },
     },
+    {
+      name: 'engram_get_workflow',
+      description: 'Fetch the workflow protocol depth for a specific phase. CLAUDE.md is intentionally thin — call this when you need the actual procedure. Valid phases: overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools. Call with no phase to list all available sections.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          phase: { type: 'string', description: 'Phase or section name (e.g., "research", "tdd"). Omit to list all sections.' },
+        },
+      },
+    },
   ];
 }
 
@@ -216,6 +226,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_get_suggestions: handleGetSuggestions,
   engram_save_session_summary: handleSaveSessionSummary,
   engram_search_sessions: handleSearchSessions,
+  engram_get_workflow: handleGetWorkflow,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

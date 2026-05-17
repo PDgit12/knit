@@ -16,6 +16,7 @@ import {
 } from '../engine/paths.js';
 import { appendSession, searchSessions, getRecentSessions, sessionCount } from '../engine/sessions.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
+import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -738,6 +739,44 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
     id: entry.id,
     summary: entry.summary,
     instruction: 'Session summary recorded. Future engram_search_sessions calls can find this.',
+  });
+}
+
+/**
+ * Fetch protocol depth for a specific workflow phase. CLAUDE.md is intentionally
+ * thin — this is how agents pull the actual procedure when they need it.
+ */
+export function handleGetWorkflow(params: Record<string, string>, brain: BrainCache): string {
+  const phase = (params.phase || '').trim().toLowerCase();
+
+  if (!phase) {
+    return JSON.stringify({
+      sections: listWorkflowSections(),
+      instruction: 'Call engram_get_workflow with one of the section names to fetch its content.',
+    });
+  }
+
+  const buildCommands = {
+    typecheck: brain.config.stack.typecheckCommand ?? undefined,
+    lint: brain.config.stack.lintCommand ?? undefined,
+    test: brain.config.stack.testFramework
+      ? `${brain.config.packageManager === 'unknown' ? 'npm' : brain.config.packageManager} test`
+      : undefined,
+    build: brain.config.stack.buildCommand ?? undefined,
+  };
+
+  const content = getWorkflowSection(phase, { buildCommands });
+  if (content === null) {
+    return JSON.stringify({
+      error: `Unknown phase: "${phase}".`,
+      available: listWorkflowSections().map((s) => s.name),
+    });
+  }
+
+  return JSON.stringify({
+    phase,
+    content,
+    instruction: 'Apply this section to the current task. For another phase, call engram_get_workflow again with that phase name.',
   });
 }
 
