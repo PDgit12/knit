@@ -21,7 +21,7 @@ import {
   handleSpawnTeamWorktree, handleListTeamWorktrees, handleFinalizeTeamWorktree,
   handleRecordGlobalLearning, handleSearchGlobalLearnings,
   handleReflect, handleGetSuggestions,
-  handleInstallAgent,
+  handleInstallAgent, handlePruneSessions,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -175,6 +175,16 @@ export function getToolDefinitions(): ToolDef[] {
       },
     },
     {
+      name: 'engram_prune_sessions',
+      description: 'Prune entries older than max_age_days (default 90) from this project\'s sessions.jsonl. Atomic rewrite. Also runs automatically on auto-init.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          max_age_days: { type: 'string', description: 'Maximum age in days (default 90).' },
+        },
+      },
+    },
+    {
       name: 'engram_search_sessions',
       description: 'Search past sessions by free text over summary + tags + branch. Check before duplicating prior work.',
       inputSchema: {
@@ -314,6 +324,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_load_session: handleLoadSession,
   engram_save_session_summary: handleSaveSessionSummary,
   engram_search_sessions: handleSearchSessions,
+  engram_prune_sessions: handlePruneSessions,
   engram_get_workflow: handleGetWorkflow,
   engram_spawn_team_worktree: handleSpawnTeamWorktree,
   engram_list_team_worktrees: handleListTeamWorktrees,

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sessionsJsonlPath, projectDataDir } from './paths.js';
 import type { SessionSummary } from './types.js';
@@ -66,6 +66,66 @@ export function sessionCount(rootPath: string): number {
   return readAllLines(rootPath).length;
 }
 
+/**
+ * Prune session entries older than `maxAgeDays` from sessions.jsonl.
+ *
+ * Treats each entry's `date` field (ISO YYYY-MM-DD) as midnight UTC, compares
+ * against `now - maxAgeDays * 86400000` ms. Entries with missing or
+ * unparseable dates are conservatively KEPT — we never discard data we can't
+ * confidently classify as stale.
+ *
+ * Rewrites the file atomically via temp + renameSync to avoid leaving a
+ * half-written log if the process is killed mid-write.
+ */
+export function pruneSessionsByAge(
+  rootPath: string,
+  maxAgeDays: number,
+): { kept: number; pruned: number } {
+  const path = sessionsJsonlPath(rootPath);
+  if (!existsSync(path)) return { kept: 0, pruned: 0 };
+
+  const lines = readAllLines(rootPath);
+  if (lines.length === 0) return { kept: 0, pruned: 0 };
+
+  const cutoffMs = Date.now() - maxAgeDays * 86400000;
+
+  const keptLines: string[] = [];
+  let pruned = 0;
+
+  for (const line of lines) {
+    const entry = parseLine(line);
+    if (!entry) {
+      // Unparseable: keep (don't silently lose data we can't classify).
+      keptLines.push(line);
+      continue;
+    }
+    const dateMs = parseDateUtc(entry.date);
+    if (dateMs === null) {
+      // Corrupted/missing date: keep.
+      keptLines.push(line);
+      continue;
+    }
+    if (dateMs >= cutoffMs) {
+      keptLines.push(line);
+    } else {
+      pruned++;
+    }
+  }
+
+  if (pruned === 0) {
+    return { kept: keptLines.length, pruned: 0 };
+  }
+
+  // Atomic rewrite: temp file + rename. Same pattern as the worktree registry.
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  const body = keptLines.length === 0 ? '' : keptLines.join('\n') + '\n';
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(tmpPath, body, 'utf-8');
+  renameSync(tmpPath, path);
+
+  return { kept: keptLines.length, pruned };
+}
+
 // ── internals ────────────────────────────────────────────────────
 
 function readAllLines(rootPath: string): string[] {
@@ -80,6 +140,20 @@ function readAllLines(rootPath: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** Parse YYYY-MM-DD as midnight UTC. Returns null for malformed input. */
+function parseDateUtc(date: string): number | null {
+  if (typeof date !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const ms = Date.UTC(y, mo - 1, d);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function parseLine(line: string): SessionSummary | null {

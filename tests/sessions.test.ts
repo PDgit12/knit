@@ -7,6 +7,7 @@ import {
   searchSessions,
   getRecentSessions,
   sessionCount,
+  pruneSessionsByAge,
 } from '../src/engine/sessions.js';
 import { sessionsJsonlPath } from '../src/engine/paths.js';
 import type { SessionSummary } from '../src/engine/types.js';
@@ -148,6 +149,94 @@ describe('sessions', () => {
       expect(sessionCount(PROJECT)).toBe(1);
       appendSession(PROJECT, makeEntry({ id: '2' }));
       expect(sessionCount(PROJECT)).toBe(2);
+    });
+  });
+
+  describe('pruneSessionsByAge', () => {
+    function isoDaysAgo(days: number): string {
+      const d = new Date(Date.now() - days * 86400000);
+      return d.toISOString().split('T')[0];
+    }
+
+    it('returns 0/0 when sessions.jsonl does not exist', () => {
+      const result = pruneSessionsByAge(PROJECT, 30);
+      expect(result).toEqual({ kept: 0, pruned: 0 });
+    });
+
+    it('prunes entries older than the cutoff and keeps newer ones', () => {
+      appendSession(PROJECT, makeEntry({ id: 'ancient', date: isoDaysAgo(120), summary: 'ancient' }));
+      appendSession(PROJECT, makeEntry({ id: 'old', date: isoDaysAgo(100), summary: 'old' }));
+      appendSession(PROJECT, makeEntry({ id: 'recent', date: isoDaysAgo(10), summary: 'recent' }));
+      appendSession(PROJECT, makeEntry({ id: 'today', date: isoDaysAgo(0), summary: 'today' }));
+
+      const result = pruneSessionsByAge(PROJECT, 90);
+      expect(result.pruned).toBe(2);
+      expect(result.kept).toBe(2);
+
+      const remaining = getRecentSessions(PROJECT, 10);
+      const ids = remaining.map((r) => r.id).sort();
+      expect(ids).toEqual(['recent', 'today']);
+    });
+
+    it('keeps entries with corrupted or missing dates', () => {
+      const path = sessionsJsonlPath(PROJECT);
+      mkdirSync(dirname(path), { recursive: true });
+      const lines = [
+        JSON.stringify({ id: 'bad-date', date: 'not-a-date', outcome: 'unknown', summary: 'corrupt' }),
+        JSON.stringify({ id: 'ancient', date: isoDaysAgo(200), outcome: 'unknown', summary: 'ancient' }),
+        JSON.stringify({ id: 'fresh', date: isoDaysAgo(1), outcome: 'unknown', summary: 'fresh' }),
+      ];
+      writeFileSync(path, lines.join('\n') + '\n', 'utf-8');
+
+      const result = pruneSessionsByAge(PROJECT, 90);
+      expect(result.pruned).toBe(1); // only 'ancient' is provably stale
+      expect(result.kept).toBe(2);   // 'bad-date' kept conservatively + 'fresh'
+
+      const content = readFileSync(path, 'utf-8');
+      expect(content).toContain('bad-date');
+      expect(content).toContain('fresh');
+      expect(content).not.toContain('ancient');
+    });
+
+    it('returns correct counts and rewrites file with one JSON per line', () => {
+      appendSession(PROJECT, makeEntry({ id: 'a', date: isoDaysAgo(200), summary: 'a' }));
+      appendSession(PROJECT, makeEntry({ id: 'b', date: isoDaysAgo(150), summary: 'b' }));
+      appendSession(PROJECT, makeEntry({ id: 'c', date: isoDaysAgo(5), summary: 'c' }));
+
+      const result = pruneSessionsByAge(PROJECT, 90);
+      expect(result).toEqual({ kept: 1, pruned: 2 });
+
+      const content = readFileSync(sessionsJsonlPath(PROJECT), 'utf-8');
+      // File ends with a single newline; no double newlines mid-file.
+      expect(content.endsWith('\n')).toBe(true);
+      expect(content).not.toMatch(/\n\n/);
+      const parsedLines = content.split('\n').filter(Boolean);
+      expect(parsedLines).toHaveLength(1);
+      const parsed = JSON.parse(parsedLines[0]);
+      expect(parsed.id).toBe('c');
+    });
+
+    it('no-op when nothing is older than cutoff (file unchanged)', () => {
+      appendSession(PROJECT, makeEntry({ id: 'a', date: isoDaysAgo(2), summary: 'a' }));
+      appendSession(PROJECT, makeEntry({ id: 'b', date: isoDaysAgo(1), summary: 'b' }));
+
+      const before = readFileSync(sessionsJsonlPath(PROJECT), 'utf-8');
+      const result = pruneSessionsByAge(PROJECT, 90);
+      expect(result).toEqual({ kept: 2, pruned: 0 });
+      const after = readFileSync(sessionsJsonlPath(PROJECT), 'utf-8');
+      expect(after).toBe(before);
+    });
+
+    it('produces an empty file when every entry is stale', () => {
+      appendSession(PROJECT, makeEntry({ id: 'a', date: isoDaysAgo(500), summary: 'a' }));
+      appendSession(PROJECT, makeEntry({ id: 'b', date: isoDaysAgo(400), summary: 'b' }));
+
+      const result = pruneSessionsByAge(PROJECT, 90);
+      expect(result).toEqual({ kept: 0, pruned: 2 });
+
+      const content = readFileSync(sessionsJsonlPath(PROJECT), 'utf-8');
+      expect(content).toBe('');
+      expect(sessionCount(PROJECT)).toBe(0);
     });
   });
 
