@@ -6,14 +6,15 @@ import { scanProject } from '../engine/scanner.js';
 import { buildKnowledge } from '../engine/knowledge.js';
 import { findFalsePositives } from '../engine/learnings.js';
 import { generateClaudeMd } from '../generators/claude-md.js';
+import { knowledgePath, learningsDir, projectDataDir } from '../engine/paths.js';
 import type { EngramConfig } from '../engine/types.js';
 
 export async function refreshCommand(targetDir: string): Promise<void> {
   const rootPath = targetDir === '.' ? process.cwd() : targetDir;
 
-  // Verify engram is initialized
-  if (!existsSync(join(rootPath, 'CLAUDE.md')) || !existsSync(join(rootPath, '.claude'))) {
-    console.log(chalk.red('  No Engram setup found. Run `engram init` first.'));
+  // Verify engram is initialized (either centralized or legacy)
+  if (!existsSync(join(rootPath, 'CLAUDE.md')) || !existsSync(projectDataDir(rootPath))) {
+    console.log(chalk.red('  No Engram setup found. Open this project in Claude Code with the Engram MCP — it will auto-initialize.'));
     process.exit(1);
   }
 
@@ -32,12 +33,12 @@ export async function refreshCommand(targetDir: string): Promise<void> {
   );
 
   // Extract false positives from learnings
-  const learningsDir = join(rootPath, '.claude', 'learnings');
-  const learningsFiles = existsSync(learningsDir)
-    ? readdirSync(learningsDir).filter((f) => f.endsWith('.md'))
+  const learnDir = learningsDir(rootPath);
+  const learningsFiles = existsSync(learnDir)
+    ? readdirSync(learnDir).filter((f) => f.endsWith('.md'))
     : [];
   const falsePositives = learningsFiles.flatMap((f) =>
-    findFalsePositives(join(learningsDir, f))
+    findFalsePositives(join(learnDir, f))
   );
 
   // Infer project name
@@ -63,7 +64,7 @@ export async function refreshCommand(targetDir: string): Promise<void> {
   // Regenerate CLAUDE.md
   const genSpinner = ora({ text: chalk.dim('Regenerating CLAUDE.md...'), spinner: 'dots' }).start();
   writeFileSync(join(rootPath, 'CLAUDE.md'), generateClaudeMd(config, knowledge, falsePositives), 'utf-8');
-  writeFileSync(join(rootPath, '.claude/knowledge.json'), JSON.stringify(knowledge, null, 2), 'utf-8');
+  writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
   genSpinner.succeed(chalk.dim('CLAUDE.md + knowledge.json updated'));
 
   // Report

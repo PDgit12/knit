@@ -11,6 +11,9 @@ import type { TeamFinding } from '../engine/types.js';
 import { scanProject } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
 import {
+  knowledgebasePath, learningsDir, teamsPath, sessionsLogPath,
+} from '../engine/paths.js';
+import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
   getOtherTeamFindings, getBoardSummary,
@@ -236,16 +239,15 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   };
 
   addEntry(brain.knowledgeBase, entry);
-  const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
-  saveKnowledgeBase(kbPath, brain.knowledgeBase);
+  saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
 
   // Also append to markdown learnings file
-  const learningsDir = join(brain.rootPath, '.claude/learnings');
-  const mdFiles = existsSync(learningsDir)
-    ? readdirSync(learningsDir).filter((f: string) => f.endsWith('.md') && f !== 'sessions.md')
+  const learnDir = learningsDir(brain.rootPath);
+  const mdFiles = existsSync(learnDir)
+    ? readdirSync(learnDir).filter((f: string) => f.endsWith('.md') && f !== 'sessions.md')
     : [];
   if (mdFiles.length > 0) {
-    const mdPath = join(learningsDir, mdFiles[0]);
+    const mdPath = join(learnDir, mdFiles[0]);
     const mdEntry = `\n## ${date} ${entry.summary}\n**Domain(s):** ${entry.domains.join(', ')}\n**Approach:** ${entry.approach}\n**Outcome:** ${entry.outcome}\n**Lesson:** ${entry.lesson}\n**Tags:** ${entry.tags.join(' ')}\n`;
     const existing = readFileSync(mdPath, 'utf-8');
     writeFileSync(mdPath, existing + mdEntry, 'utf-8');
@@ -272,8 +274,7 @@ export function handleRecordFalsePositive(params: Record<string, string>, brain:
   };
 
   addEntry(brain.knowledgeBase, entry);
-  const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
-  saveKnowledgeBase(kbPath, brain.knowledgeBase);
+  saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
 
   return JSON.stringify({
     status: 'recorded', summary: entry.summary,
@@ -323,8 +324,7 @@ export function handleSetupProject(params: Record<string, string>, brain: BrainC
     lesson: `This is a ${projectType} project. Key domains: ${domainNames.join(', ')}`,
     tags: ['#project-setup', ...domainNames.map((d) => `#${d.toLowerCase().replace(/\s+/g, '-')}`)],
   });
-  const kbPath = join(brain.rootPath, '.claude/knowledgebase.json');
-  saveKnowledgeBase(kbPath, brain.knowledgeBase);
+  saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
 
   return JSON.stringify({
     status: 'configured',
@@ -578,10 +578,10 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
   const root = brain.rootPath;
 
   // 1. Last session info
-  const sessionsPath = join(root, '.claude/learnings/sessions.md');
+  const sessionsFile = sessionsLogPath(root);
   let lastSession = null;
-  if (existsSync(sessionsPath)) {
-    const content = readFileSync(sessionsPath, 'utf-8');
+  if (existsSync(sessionsFile)) {
+    const content = readFileSync(sessionsFile, 'utf-8');
     const sessions = content.split(/^## Session/m).slice(1);
     if (sessions.length > 0) {
       const last = sessions[sessions.length - 1].trim();
@@ -609,11 +609,11 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
     .map((e) => ({ summary: e.summary, lesson: e.lesson }));
 
   // 5. Custom teams
-  const teamsPath = join(root, '.claude/teams.json');
+  const teamsFile = teamsPath(root);
   let teams: string[] = [];
-  if (existsSync(teamsPath)) {
+  if (existsSync(teamsFile)) {
     try {
-      const t = JSON.parse(readFileSync(teamsPath, 'utf-8'));
+      const t = JSON.parse(readFileSync(teamsFile, 'utf-8'));
       teams = t.map((team: any) => team.name);
     } catch { /* skip */ }
   }

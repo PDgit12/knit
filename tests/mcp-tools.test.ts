@@ -1,7 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase } from '../src/engine/types.js';
+
+// Sandbox engram data writes into a temp dir so tests don't touch ~/.engram/
+let engramHome: string;
+beforeAll(() => {
+  engramHome = mkdtempSync(join(tmpdir(), 'engram-test-'));
+  process.env.ENGRAM_HOME = engramHome;
+});
+afterAll(() => {
+  delete process.env.ENGRAM_HOME;
+  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+});
 
 // Mock brain cache for testing
 function createMockBrain(): BrainCache {

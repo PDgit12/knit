@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import type { AgentTeam, TeamFinding, TeamBoard, Domain } from './types.js';
+import { teamsPath } from './paths.js';
 
 /** Default teams generated from detected domains */
 export function buildDefaultTeams(domains: Domain[]): AgentTeam[] {
@@ -224,17 +225,15 @@ export function getBoardSummary(taskId?: string): {
 
 // ── Custom Teams (user-defined) ──────────────────────────────────
 
-const TEAMS_FILE = '.claude/teams.json';
-
 /** Load custom teams from project config */
 export function loadCustomTeams(rootPath: string): AgentTeam[] | null {
-  const teamsPath = join(rootPath, TEAMS_FILE);
-  if (!existsSync(teamsPath)) return null;
+  const teamsFile = teamsPath(rootPath);
+  if (!existsSync(teamsFile)) return null;
 
   try {
-    const stat = statSync(teamsPath);
+    const stat = statSync(teamsFile);
     if (stat.size > 10 * 1024 * 1024) return null; // 10MB guard
-    const teams = JSON.parse(readFileSync(teamsPath, 'utf-8'));
+    const teams = JSON.parse(readFileSync(teamsFile, 'utf-8'));
     if (!Array.isArray(teams)) return null;
     return teams;
   } catch {
@@ -244,8 +243,8 @@ export function loadCustomTeams(rootPath: string): AgentTeam[] | null {
 
 /** Save custom teams to project config */
 export function saveCustomTeams(rootPath: string, teams: AgentTeam[]): void {
-  const teamsPath = join(rootPath, TEAMS_FILE);
-  const dir = dirname(teamsPath);
+  const teamsFile = teamsPath(rootPath);
+  const dir = dirname(teamsFile);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(teamsPath, JSON.stringify(teams, null, 2), 'utf-8');
+  writeFileSync(teamsFile, JSON.stringify(teams, null, 2), 'utf-8');
 }

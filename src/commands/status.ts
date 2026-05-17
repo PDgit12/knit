@@ -3,22 +3,23 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { loadKnowledgeBase, getKBSummary, getTopEntries, getStaleEntries } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
+import { knowledgePath, knowledgebasePath, learningsDir } from '../engine/paths.js';
 
 export async function statusCommand(targetDir: string): Promise<void> {
   const rootPath = targetDir === '.' ? process.cwd() : targetDir;
-  const kbPath = join(rootPath, '.claude/knowledgebase.json');
-  const knowledgePath = join(rootPath, '.claude/knowledge.json');
+  const kbPath = knowledgebasePath(rootPath);
+  const knowledgeIndexPath = knowledgePath(rootPath);
 
-  if (!existsSync(kbPath) && !existsSync(knowledgePath)) {
+  if (!existsSync(kbPath) && !existsSync(knowledgeIndexPath)) {
     console.log(chalk.yellow('  No Engram data found. The brain will auto-initialize when you open this project in Claude Code.'));
     console.log();
     return;
   }
 
   // ── Knowledge Index ────────────────────────────────────────────
-  if (existsSync(knowledgePath)) {
+  if (existsSync(knowledgeIndexPath)) {
     try {
-      const knowledge = JSON.parse(readFileSync(knowledgePath, 'utf-8'));
+      const knowledge = JSON.parse(readFileSync(knowledgeIndexPath, 'utf-8'));
       const s = knowledge.summary;
 
       console.log(chalk.bold('  Knowledge Index'));
@@ -127,21 +128,21 @@ export async function statusCommand(targetDir: string): Promise<void> {
   }
 
   // ── Learnings files ────────────────────────────────────────────
-  const learningsDir = join(rootPath, '.claude/learnings');
-  if (existsSync(learningsDir)) {
-    const files = readdirSync(learningsDir).filter((f) => f.endsWith('.md') && f !== 'sessions.md');
+  const learnDir = learningsDir(rootPath);
+  if (existsSync(learnDir)) {
+    const files = readdirSync(learnDir).filter((f) => f.endsWith('.md') && f !== 'sessions.md');
     if (files.length > 0) {
       console.log();
       console.log(chalk.bold('  Learnings Files'));
       console.log();
       for (const file of files) {
-        const entries = readLearnings(join(learningsDir, file));
+        const entries = readLearnings(join(learnDir, file));
         console.log(`  ${chalk.dim(file.padEnd(30))} ${entries.length} entries`);
       }
     }
 
     // Session log
-    const sessionsPath = join(learningsDir, 'sessions.md');
+    const sessionsPath = join(learnDir, 'sessions.md');
     if (existsSync(sessionsPath)) {
       const content = readFileSync(sessionsPath, 'utf-8');
       const sessionCount = (content.match(/^## Session/gm) || []).length;
