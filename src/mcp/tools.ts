@@ -10,7 +10,7 @@ import {
   handleGetFalsePositives, handleBrainStatus,
   handleClassifyTask, handleBuildContext, handleRecordLearning,
   handleRecordFalsePositive, handleSaveHandoff, handleSetupProject,
-  handleReflect, handleGetSuggestions,
+  handleReflect, handleGetSuggestions, handleLoadSession,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
 } from './handlers.js';
@@ -141,6 +141,12 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Get cross-team findings summary with severity gate.',
       inputSchema: { type: 'object', properties: {} },
     },
+    // ── Session management ─────────────────────────────────────────
+    {
+      name: 'engram_load_session',
+      description: 'CALL THIS AT SESSION START. Loads your complete context in one call: last session state, handoff (unfinished work), top learnings, false positives, patterns, teams, project knowledge. One call = full memory restored.',
+      inputSchema: { type: 'object', properties: {} },
+    },
     // ── Reflection / Soul tools ──────────────────────────────────
     {
       name: 'engram_reflect',
@@ -177,6 +183,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_get_team_prompt: handleGetTeamPrompt,
   engram_post_team_findings: handlePostTeamFindings,
   engram_get_board_summary: handleGetBoardSummary,
+  engram_load_session: handleLoadSession,
   engram_reflect: handleReflect,
   engram_get_suggestions: handleGetSuggestions,
 };

@@ -16,7 +16,6 @@ import {
   getOtherTeamFindings, getBoardSummary,
 } from '../engine/teams.js';
 
-// ── Shared helpers ───────────────────────────────────────────────
 
 export function detectDomainsFromFiles(files: string[]): Set<string> {
   const domains = new Set<string>();
@@ -32,7 +31,6 @@ export function detectDomainsFromFiles(files: string[]): Set<string> {
 
 const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 
-// ── Query handlers ───────────────────────────────────────────────
 
 export function handleQueryImports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
@@ -147,7 +145,6 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
   });
 }
 
-// ── Action handlers ──────────────────────────────────────────────
 
 export function handleClassifyTask(params: Record<string, string>, brain: BrainCache): string {
   const rawFiles = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
@@ -292,7 +289,6 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
 
-// ── Project setup (universal — code and non-code) ────────────────
 
 export function handleSetupProject(params: Record<string, string>, brain: BrainCache): string {
   const description = params.description || '';
@@ -417,7 +413,6 @@ function inferDomainsFromDescription(description: string, projectType: string): 
   return ['planning', 'research', 'execution', 'review', 'delivery'];
 }
 
-// ── Team handlers ────────────────────────────────────────────────
 
 export function handleGetTeams(_params: Record<string, string>, brain: BrainCache): string {
   const custom = loadCustomTeams(brain.rootPath);
@@ -525,7 +520,6 @@ export function handleGetBoardSummary(_params: Record<string, string>, _brain: B
   });
 }
 
-// ── Reflection / Soul handlers ───────────────────────────────────
 
 import { reflect, getAdaptiveSuggestions } from '../engine/reflect.js';
 
@@ -574,5 +568,96 @@ export function handleGetSuggestions(params: Record<string, string>, brain: Brai
     domains_queried: domains,
     suggestions,
     message: `${suggestions.length} adaptive suggestions based on past patterns.`,
+  });
+}
+
+
+export function handleLoadSession(_params: Record<string, string>, brain: BrainCache): string {
+  
+
+  const root = brain.rootPath;
+
+  // 1. Last session info
+  const sessionsPath = join(root, '.claude/learnings/sessions.md');
+  let lastSession = null;
+  if (existsSync(sessionsPath)) {
+    const content = readFileSync(sessionsPath, 'utf-8');
+    const sessions = content.split(/^## Session/m).slice(1);
+    if (sessions.length > 0) {
+      const last = sessions[sessions.length - 1].trim();
+      lastSession = last.slice(0, 300); // truncate
+    }
+  }
+
+  // 2. Handoff (in-progress work from last session)
+  const handoffPath = join(root, 'handoff.md');
+  let handoff = null;
+  if (existsSync(handoffPath)) {
+    handoff = readFileSync(handoffPath, 'utf-8').slice(0, 2000);
+  }
+
+  // 3. Top learnings (most accessed — the ones that actually matter)
+  const topLearnings = brain.knowledgeBase.entries
+    .filter((e) => e.accessCount > 0)
+    .sort((a, b) => b.accessCount - a.accessCount)
+    .slice(0, 5)
+    .map((e) => ({ summary: e.summary, lesson: e.lesson, tags: e.tags, accessed: e.accessCount }));
+
+  // 4. False positives (agents need these to not re-report)
+  const fps = brain.knowledgeBase.entries
+    .filter((e) => e.tags.includes('#false-positive'))
+    .map((e) => ({ summary: e.summary, lesson: e.lesson }));
+
+  // 5. Custom teams
+  const teamsPath = join(root, '.claude/teams.json');
+  let teams: string[] = [];
+  if (existsSync(teamsPath)) {
+    try {
+      const t = JSON.parse(readFileSync(teamsPath, 'utf-8'));
+      teams = t.map((team: any) => team.name);
+    } catch { /* skip */ }
+  }
+
+  // 6. Project knowledge summary
+  const knowledge = {
+    files: brain.knowledge.summary.totalFiles,
+    imports: Object.keys(brain.knowledge.importGraph).length,
+    high_fanout: brain.knowledge.summary.highFanoutFiles,
+    untested: brain.knowledge.summary.untestedFiles.slice(0, 5),
+  };
+
+  // 7. Session metrics
+  const metrics = {
+    total_sessions: brain.knowledgeBase.metrics.totalSessions,
+    total_learnings: brain.knowledgeBase.entries.length,
+    cache_hits: brain.knowledgeBase.metrics.cacheHits,
+  };
+
+  // 8. Patterns (from reflection engine)
+  const patterns = reflect(brain.knowledgeBase)
+    .slice(0, 3)
+    .map((p: any) => ({ type: p.type, description: p.description, confidence: p.confidence }));
+
+  return JSON.stringify({
+    session_context: {
+      last_session: lastSession,
+      handoff: handoff,
+      has_unfinished_work: handoff !== null,
+    },
+    intelligence: {
+      top_learnings: topLearnings,
+      false_positives: fps,
+      patterns,
+    },
+    project: {
+      knowledge,
+      teams,
+      metrics,
+    },
+    instruction: handoff
+      ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
+      : topLearnings.length > 0
+        ? `Session loaded. ${topLearnings.length} key learnings available. ${fps.length} false positives to suppress. Call engram_classify_task to begin.`
+        : 'Fresh brain — no past learnings yet. Call engram_classify_task to begin your first task.',
   });
 }
