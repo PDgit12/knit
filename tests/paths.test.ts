@@ -17,6 +17,7 @@ import {
   legacyTeamsPath,
   legacyLearningsDir,
   migrationBreadcrumbPath,
+  projectAgentFile,
 } from '../src/engine/paths.js';
 
 describe('paths', () => {
@@ -95,6 +96,17 @@ describe('paths', () => {
     });
     it('migrationBreadcrumbPath lives in the legacy .claude dir', () => {
       expect(migrationBreadcrumbPath(PROJECT)).toBe(join(PROJECT, '.claude/MIGRATED.txt'));
+    });
+  });
+
+  describe('projectAgentFile', () => {
+    it('composes engram-<name>.md for a bare name', () => {
+      expect(projectAgentFile(PROJECT, 'typescript-pro'))
+        .toBe(join(PROJECT, '.claude/agents/engram-typescript-pro.md'));
+    });
+    it('strips a leading engram- prefix to avoid double-prefixing', () => {
+      expect(projectAgentFile(PROJECT, 'engram-typescript-pro'))
+        .toBe(join(PROJECT, '.claude/agents/engram-typescript-pro.md'));
     });
   });
 

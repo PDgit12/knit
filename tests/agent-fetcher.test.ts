@@ -79,24 +79,26 @@ describe('agent-fetcher', () => {
 
   describe('tier 2 — local cache', () => {
     it('reads from cache without touching network on second call', async () => {
-      // First call: stub fetch returns content, gets cached
+      // First call: stub fetch returns content, gets cached (with attribution injected)
       const cachedBody = FAKE_AGENT_MD + '\n<!-- first fetch -->\n';
       let callCount = 0;
       const stub = () => {
         callCount++;
         return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(cachedBody) });
       };
-      await fetchAgent('debugger', { fetchFn: stub as never });
+      const first = await fetchAgent('debugger', { fetchFn: stub as never });
       expect(callCount).toBe(1);
+      // Attribution must have been prepended so MIT notice ships downstream
+      expect(first).toContain('VoltAgent/awesome-claude-code-subagents');
 
       // Second call: should hit cache, not call stub again
       const noNetwork = () => { throw new Error('Cache miss — fetched again'); };
       const got = await fetchAgent('debugger', { fetchFn: noNetwork as never });
-      expect(got).toBe(cachedBody);
+      expect(got).toBe(first);
       expect(callCount).toBe(1);
     });
 
-    it('writes the cached file to the correct path', async () => {
+    it('writes the cached file to the correct path with attribution', async () => {
       const stub = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
       await fetchAgent('debugger', { fetchFn: stub as never });
 
@@ -104,7 +106,49 @@ describe('agent-fetcher', () => {
       const ref = (await import('../src/engine/agent-registry.js')).VOLTAGENT_PINNED_SHA;
       const expected = agentsCacheFile(ref, '04-quality-security', 'debugger');
       expect(existsSync(expected)).toBe(true);
-      expect(readFileSync(expected, 'utf-8')).toBe(FAKE_AGENT_MD);
+      const cached = readFileSync(expected, 'utf-8');
+      expect(cached).toContain('You are a fake TypeScript expert');  // original body preserved
+      expect(cached).toContain('VoltAgent/awesome-claude-code-subagents');  // attribution
+      expect(cached).toContain('License: MIT');
+    });
+  });
+
+  describe('attribution + prefixed names', () => {
+    it('prepends VoltAgent attribution after the YAML frontmatter on fetch', async () => {
+      const stub = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
+      const got = await fetchAgent('debugger', { fetchFn: stub as never });
+
+      expect(got).toContain('VoltAgent/awesome-claude-code-subagents');
+      expect(got).toContain('License: MIT');
+      // Attribution sits after frontmatter (---) and before the prompt body
+      const fmEnd = got.indexOf('\n---', 3);
+      const attrIdx = got.indexOf('VoltAgent/awesome-claude-code-subagents');
+      const bodyIdx = got.indexOf('You are a fake TypeScript expert');
+      expect(attrIdx).toBeGreaterThan(fmEnd);
+      expect(bodyIdx).toBeGreaterThan(attrIdx);
+    });
+
+    it('accepts an engram- prefixed name and fetches the bare agent', async () => {
+      const stub = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
+      const got = await fetchAgent('engram-debugger', { fetchFn: stub as never });
+
+      expect(got).toContain('You are a fake TypeScript expert');
+      expect(got).toContain('VoltAgent/awesome-claude-code-subagents');
+
+      // And the cache file should be written under the bare name
+      const ref = (await import('../src/engine/agent-registry.js')).VOLTAGENT_PINNED_SHA;
+      const expected = agentsCacheFile(ref, '04-quality-security', 'debugger');
+      expect(existsSync(expected)).toBe(true);
+    });
+
+    it('reads a prefixed bundled-core name without network', async () => {
+      writeFileSync(join(bundledDir, 'typescript-pro.md'), FAKE_AGENT_MD, 'utf-8');
+      const noNetwork = () => { throw new Error('Network should not be called'); };
+      const got = await fetchAgent('engram-typescript-pro', {
+        bundledCoreDir: bundledDir,
+        fetchFn: noNetwork as never,
+      });
+      expect(got).toContain('fake TypeScript expert');
     });
   });
 

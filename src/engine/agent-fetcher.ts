@@ -6,8 +6,45 @@ import {
   isBundledCore,
   rawAgentUrl,
   VOLTAGENT_REF,
+  VOLTAGENT_PINNED_SHA,
 } from './agent-registry.js';
 import { agentsCacheFile } from './paths.js';
+
+/** Strip the `engram-` prefix so internal lookups always use the bare name. */
+function bareName(name: string): string {
+  return name.replace(/^engram-/, '');
+}
+
+/**
+ * Build the VoltAgent attribution comment, mirroring scripts/vendor-agents.mjs.
+ * Embedded into freshly fetched agents (and cached) so redistributed copies
+ * carry the upstream notice — MIT requires preserving the source.
+ */
+function attributionComment(name: string, category: string, ref: string): string {
+  return `<!--
+  Vendored by engram from:
+    https://github.com/VoltAgent/awesome-claude-code-subagents
+    @${ref}/categories/${category}/${name}.md
+  License: MIT (see github.com/VoltAgent/awesome-claude-code-subagents/blob/main/LICENSE).
+  This file was copied verbatim with this header prepended; the original
+  YAML frontmatter and prompt content are unchanged.
+-->
+`;
+}
+
+/**
+ * Inject the attribution comment after the closing `---` of the YAML
+ * frontmatter and before the prompt body. If frontmatter cannot be found,
+ * return the body unchanged (we still surface the source via the cache
+ * path; clobbering the file would be worse).
+ */
+function injectAttribution(body: string, name: string, category: string, ref: string): string {
+  const fmEnd = body.indexOf('\n---', 3);  // second '---' closes frontmatter
+  if (fmEnd < 0) return body;
+  const head = body.slice(0, fmEnd + 4);   // include closing '---\n'
+  const tail = body.slice(fmEnd + 4);
+  return `${head}\n${attributionComment(name, category, ref)}${tail}`;
+}
 
 /**
  * Fetches VoltAgent subagent definitions, with three tiers of resolution:
@@ -48,21 +85,23 @@ export class AgentFetchError extends Error {
  * then local cache, then network. Caches successful network fetches.
  */
 export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promise<string> {
+  const bare = bareName(name);
+
   // Tier 1 — bundled core (zero network)
-  if (isBundledCore(name)) {
-    const bundled = readBundledCore(name, opts.bundledCoreDir);
+  if (isBundledCore(bare)) {
+    const bundled = readBundledCore(bare, opts.bundledCoreDir);
     if (bundled !== null) return bundled;
     // fall through if bundled file missing (build artifact issue; treat as cacheable)
   }
 
   const ref = opts.ref || VOLTAGENT_REF;
-  const cat = categoryOf(name);
+  const cat = categoryOf(bare);
   if (!cat) {
     throw new AgentFetchError(`Unknown agent: "${name}". Not in engram's registry.`);
   }
 
   // Tier 2 — local cache
-  const cachePath = agentsCacheFile(ref, cat, name);
+  const cachePath = agentsCacheFile(ref, cat, bare);
   if (existsSync(cachePath)) {
     return readFileSync(cachePath, 'utf-8');
   }
@@ -75,7 +114,7 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
     );
   }
 
-  const url = rawAgentUrl(name, ref);
+  const url = rawAgentUrl(bare, ref);
   if (!url) {
     throw new AgentFetchError(`Cannot construct URL for agent "${name}".`);
   }
@@ -97,23 +136,29 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
     throw new AgentFetchError(`Fetched body for "${name}" is empty or suspiciously short.`);
   }
 
-  // Cache it
-  mkdirSync(dirname(cachePath), { recursive: true });
-  writeFileSync(cachePath, body, 'utf-8');
+  // Inject VoltAgent attribution before caching. MIT requires the source
+  // notice be preserved in redistributed substantial portions.
+  const refForAttribution = ref === VOLTAGENT_REF ? VOLTAGENT_PINNED_SHA : ref;
+  const augmented = injectAttribution(body, bare, cat, refForAttribution);
 
-  return body;
+  // Cache the augmented version so future reads carry the attribution too.
+  mkdirSync(dirname(cachePath), { recursive: true });
+  writeFileSync(cachePath, augmented, 'utf-8');
+
+  return augmented;
 }
 
 /** Synchronous existence check — useful for warnings without forcing a fetch. */
 export function isAgentCachedOrBundled(name: string, opts: FetcherOptions = {}): boolean {
-  if (isBundledCore(name)) {
-    const bundled = readBundledCore(name, opts.bundledCoreDir);
+  const bare = bareName(name);
+  if (isBundledCore(bare)) {
+    const bundled = readBundledCore(bare, opts.bundledCoreDir);
     if (bundled !== null) return true;
   }
   const ref = opts.ref || VOLTAGENT_REF;
-  const cat = categoryOf(name);
+  const cat = categoryOf(bare);
   if (!cat) return false;
-  return existsSync(agentsCacheFile(ref, cat, name));
+  return existsSync(agentsCacheFile(ref, cat, bare));
 }
 
 // ── internals ────────────────────────────────────────────────────
