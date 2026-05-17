@@ -13,15 +13,15 @@
 import { Command } from 'commander';
 
 const args = process.argv.slice(2);
-const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'dash', '--help', '-h', '--version', '-V'].includes(args[0]);
+const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', '--help', '-h', '--version', '-V'].includes(args[0]);
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
-  // CLI mode — user ran engram-dev setup/status/refresh/dash
+  // CLI mode — user ran engram-dev setup/status/refresh
   runCLI();
 } else if (isTTY) {
-  // User ran engram-dev with no args in a terminal → show dashboard
-  process.argv.push('dash');
+  // User ran engram-dev with no args in a terminal → show help
+  process.argv.push('--help');
   runCLI();
 } else {
   // Not a TTY (Claude Code piping stdio) → start MCP server
@@ -34,7 +34,6 @@ async function runCLI() {
   const { setupCommand } = await import('./commands/setup.js');
   const { statusCommand } = await import('./commands/status.js');
   const { refreshCommand } = await import('./commands/refresh.js');
-  const { dashCommand } = await import('./commands/dash.js');
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -97,19 +96,6 @@ async function runCLI() {
     .action(async (directory: string) => {
       try {
         await refreshCommand(directory);
-      } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('dash')
-    .description('Interactive analytics dashboard with slash commands')
-    .argument('[directory]', 'Project directory', '.')
-    .action(async (directory: string) => {
-      try {
-        await dashCommand(directory);
       } catch (error) {
         console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
         process.exit(1);

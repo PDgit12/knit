@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/npm/v/engram-dev?style=for-the-badge&color=7c3aed" alt="npm version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
   <a href="https://github.com/PDgit12/engram/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/engram/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/MCP_tools-20-06b6d4?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/MCP_tools-23-06b6d4?style=for-the-badge" alt="tools" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
@@ -35,7 +35,7 @@ You don't initialize anything. The MCP handles everything automatically:
 Step 1: You open Claude Code in any project
         └─ Claude reads ~/.claude.json → starts engram-dev as MCP subprocess
 
-Step 2: Agent makes first tool call (any of the 20 tools)
+Step 2: Agent makes first tool call (any of the 23 tools)
         └─ MCP detects: is .claude/knowledge.json here?
            │
            ├─ NO (first time) → Auto-initializes:
@@ -110,7 +110,7 @@ Recent Sessions
   2026-05-15   main                 5       +1
 ```
 
-## 20 MCP Tools
+## 23 MCP Tools
 
 ### Query the brain (read-only, instant)
 
@@ -196,26 +196,19 @@ Knowledge Base Health
 
 ## Works For Any Project
 
-Not just code. 22 project types with domain-specific teams:
-
-| Type | Domains generated |
-|------|------------------|
-| TypeScript web | UI, API & Security, Core Logic, Infrastructure, QA |
-| Python ML | Core Logic, Quality Assurance (with `python-reviewer`) |
-| Go microservice | API & Security, QA (with `go-reviewer`, `go-build-resolver`) |
-| Legal review | Document Review, Risk Identification, Compliance, Contract Analysis |
-| Stock research | Market Analysis, Risk Assessment, Portfolio Strategy |
-| Game dev | Game Design, Level Design, Art Assets, Programming, Playtesting |
-| Marketing | Market Research, Content Strategy, Campaign Creation, Analytics |
+Code projects get auto-detected domains (UI / API / Core Logic / Infrastructure / QA) based on the file tree. For anything else — research, legal, marketing, analysis — the agent describes the project and engram generates a custom team config:
 
 ```bash
 # Agent calls this when user describes their project:
 engram_setup_project({
   project_type: "legal",
-  description: "M&A due diligence for $50M acquisition"
+  description: "M&A due diligence for $50M acquisition",
+  domains: "document-review,risk,compliance,contract-analysis"
 })
-# -> Creates 5 domain-specific teams automatically
+# -> Creates the teams from your description, scoped to your project
 ```
+
+Domains and team shape come from the description, not a fixed list — works for any domain.
 
 ## How It's Different
 
@@ -226,7 +219,7 @@ engram_setup_project({
 | Memory | jsonl files | Memory directory | Structured KB with access tracking + metrics |
 | Code analysis | None | None | Import graphs, exports, test mapping |
 | Token cost | Skills loaded into context | Rules loaded into context | MCP tools queried on demand (not in context) |
-| Non-code projects | No | No | 22 project types |
+| Non-code projects | No | No | Description-driven domains |
 
 ## CLI Dashboard
 
@@ -277,7 +270,7 @@ npm run build           # Compile CLI + MCP server
 ```
 engram-dev (npm package)
 ├── dist/cli.js          # CLI: setup, status, refresh
-├── dist/mcp/server.js   # MCP server: 20 tools, auto-init
+├── dist/mcp/server.js   # MCP server: 23 tools, auto-init
 └── (generated per project)
     ├── CLAUDE.md             # 650+ line workflow protocol
     ├── .claude/knowledge.json    # Import graph, exports, test mapping
