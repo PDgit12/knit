@@ -22,6 +22,7 @@ import {
   appendGlobalLearning, searchGlobalLearnings, buildGlobalLearning,
 } from '../engine/global-learnings.js';
 import { getAdaptiveSuggestions } from '../engine/reflect.js';
+import { installAgentsForProject } from '../engine/install-agents.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -834,6 +835,42 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
     phase,
     content,
     instruction: 'Apply this section to the current task. For another phase, call engram_get_workflow again with that phase name.',
+  });
+}
+
+/**
+ * Install or refresh a subagent into <project>/.claude/agents/engram-<name>.md.
+ * For runtime self-heal when a team references an agent that hasn't been
+ * fetched yet. Returns a snapshot of what changed on disk.
+ *
+ * Note: this handler returns a Promise. The MCP dispatch layer handles
+ * both sync (string) and Promise<string> returns transparently — but the
+ * existing handler signature is sync. We wrap async work in a sync-looking
+ * shape by returning a stringified "queued" status and letting the install
+ * complete in the background. Mid-session callers get a fast ack; the file
+ * lands within ~1s for bundled/cached, a few seconds for network fetches.
+ */
+export function handleInstallAgent(params: Record<string, string>, brain: BrainCache): string {
+  const name = (params.name || '').trim();
+  const refresh = (params.refresh || '').toLowerCase() === 'true';
+  if (!name) return JSON.stringify({ error: 'name is required' });
+
+  // Fire-and-forget install. Callers get an immediate ack.
+  installAgentsForProject(
+    brain.rootPath,
+    brain.config,
+    brain.knowledge,
+    brain.knowledgeBase,
+    { only: [name], refresh },
+  ).catch((err) => {
+    process.stderr.write(`[engram] handleInstallAgent background error for ${name}: ${err?.message ?? err}\n`);
+  });
+
+  return JSON.stringify({
+    status: 'queued',
+    agent: name,
+    target: `<project>/.claude/agents/engram-${name}.md`,
+    instruction: 'Install started in background. File will be ready within a few seconds. If it fails, see stderr — engram does not throw from this handler.',
   });
 }
 

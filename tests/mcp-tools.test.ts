@@ -109,9 +109,14 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 31 tool definitions (v0.3 — reflect/suggestions re-enabled, +2 global learnings)', () => {
+  it('returns 32 tool definitions (v0.4 — +engram_install_agent)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(31);
+    expect(tools).toHaveLength(32);
+  });
+
+  it('exposes the subagent installer tool', () => {
+    const names = getToolDefinitions().map((t) => t.name);
+    expect(names).toContain('engram_install_agent');
   });
 
   it('exposes the cross-project learnings tools', () => {

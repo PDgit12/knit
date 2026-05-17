@@ -64,6 +64,31 @@ export function globalLearningsPath(): string {
   return join(globalDataDir(), 'learnings.jsonl');
 }
 
+/** ~/.engram/agents/cache/<ref>/ — VoltAgent source cache, one dir per pinned ref. */
+export function agentsCacheDir(ref: string): string {
+  return join(engramRoot(), 'agents', 'cache', sanitizeRef(ref));
+}
+
+/** ~/.engram/agents/cache/<ref>/<category>/<name>.md — single cached source file. */
+export function agentsCacheFile(ref: string, category: string, name: string): string {
+  return join(agentsCacheDir(ref), category, `${name}.md`);
+}
+
+/** <project>/.claude/agents/ — Claude Code reads project-local agents from here. */
+export function projectAgentsDir(rootPath: string): string {
+  return join(rootPath, '.claude', 'agents');
+}
+
+/** <project>/.claude/agents/engram-<name>.md — engram-managed agent for a project. */
+export function projectAgentFile(rootPath: string, name: string): string {
+  return join(projectAgentsDir(rootPath), `engram-${name}.md`);
+}
+
+/** Refs can be SHAs or branch names; strip filesystem-unsafe chars for safety. */
+function sanitizeRef(ref: string): string {
+  return ref.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 /** ~/.engram/projects/<hash>/sessions.jsonl — reserved for C4. */
 export function sessionsJsonlPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'sessions.jsonl');

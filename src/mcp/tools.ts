@@ -21,6 +21,7 @@ import {
   handleSpawnTeamWorktree, handleListTeamWorktrees, handleFinalizeTeamWorktree,
   handleRecordGlobalLearning, handleSearchGlobalLearnings,
   handleReflect, handleGetSuggestions,
+  handleInstallAgent,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -262,6 +263,18 @@ export function getToolDefinitions(): ToolDef[] {
     },
 
     {
+      name: 'engram_install_agent',
+      description: 'Install or refresh one subagent. Writes <project>/.claude/agents/engram-<name>.md, personalized with project context. Use mid-session if a team needs an agent that isn\'t on disk yet.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Agent name (e.g., "typescript-pro", "security-engineer").' },
+          refresh: { type: 'string', description: '"true" to force re-fetch even if cached.' },
+        },
+        required: ['name'],
+      },
+    },
+    {
       name: 'engram_finalize_team_worktree',
       description: 'Merge or discard a team\'s worktree. Merge surfaces conflict files without destroying the worktree on failure.',
       inputSchema: {
@@ -309,6 +322,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_search_global_learnings: handleSearchGlobalLearnings,
   engram_reflect: handleReflect,
   engram_get_suggestions: handleGetSuggestions,
+  engram_install_agent: handleInstallAgent,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

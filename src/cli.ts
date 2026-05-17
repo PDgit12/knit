@@ -13,7 +13,7 @@
 import { Command } from 'commander';
 
 const args = process.argv.slice(2);
-const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', '--help', '-h', '--version', '-V'].includes(args[0]);
+const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', '--help', '-h', '--version', '-V'].includes(args[0]);
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
@@ -34,6 +34,7 @@ async function runCLI() {
   const { setupCommand } = await import('./commands/setup.js');
   const { statusCommand } = await import('./commands/status.js');
   const { refreshCommand } = await import('./commands/refresh.js');
+  const { installAgentsCommand } = await import('./commands/install-agents.js');
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -56,7 +57,7 @@ async function runCLI() {
   program
     .name('engram-dev')
     .description('The second brain for Claude Code — MCP server + analytics dashboard')
-    .version('0.3.1')
+    .version('0.4.0')
     .hook('preAction', () => {
       console.log(ENGRAM_GRADIENT.multiline(banner));
       console.log();
@@ -102,6 +103,21 @@ async function runCLI() {
       }
     });
 
+  program
+    .command('install-agents')
+    .description('Install VoltAgent subagents into <project>/.claude/agents/, personalized with project context')
+    .argument('[directory]', 'Project directory', '.')
+    .option('--refresh', 'Re-fetch from network even if cached', false)
+    .option('--all', 'Install every known agent (not just ones referenced by current domains)', false)
+    .action(async (directory: string, options: { refresh?: boolean; all?: boolean }) => {
+      try {
+        await installAgentsCommand(directory, options);
+      } catch (error) {
+        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    });
+
   program.parse();
 }
 
@@ -116,7 +132,7 @@ async function runMCP() {
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
-    { name: 'engram-brain', version: '0.3.1' },
+    { name: 'engram-brain', version: '0.4.0' },
     { capabilities: { tools: {} } },
   );
 

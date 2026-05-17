@@ -2,6 +2,86 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-05-17
+
+VoltAgent subagent integration with engram personalization. Closes the gap
+where engram referenced agent names by string but didn't install them — fresh
+users now get specialized subagents on first MCP call, no manual setup needed.
+
+### Added
+
+- **VoltAgent subagent integration.** Engram knows which curated agents from
+  [github.com/VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
+  (MIT-licensed) match each domain role and project stack. On first MCP call,
+  engram installs them into `<project>/.claude/agents/engram-<name>.md` so
+  Claude Code's Agent tool finds them automatically.
+- **Project personalization layer.** Each installed agent has the VoltAgent
+  base prompt plus a marker-wrapped `<!-- engram:context:start --> ... <!-- engram:context:end -->`
+  block with project name, stack, high-fanout files, recent relevant
+  learnings (filtered by agent role), false positives to suppress, and the
+  engram MCP tools the agent can call.
+- **Three-tier fetch strategy.** Bundled-core agents (6 files in the npm
+  package: `code-reviewer`, `security-engineer`, `qa-expert`, `typescript-pro`,
+  `python-pro`, `golang-pro`) install with zero network. Specialized agents
+  fetch from VoltAgent at a pinned SHA on first need and cache at
+  `~/.engram/agents/cache/<sha>/`. Subsequent installs are local-only.
+- **`engram install-agents` CLI command.** `--all` installs every known
+  agent (not just project-needed); `--refresh` re-fetches from network even
+  if cached. Useful for sandboxes, offline-then-online transitions, and CI
+  prep.
+- **`engram_install_agent` MCP tool.** Mid-session self-heal: if a team
+  references an agent that isn't on disk, the orchestrator can install it
+  on demand. Fire-and-forget — returns "queued" immediately, file lands in
+  a few seconds for cached/bundled, longer for network fetches.
+- **`ENGRAM_OFFLINE=1` env var.** Disables all network fetches. Bundled-core
+  still installs; specialized agents surface a clean error pointing the user
+  at `engram install-agents` when online.
+- **`ENGRAM_AGENT_REGISTRY_REF` env var.** Override the pinned VoltAgent SHA
+  (e.g., `main` to track latest, or a different SHA for reproducible builds).
+
+### Changed
+
+- **`scanner.ts::getAgentsForLanguage`** now delegates to the new
+  `agent-registry.ts`. The names returned are real VoltAgent names that
+  resolve to real .md files (vs v0.3's names that assumed Claude Code had
+  agents installed by some other tool).
+- **Tool count: 31 → 32** (+`engram_install_agent`).
+- **Auto-init flow** now also writes per-project subagents alongside
+  CLAUDE.md and `.claude/settings.local.json`. Fire-and-forget so MCP
+  startup latency is unchanged.
+- **Build script:** `npm run build` now also runs `npm run vendor-agents`
+  to refresh `dist/agents/core/*.md` from the pinned VoltAgent SHA. Runs
+  automatically on `prepublishOnly`.
+
+### Attribution
+
+The bundled-core agents are vendored verbatim from VoltAgent with an
+attribution header (HTML comment after the YAML frontmatter). License:
+MIT. Source: github.com/VoltAgent/awesome-claude-code-subagents at
+commit `6f804f0cfab22fb62668855aa3d62ee3a1453077`.
+
+### Privacy
+
+Engram remains local-first. The only network condition is fetching a
+specialized (non-bundled) agent on first need. That fetch goes to GitHub
+raw, no auth, no cookies, no telemetry. After the first fetch, the agent
+is cached and never re-fetched until `--refresh` is passed.
+
+### Tests
+
+201 → 247 (+46). New suites: `agent-registry.test.ts` (registry lookups,
+URL composition, bundled-core consistency), `agent-fetcher.test.ts`
+(three-tier resolution: bundled / cache / network; offline mode;
+error paths with stubbed fetch), `agent-md.test.ts` (personalization,
+marker safety, learning relevance filtering).
+
+### Notes
+
+- v0.3.1 (Windows hooks) shipped to git/GitHub but was NOT published to
+  npm — its changes ship instead as part of v0.4.0.
+- Hybrid hook merging, native Windows shell support beyond the Node-based
+  hooks, Obsidian export, and JSONL pruning remain v0.5 candidates.
+
 ## [0.3.1] — 2026-05-17
 
 Cross-platform fix. v0.3.0 hooks worked on macOS/Linux/WSL but silently

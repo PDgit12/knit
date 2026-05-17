@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { ProjectScan, StackInfo, Domain, GitInfo } from './types.js';
+import { agentsForRole } from './agent-registry.js';
 
 /**
  * Scans a project directory and detects stack, structure, and domains.
@@ -218,37 +219,13 @@ function detectDomains(root: string, lang: StackInfo['language'] = 'unknown'): D
   return domains;
 }
 
-/** Get the right agents for a language + domain role */
+/**
+ * Get the right agents for a language + domain role.
+ * v0.4+ delegates to the VoltAgent registry so the names returned actually
+ * resolve to real .md files engram installs into <project>/.claude/agents/.
+ */
 function getAgentsForLanguage(lang: string, role: 'core' | 'security' | 'qa'): string[] {
-  const langReviewers: Record<string, string> = {
-    typescript: 'typescript-reviewer',
-    javascript: 'typescript-reviewer',
-    python: 'python-reviewer',
-    go: 'go-reviewer',
-    rust: 'rust-reviewer',
-    java: 'java-reviewer',
-  };
-
-  const langBuildResolvers: Record<string, string> = {
-    typescript: 'build-error-resolver',
-    javascript: 'build-error-resolver',
-    python: 'build-error-resolver',
-    go: 'go-build-resolver',
-    rust: 'rust-build-resolver',
-    java: 'java-build-resolver',
-  };
-
-  const reviewer = langReviewers[lang] || 'code-reviewer';
-  const buildResolver = langBuildResolvers[lang] || 'build-error-resolver';
-
-  switch (role) {
-    case 'core':
-      return ['code-reviewer', reviewer, 'code-architect'];
-    case 'security':
-      return ['security-reviewer', reviewer, 'code-reviewer'];
-    case 'qa':
-      return ['tdd-guide', 'pr-test-analyzer', buildResolver];
-  }
+  return agentsForRole(role, lang);
 }
 
 function detectGit(root: string): GitInfo {

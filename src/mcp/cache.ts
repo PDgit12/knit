@@ -7,6 +7,7 @@ import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd, spliceEngramBlock, ENGRAM_MARKER_START } from '../generators/claude-md.js';
+import { installAgentsForProject } from '../engine/install-agents.js';
 import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings } from '../generators/settings.js';
 import {
@@ -127,6 +128,19 @@ function autoInitialize(rootPath: string): void {
   // because settings.json gets committed and our hooks embed machine-specific
   // ~/.engram/projects/<hash>/ paths.
   writeEngramHooks(rootPath, config);
+
+  // Per-project subagents at <project>/.claude/agents/engram-*.md (v0.4+).
+  // Fire-and-forget: bundled-core agents resolve sync, so they land before
+  // the agent makes its next tool call. Network-fetched specialized agents
+  // arrive in the background; if a session uses one before it lands, Claude
+  // Code falls back to its default and the file is ready by the next session.
+  // Pass null for knowledgeBase: on auto-init the project has no learnings
+  // yet — subsequent installs via CLI / engram_install_agent will include them.
+  installAgentsForProject(rootPath, config, knowledge, null).catch((err) => {
+    // Never let an install failure abort autoInit. Log to stderr; agents are
+    // best-effort and the rest of engram works without them.
+    process.stderr.write(`[engram] agent install background error: ${err?.message ?? err}\n`);
+  });
 
   // Learnings markdown (centralized)
   const learningsPath = learningsFilePath(rootPath, projectName);
