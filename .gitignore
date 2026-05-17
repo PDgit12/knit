@@ -13,3 +13,4 @@ coverage/
 handoff.md
 .npmrc
 .claude/learnings/engram.md
+.claude/settings.json
