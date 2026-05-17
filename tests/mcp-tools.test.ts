@@ -109,9 +109,20 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 29 tool definitions', () => {
+  it('returns 27 tool definitions (v0.2 — reflect/suggestions deferred to v0.3)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(29);
+    expect(tools).toHaveLength(27);
+  });
+
+  it('no longer publishes the premature pattern-reflection tools', () => {
+    const names = getToolDefinitions().map((t) => t.name);
+    expect(names).not.toContain('engram_reflect');
+    expect(names).not.toContain('engram_get_suggestions');
+  });
+
+  it('descriptions stay under 200 chars (terse-by-design)', () => {
+    const long = getToolDefinitions().filter((t) => t.description.length > 200);
+    expect(long, `Long descriptions: ${long.map((t) => t.name).join(', ')}`).toHaveLength(0);
   });
 
   it('all tools have name, description, and inputSchema', () => {

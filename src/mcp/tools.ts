@@ -1,6 +1,10 @@
 /**
  * MCP tool definitions and routing.
  * Handlers are in handlers.ts — this file is just the schema + router.
+ *
+ * Descriptions are intentionally terse. The first sentence tells the agent
+ * what the tool does; the parameter schemas tell it how to call it. Anything
+ * longer is duplication and pure context tax.
  */
 
 import type { BrainCache } from './cache.js';
@@ -10,7 +14,7 @@ import {
   handleGetFalsePositives, handleBrainStatus,
   handleClassifyTask, handleBuildContext, handleRecordLearning,
   handleRecordFalsePositive, handleSaveHandoff, handleSetupProject,
-  handleReflect, handleGetSuggestions, handleLoadSession,
+  handleLoadSession,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
   handleSaveSessionSummary, handleSearchSessions, handleGetWorkflow,
@@ -31,201 +35,197 @@ interface ToolDef {
 /** All tool definitions exposed by the Engram MCP server */
 export function getToolDefinitions(): ToolDef[] {
   return [
-    // ── Query tools (read the brain) ─────────────────────────────
+    // ── Query (read the brain) ───────────────────────────────────
     {
       name: 'engram_query_imports',
-      description: 'Find which files import a given file. Returns the reverse dependency list — who depends on this file. Use BEFORE editing a file to understand the blast radius.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path (e.g., src/engine/types.ts)' } }, required: ['file_path'] },
+      description: 'Who imports this file? Returns the reverse dependency list — call before editing to know the blast radius.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'engram_query_dependents',
-      description: 'Find what a given file depends on (its imports). Use to understand what a file needs to work.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path' } }, required: ['file_path'] },
+      description: 'What does this file import? Returns the file\'s own dependencies.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'engram_query_exports',
-      description: 'List what a file exports: functions, classes, interfaces, types, constants. Use to find the right function without reading the whole file.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path' } }, required: ['file_path'] },
+      description: 'What does this file expose? Functions, classes, interfaces, types, constants.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'engram_query_tests',
-      description: 'Find test coverage for a file, or list all untested files.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path (optional)' }, filter: { type: 'string', description: '"untested" to list all untested files' } } },
+      description: 'Is this file tested? Or pass filter="untested" to list all untested files.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path (optional).' }, filter: { type: 'string', description: '"untested" to list all untested files.' } } },
     },
     {
       name: 'engram_find_fanout',
-      description: 'Find high-fanout files — files imported by many others. These are the contracts — change them carefully.',
-      inputSchema: { type: 'object', properties: { min_importers: { type: 'string', description: 'Minimum importers to qualify (default: 3)' } } },
+      description: 'High-fanout files — imported by many others. These are the contracts; change carefully.',
+      inputSchema: { type: 'object', properties: { min_importers: { type: 'string', description: 'Minimum importers to qualify (default: 3).' } } },
     },
     {
       name: 'engram_search_learnings',
-      description: 'Search the project knowledge base for learnings by domain tag. Returns past lessons and mistakes to avoid.',
-      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domain tags (e.g., "api,auth,security")' } }, required: ['domains'] },
+      description: 'Search past learnings by domain tag. Returns prior lessons and mistakes to avoid.',
+      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domain tags.' } }, required: ['domains'] },
     },
     {
       name: 'engram_get_false_positives',
-      description: 'Get known false positives — confirmed non-issues. Include in review agent prompts.',
+      description: 'Confirmed non-issues. Pass to review agents so they don\'t re-flag them.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'engram_brain_status',
-      description: 'Get knowledge base health metrics: learnings, hit rate, cache hits, top domains.',
+      description: 'Brain health + token-accounting: learnings, hit rate, CLAUDE.md size, session count.',
       inputSchema: { type: 'object', properties: {} },
     },
-    // ── Action tools (update the brain) ──────────────────────────
+
+    // ── Update (write to the brain) ──────────────────────────────
     {
       name: 'engram_classify_task',
-      description: 'CALL THIS FIRST on every task. Classifies complexity (trivial/standard/complex), returns which phases to follow, which domains are affected, and whether to enter plan mode. Also triggers project auto-initialization if not done yet.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated list of files that will be modified (or "unknown" for new projects)' }, description: { type: 'string', description: 'Brief task description' } }, required: ['files_to_touch'] },
+      description: 'Call first on every task. Classifies tier (trivial/standard/complex), returns phases + domains + auto plan mode flag. Also triggers project auto-init.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' } }, required: ['files_to_touch'] },
     },
     {
       name: 'engram_build_context',
-      description: 'Build a Domain Context Object for the current task. Assembles domains, ripple effects, pitfalls, and false positives.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated list of files' } }, required: ['files_to_touch'] },
+      description: 'Build a context object for the current task: domains, ripple effects, pitfalls, false positives.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files.' } }, required: ['files_to_touch'] },
     },
     {
       name: 'engram_record_learning',
-      description: 'CALL THIS LAST — before saying "done" or "complete". Records what was learned so the next session can find it. MANDATORY on every task. No task is complete without calling this.',
-      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'One-line summary' }, domains: { type: 'string', description: 'Comma-separated domains' }, approach: { type: 'string', description: 'What approach was taken' }, outcome: { type: 'string', description: 'success, partial, or failure' }, lesson: { type: 'string', description: 'What to repeat or avoid' }, tags: { type: 'string', description: 'Space-separated tags (e.g., "#api #auth")' } }, required: ['summary', 'lesson', 'tags'] },
+      description: 'Record a non-obvious, reusable insight. Quality check first: would session N+1 searching this tag be glad it exists? If no, skip.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'One-line summary.' }, domains: { type: 'string', description: 'Comma-separated domains.' }, approach: { type: 'string', description: 'What approach was taken.' }, outcome: { type: 'string', description: 'success | partial | failure.' }, lesson: { type: 'string', description: 'What to repeat or avoid.' }, tags: { type: 'string', description: 'Space-separated tags (e.g. "#api #auth").' } }, required: ['summary', 'lesson', 'tags'] },
     },
     {
       name: 'engram_record_false_positive',
-      description: 'Mark a finding as a confirmed non-issue.',
-      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'What was flagged' }, reason: { type: 'string', description: 'Why it is not a real issue' }, tags: { type: 'string', description: 'Domain tags' } }, required: ['summary', 'reason'] },
+      description: 'Mark a finding as a confirmed non-issue so future review agents stop re-flagging it.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'What was flagged.' }, reason: { type: 'string', description: 'Why it\'s not a real issue.' }, tags: { type: 'string', description: 'Domain tags.' } }, required: ['summary', 'reason'] },
     },
     {
       name: 'engram_save_handoff',
-      description: 'Save session state for the next session to pick up.',
-      inputSchema: { type: 'object', properties: { goal: { type: 'string', description: 'What we are trying to accomplish' }, current_state: { type: 'string', description: 'Where we are now' }, files_in_flight: { type: 'string', description: 'Files being modified' }, what_changed: { type: 'string', description: 'Commits and edits' }, failed_attempts: { type: 'string', description: 'What was tried and why it failed (MANDATORY)' }, decisions_made: { type: 'string', description: 'Important choices' }, next_step: { type: 'string', description: 'ONE most important thing to do next' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
+      description: 'Save state for the next session when context degrades. failed_attempts is the load-bearing field.',
+      inputSchema: { type: 'object', properties: { goal: { type: 'string', description: 'What we\'re trying to accomplish.' }, current_state: { type: 'string', description: 'Where we are now.' }, files_in_flight: { type: 'string', description: 'Files being modified.' }, what_changed: { type: 'string', description: 'Commits and edits.' }, failed_attempts: { type: 'string', description: 'What was tried and why it failed.' }, decisions_made: { type: 'string', description: 'Important choices.' }, next_step: { type: 'string', description: 'ONE most important next thing.' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
     },
     {
       name: 'engram_setup_project',
-      description: 'Describe what this project is about. Generates appropriate teams and domains based on the description. Use for non-code projects (research, analysis, writing) or to override auto-detected teams. Call this when the user first describes their project.',
+      description: 'Describe a project (especially non-code: research, legal, marketing). Generates domain-specific teams.',
       inputSchema: {
         type: 'object',
         properties: {
-          project_type: { type: 'string', description: 'Type of project: "code", "research", "analysis", "writing", "design", or any custom type' },
-          description: { type: 'string', description: 'What the project does and what the user is trying to accomplish' },
-          domains: { type: 'string', description: 'Comma-separated domain areas (e.g., "data-collection,analysis,risk,strategy" or "frontend,api,database")' },
-          team_roles: { type: 'string', description: 'Comma-separated team roles (e.g., "market-analyst,risk-assessor,portfolio-manager")' },
+          project_type: { type: 'string', description: 'code | research | analysis | writing | design | custom.' },
+          description: { type: 'string', description: 'What the project does.' },
+          domains: { type: 'string', description: 'Comma-separated domains.' },
+          team_roles: { type: 'string', description: 'Comma-separated team roles.' },
         },
         required: ['description'],
       },
     },
-    // ── Team orchestration tools ─────────────────────────────────
+
+    // ── Teams (parallel review board) ────────────────────────────
     {
       name: 'engram_get_teams',
-      description: 'Get agent teams configured for this project.',
+      description: 'List agent teams configured for this project.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'engram_define_team',
       description: 'Create or update a custom agent team.',
-      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Team name' }, role: { type: 'string', description: 'Team role' }, focus: { type: 'string', description: 'What this team focuses on' }, agents: { type: 'string', description: 'Comma-separated agent types' }, file_patterns: { type: 'string', description: 'Comma-separated file patterns' }, checklist: { type: 'string', description: 'Pipe-separated review checklist items' } }, required: ['name', 'role', 'focus'] },
+      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Team name.' }, role: { type: 'string', description: 'Team role.' }, focus: { type: 'string', description: 'Team focus area.' }, agents: { type: 'string', description: 'Comma-separated agent types.' }, file_patterns: { type: 'string', description: 'Comma-separated globs.' }, checklist: { type: 'string', description: 'Pipe-separated review items.' } }, required: ['name', 'role', 'focus'] },
     },
     {
       name: 'engram_start_team_review',
-      description: 'Start a parallel team review session with a shared findings board.',
-      inputSchema: { type: 'object', properties: { task_description: { type: 'string', description: 'What the teams are reviewing' }, teams: { type: 'string', description: 'Comma-separated team names or "all"' } }, required: ['task_description'] },
+      description: 'Start a parallel team review with a shared findings board.',
+      inputSchema: { type: 'object', properties: { task_description: { type: 'string', description: 'What the teams review.' }, teams: { type: 'string', description: 'Comma-separated team names or "all".' } }, required: ['task_description'] },
     },
     {
       name: 'engram_get_team_prompt',
-      description: 'Get the agent prompt for a specific team, including other teams\' findings.',
-      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Which team' }, files_to_review: { type: 'string', description: 'Comma-separated files' } }, required: ['team_name'] },
+      description: 'Get the prompt for a team, including other teams\' findings.',
+      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Team name.' }, files_to_review: { type: 'string', description: 'Comma-separated files.' } }, required: ['team_name'] },
     },
     {
       name: 'engram_post_team_findings',
-      description: 'Post a team\'s review findings to the shared board.',
-      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Which team is reporting' }, findings: { type: 'string', description: 'JSON array of findings' } }, required: ['team_name', 'findings'] },
+      description: 'Post a team\'s findings to the shared board.',
+      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Team posting.' }, findings: { type: 'string', description: 'JSON array of findings.' } }, required: ['team_name', 'findings'] },
     },
     {
       name: 'engram_get_board_summary',
-      description: 'Get cross-team findings summary with severity gate.',
+      description: 'Cross-team findings, severity-gated.',
       inputSchema: { type: 'object', properties: {} },
     },
-    // ── Session management ─────────────────────────────────────────
+
+    // ── Session memory ───────────────────────────────────────────
     {
       name: 'engram_load_session',
-      description: 'CALL THIS AT SESSION START. Loads your complete context in one call: last session state, handoff (unfinished work), top learnings, false positives, patterns, teams, project knowledge. One call = full memory restored.',
+      description: 'Call at session start. Returns last sessions, handoff, top learnings, false positives, teams, project knowledge in one round trip.',
       inputSchema: { type: 'object', properties: {} },
-    },
-    // ── Reflection / Soul tools ──────────────────────────────────
-    {
-      name: 'engram_reflect',
-      description: 'Self-reflect on accumulated learnings. Detects patterns: repeated successes, recurring failures, domain co-occurrences, and high-value insights. Zero extra LLM calls — pure pattern analysis over your data. Use periodically to surface what the brain has learned about your workflow.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'engram_get_suggestions',
-      description: 'Get adaptive suggestions for the current task based on past patterns. "Based on history, watch out for X." Returns concrete warnings and recommendations derived from past successes and failures in the relevant domains.',
-      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domains for this task (e.g., "api,auth,payments")' } }, required: ['domains'] },
     },
     {
       name: 'engram_save_session_summary',
-      description: 'OPT-IN. Call before saying done on a non-trivial task if the session accomplished something a FUTURE session would search for. Quality check: would someone searching for these tags in 3 months be glad this entry exists? If no — skip this call. Stop hook already auto-captures structured data (date/branch/files); this adds the narrative.',
+      description: 'Opt-in. Record a narrative summary if this session accomplished something a future session would search for. Quality check first.',
       inputSchema: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: 'One-line summary of what was accomplished. Free text, 200 chars or less.' },
-          tags: { type: 'string', description: 'Space-separated tags like "#auth #refactor". The fields someone would search for later.' },
-          outcome: { type: 'string', description: 'shipped | wip | failed | unknown' },
-          files_touched: { type: 'string', description: 'Comma-separated files this session changed (optional).' },
-          domains: { type: 'string', description: 'Comma-separated domains involved (optional).' },
+          summary: { type: 'string', description: 'One-line summary.' },
+          tags: { type: 'string', description: 'Space-separated tags like "#auth #refactor".' },
+          outcome: { type: 'string', description: 'shipped | wip | failed | unknown.' },
+          files_touched: { type: 'string', description: 'Comma-separated files (optional).' },
+          domains: { type: 'string', description: 'Comma-separated domains (optional).' },
         },
         required: ['summary', 'tags', 'outcome'],
       },
     },
     {
       name: 'engram_search_sessions',
-      description: 'Search this project\'s past sessions by free text over summary + tags + branch. Use to check whether something similar was attempted before. Returns most recent matches first.',
+      description: 'Search past sessions by free text over summary + tags + branch. Check before duplicating prior work.',
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Free text search query (e.g., "auth refactor", "#payments", "stripe webhook").' },
+          query: { type: 'string', description: 'Free text or tag.' },
           limit: { type: 'string', description: 'Max results (default 10).' },
         },
         required: ['query'],
       },
     },
+
+    // ── Workflow on demand ───────────────────────────────────────
     {
       name: 'engram_get_workflow',
-      description: 'Fetch the workflow protocol depth for a specific phase. CLAUDE.md is intentionally thin — call this when you need the actual procedure. Valid phases: overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools. Call with no phase to list all available sections.',
+      description: 'Fetch protocol depth for one phase. Sections: overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools. Omit phase to list all.',
       inputSchema: {
         type: 'object',
         properties: {
-          phase: { type: 'string', description: 'Phase or section name (e.g., "research", "tdd"). Omit to list all sections.' },
+          phase: { type: 'string', description: 'Section name. Omit to list all.' },
         },
       },
     },
+
+    // ── Parallel team worktrees ──────────────────────────────────
     {
       name: 'engram_spawn_team_worktree',
-      description: 'Create a git worktree for a team to work in. Returns the path the team\'s agents should cd into. Each team gets one worktree; multiple agents within the team can work in parallel inside it. Use when a Complex task needs multiple teams working on different sections without interfering.',
+      description: 'Create a git worktree for a team. Multiple agents within the team can work in parallel inside it without colliding with other teams.',
       inputSchema: {
         type: 'object',
         properties: {
-          team_name: { type: 'string', description: 'Display name of the team (e.g., "API & Security", "UI").' },
-          task_description: { type: 'string', description: 'What this team is being asked to do. Stored for later reference.' },
+          team_name: { type: 'string', description: 'Team display name (e.g., "UI", "API & Security").' },
+          task_description: { type: 'string', description: 'What this team is doing.' },
         },
         required: ['team_name', 'task_description'],
       },
     },
     {
       name: 'engram_list_team_worktrees',
-      description: 'List all active team worktrees for this project. Returns team name, path, branch, task description, and status for each.',
+      description: 'List active team worktrees. Pass include_finalized=true for full history.',
       inputSchema: {
         type: 'object',
         properties: {
-          include_finalized: { type: 'string', description: '"true" to also include merged/discarded entries. Default: false (active only).' },
+          include_finalized: { type: 'string', description: '"true" for full history (default: active only).' },
         },
       },
     },
     {
       name: 'engram_finalize_team_worktree',
-      description: 'Merge or discard a team\'s worktree. action="merge" runs git merge --no-ff into the current branch and removes the worktree on success (returns a conflict report if the merge fails — does not destroy the worktree). action="discard" removes the worktree and deletes the branch without merging.',
+      description: 'Merge or discard a team\'s worktree. Merge surfaces conflict files without destroying the worktree on failure.',
       inputSchema: {
         type: 'object',
         properties: {
-          team_name: { type: 'string', description: 'Display name or slug of the team whose worktree should be finalized.' },
+          team_name: { type: 'string', description: 'Team name or slug.' },
           action: { type: 'string', description: '"merge" or "discard".' },
         },
         required: ['team_name', 'action'],
@@ -257,8 +257,6 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_post_team_findings: handlePostTeamFindings,
   engram_get_board_summary: handleGetBoardSummary,
   engram_load_session: handleLoadSession,
-  engram_reflect: handleReflect,
-  engram_get_suggestions: handleGetSuggestions,
   engram_save_session_summary: handleSaveSessionSummary,
   engram_search_sessions: handleSearchSessions,
   engram_get_workflow: handleGetWorkflow,

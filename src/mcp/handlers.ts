@@ -550,55 +550,12 @@ export function handleGetBoardSummary(_params: Record<string, string>, _brain: B
 }
 
 
-import { reflect, getAdaptiveSuggestions } from '../engine/reflect.js';
-
-export function handleReflect(_params: Record<string, string>, brain: BrainCache): string {
-  const patterns = reflect(brain.knowledgeBase);
-
-  if (patterns.length === 0) {
-    return JSON.stringify({
-      patterns: [],
-      message: 'Not enough data yet. Record more learnings (minimum 3) for patterns to emerge.',
-    });
-  }
-
-  return JSON.stringify({
-    patterns: patterns.slice(0, 10).map((p) => ({
-      type: p.type,
-      description: p.description,
-      confidence: p.confidence,
-      occurrences: p.occurrences,
-      domains: p.domains,
-    })),
-    total_patterns: patterns.length,
-    insight: patterns[0].confidence >= 7
-      ? `Strongest pattern: ${patterns[0].description}`
-      : 'Patterns are forming but not yet high-confidence. Keep recording learnings.',
-  });
-}
-
-export function handleGetSuggestions(params: Record<string, string>, brain: BrainCache): string {
-  const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
-
-  if (domains.length === 0) {
-    return JSON.stringify({ error: 'domains parameter required', suggestions: [] });
-  }
-
-  const suggestions = getAdaptiveSuggestions(brain.knowledgeBase, domains);
-
-  if (suggestions.length === 0) {
-    return JSON.stringify({
-      suggestions: [],
-      message: `No patterns yet for domains: ${domains.join(', ')}. Record more learnings in these areas.`,
-    });
-  }
-
-  return JSON.stringify({
-    domains_queried: domains,
-    suggestions,
-    message: `${suggestions.length} adaptive suggestions based on past patterns.`,
-  });
-}
+// Pattern reflection (engram_reflect / engram_get_suggestions MCP tools) was
+// removed in v0.2 — premature with ~1 learning per project. The reflect()
+// function is still used internally by handleLoadSession to surface patterns
+// in the load-session payload. Re-enable the standalone tools in v0.3 once
+// projects accumulate enough learnings (≥10) for patterns to be meaningful.
+import { reflect } from '../engine/reflect.js';
 
 
 export function handleLoadSession(_params: Record<string, string>, brain: BrainCache): string {
