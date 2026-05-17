@@ -17,6 +17,7 @@ import {
 import { appendSession, searchSessions, getRecentSessions, sessionCount } from '../engine/sessions.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
+import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -778,6 +779,88 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
     content,
     instruction: 'Apply this section to the current task. For another phase, call engram_get_workflow again with that phase name.',
   });
+}
+
+/**
+ * Spawn a git worktree for a team. The team's agents work inside this path
+ * without stepping on other teams' work.
+ */
+export function handleSpawnTeamWorktree(params: Record<string, string>, brain: BrainCache): string {
+  const teamName = (params.team_name || '').trim();
+  const taskDescription = (params.task_description || '').trim();
+
+  if (!teamName) {
+    return JSON.stringify({ error: 'team_name is required' });
+  }
+  if (!taskDescription) {
+    return JSON.stringify({ error: 'task_description is required' });
+  }
+
+  try {
+    const record = spawnWorktree(brain.rootPath, teamName, taskDescription);
+    return JSON.stringify({
+      status: 'spawned',
+      team_name: record.teamName,
+      team_slug: record.teamSlug,
+      path: record.path,
+      branch: record.branch,
+      task_description: record.taskDescription,
+      instruction: `Worktree ready at ${record.path}. Pass this path to the team's agents. They should cd there and make their changes on branch ${record.branch}. When done, call engram_finalize_team_worktree with action="merge".`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return JSON.stringify({ error: msg });
+  }
+}
+
+/** List active (and optionally finalized) team worktrees for this project. */
+export function handleListTeamWorktrees(params: Record<string, string>, brain: BrainCache): string {
+  const includeFinalized = (params.include_finalized || '').toLowerCase() === 'true';
+  const records = listWorktrees(brain.rootPath, includeFinalized);
+  return JSON.stringify({
+    count: records.length,
+    worktrees: records.map((w) => ({
+      team_name: w.teamName,
+      team_slug: w.teamSlug,
+      path: w.path,
+      branch: w.branch,
+      task_description: w.taskDescription,
+      created_at: w.createdAt,
+      status: w.status,
+    })),
+  });
+}
+
+/** Merge or discard a team's worktree. */
+export function handleFinalizeTeamWorktree(params: Record<string, string>, brain: BrainCache): string {
+  const teamName = (params.team_name || '').trim();
+  const action = (params.action || '').trim().toLowerCase();
+
+  if (!teamName) {
+    return JSON.stringify({ error: 'team_name is required' });
+  }
+  if (action !== 'merge' && action !== 'discard') {
+    return JSON.stringify({ error: 'action must be "merge" or "discard"' });
+  }
+
+  try {
+    const result = finalizeWorktree(brain.rootPath, teamName, action);
+    return JSON.stringify({
+      status: result.status,
+      team_name: result.worktree.teamName,
+      branch: result.worktree.branch,
+      conflict_files: result.conflictFiles,
+      message: result.message,
+      instruction: result.status === 'merged'
+        ? `Worktree merged and removed. Branch ${result.worktree.branch} deleted.`
+        : result.status === 'discarded'
+          ? `Worktree discarded. Branch ${result.worktree.branch} deleted; changes lost.`
+          : `Merge conflict on ${result.conflictFiles?.length ?? 0} file(s). Resolve in the main repo, then call this tool again with action="merge" to retry, or "discard" to throw away.`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return JSON.stringify({ error: msg });
+  }
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
   handleSaveSessionSummary, handleSearchSessions, handleGetWorkflow,
+  handleSpawnTeamWorktree, handleListTeamWorktrees, handleFinalizeTeamWorktree,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -196,6 +197,40 @@ export function getToolDefinitions(): ToolDef[] {
         },
       },
     },
+    {
+      name: 'engram_spawn_team_worktree',
+      description: 'Create a git worktree for a team to work in. Returns the path the team\'s agents should cd into. Each team gets one worktree; multiple agents within the team can work in parallel inside it. Use when a Complex task needs multiple teams working on different sections without interfering.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Display name of the team (e.g., "API & Security", "UI").' },
+          task_description: { type: 'string', description: 'What this team is being asked to do. Stored for later reference.' },
+        },
+        required: ['team_name', 'task_description'],
+      },
+    },
+    {
+      name: 'engram_list_team_worktrees',
+      description: 'List all active team worktrees for this project. Returns team name, path, branch, task description, and status for each.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          include_finalized: { type: 'string', description: '"true" to also include merged/discarded entries. Default: false (active only).' },
+        },
+      },
+    },
+    {
+      name: 'engram_finalize_team_worktree',
+      description: 'Merge or discard a team\'s worktree. action="merge" runs git merge --no-ff into the current branch and removes the worktree on success (returns a conflict report if the merge fails — does not destroy the worktree). action="discard" removes the worktree and deletes the branch without merging.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          team_name: { type: 'string', description: 'Display name or slug of the team whose worktree should be finalized.' },
+          action: { type: 'string', description: '"merge" or "discard".' },
+        },
+        required: ['team_name', 'action'],
+      },
+    },
   ];
 }
 
@@ -227,6 +262,9 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_save_session_summary: handleSaveSessionSummary,
   engram_search_sessions: handleSearchSessions,
   engram_get_workflow: handleGetWorkflow,
+  engram_spawn_team_worktree: handleSpawnTeamWorktree,
+  engram_list_team_worktrees: handleListTeamWorktrees,
+  engram_finalize_team_worktree: handleFinalizeTeamWorktree,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

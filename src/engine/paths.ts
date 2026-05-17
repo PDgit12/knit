@@ -49,6 +49,11 @@ export function teamsPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'teams.json');
 }
 
+/** ~/.engram/projects/<hash>/worktrees.json — registry of active team worktrees. */
+export function worktreesRegistryPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'worktrees.json');
+}
+
 /** ~/.engram/projects/<hash>/sessions.jsonl — reserved for C4. */
 export function sessionsJsonlPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'sessions.jsonl');
