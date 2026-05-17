@@ -3,13 +3,14 @@
 /**
  * Engram MCP Server — the Second Brain.
  *
- * 19 tools that let AI agents query and update the project knowledge
- * brain mid-session. Import graphs, export maps, test coverage,
- * learnings, false positives, task classification, and team orchestration.
+ * 27 tools that let AI agents query and update the project knowledge
+ * brain mid-session: import graphs, exports, test coverage, learnings,
+ * false positives, task classification, session memory, workflow on
+ * demand, and team-scoped git worktrees.
  *
- * Run: npx engram-mcp
- * Configure in .claude/settings.json:
- *   "mcpServers": { "engram-brain": { "command": "npx", "args": ["engram-mcp"] } }
+ * Configure in ~/.claude.json:
+ *   "mcpServers": { "engram-brain": { "command": "npx",
+ *                                     "args": ["-y", "@piyushdua/engram-dev@latest"] } }
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -25,7 +26,7 @@ import { getToolDefinitions, handleToolCall } from './tools.js';
 const ROOT_PATH = detectProjectRoot();
 
 const server = new Server(
-  { name: 'engram-brain', version: '0.1.0' },
+  { name: 'engram-brain', version: '0.2.0' },
   { capabilities: { tools: {} } },
 );
 

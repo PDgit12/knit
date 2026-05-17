@@ -293,6 +293,6 @@ Built with TypeScript, compiled via tsup, tested with Vitest. The Engram Orchest
 
 ## Phase Status
 - **Phase 0** (project setup + workflow): ✅ Complete
-- **v0.1 — SHIPPED. 23 MCP tools, 111 tests, CI green, npm live as @piyushdua/engram-dev
-- **v0.2** (status + learn commands, integration tests): Not started
-- **v0.3** (Cursor/Codex adapters): Not started
+- **v0.1** — shipped. 23 MCP tools, 111 tests, npm live as `@piyushdua/engram-dev`.
+- **v0.2** — built (9 commits, this branch). Centralized data path at `~/.engram/projects/<hash>/`, on-demand workflow via `engram_get_workflow`, searchable session memory, parallel team worktrees, hooks wired for real, marker-wrapped CLAUDE.md, token accounting. 27 MCP tools, 181 tests. Awaiting `npm publish` + push.
+- **v0.3** — not started. Candidates: re-enable `engram_reflect`/`engram_get_suggestions` once a project has ≥10 learnings; cross-project shared learnings (Model C); Cursor/Codex MCP client compatibility.
