@@ -13,6 +13,7 @@ import {
   handleReflect, handleGetSuggestions, handleLoadSession,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
+  handleSaveSessionSummary, handleSearchSessions,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -158,6 +159,33 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Get adaptive suggestions for the current task based on past patterns. "Based on history, watch out for X." Returns concrete warnings and recommendations derived from past successes and failures in the relevant domains.',
       inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domains for this task (e.g., "api,auth,payments")' } }, required: ['domains'] },
     },
+    {
+      name: 'engram_save_session_summary',
+      description: 'OPT-IN. Call before saying done on a non-trivial task if the session accomplished something a FUTURE session would search for. Quality check: would someone searching for these tags in 3 months be glad this entry exists? If no — skip this call. Stop hook already auto-captures structured data (date/branch/files); this adds the narrative.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summary: { type: 'string', description: 'One-line summary of what was accomplished. Free text, 200 chars or less.' },
+          tags: { type: 'string', description: 'Space-separated tags like "#auth #refactor". The fields someone would search for later.' },
+          outcome: { type: 'string', description: 'shipped | wip | failed | unknown' },
+          files_touched: { type: 'string', description: 'Comma-separated files this session changed (optional).' },
+          domains: { type: 'string', description: 'Comma-separated domains involved (optional).' },
+        },
+        required: ['summary', 'tags', 'outcome'],
+      },
+    },
+    {
+      name: 'engram_search_sessions',
+      description: 'Search this project\'s past sessions by free text over summary + tags + branch. Use to check whether something similar was attempted before. Returns most recent matches first.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Free text search query (e.g., "auth refactor", "#payments", "stripe webhook").' },
+          limit: { type: 'string', description: 'Max results (default 10).' },
+        },
+        required: ['query'],
+      },
+    },
   ];
 }
 
@@ -186,6 +214,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_load_session: handleLoadSession,
   engram_reflect: handleReflect,
   engram_get_suggestions: handleGetSuggestions,
+  engram_save_session_summary: handleSaveSessionSummary,
+  engram_search_sessions: handleSearchSessions,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

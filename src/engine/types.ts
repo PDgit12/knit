@@ -239,6 +239,43 @@ export interface SessionRecord {
   domainsTouched: string[];
 }
 
+/**
+ * Searchable session entity stored in sessions.jsonl.
+ *
+ * Two write paths:
+ *   - Stop hook auto-writes a thin tuple at session end (id, date, branch,
+ *     filesModified, commits). outcome defaults to 'unknown'.
+ *   - Agent opt-in calls engram_save_session_summary to attach a rich
+ *     summary, tags, and outcome — the entries that make engram_search_sessions
+ *     useful.
+ *
+ * Every field except id, date, and outcome is optional so partial tuples
+ * from the Stop hook merge cleanly with later agent-supplied detail.
+ */
+export type SessionOutcome = 'shipped' | 'wip' | 'failed' | 'unknown';
+
+export interface SessionSummary {
+  /** Stable per-session id (epoch + pid for hook-written, agent-chosen for opt-in). */
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** Full ISO timestamp when available. */
+  timestamp?: string;
+  branch?: string | null;
+  /** Files agent reports touching (from engram_save_session_summary). */
+  filesTouched?: string[];
+  /** Count from Stop hook (git diff --name-only HEAD). */
+  filesModified?: number;
+  /** Recent commit shas from Stop hook (space-separated string). */
+  commits?: string;
+  domainsTouched?: string[];
+  learningsAdded?: number;
+  /** Free text — the main searchable field. */
+  summary?: string;
+  tags?: string[];
+  outcome: SessionOutcome;
+}
+
 /** Output of the init command */
 export interface InitResult {
   filesCreated: string[];

@@ -10,9 +10,12 @@ import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
+import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath,
 } from '../engine/paths.js';
+import { appendSession, searchSessions, getRecentSessions, sessionCount } from '../engine/sessions.js';
+import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -135,6 +138,19 @@ export function handleGetFalsePositives(_params: Record<string, string>, brain: 
 
 export function handleBrainStatus(_params: Record<string, string>, brain: BrainCache): string {
   const summary = getKBSummary(brain.knowledgeBase);
+
+  // Token-accounting: is engram paying for itself?
+  // CLAUDE.md is the per-session context tax engram imposes.
+  // Hit rate is what engram pays back (re-investigations prevented).
+  const claudeMdBytes = (() => {
+    try { return statSync(join(brain.rootPath, 'CLAUDE.md')).size; }
+    catch { return 0; }
+  })();
+  const totalSessions = sessionCount(brain.rootPath);
+  const hitRate = summary.totalEntries > 0
+    ? Math.round((summary.accessedEntries / summary.totalEntries) * 100)
+    : 0;
+
   return JSON.stringify({
     ...summary,
     knowledge_index: {
@@ -142,6 +158,17 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
       total_lines: brain.knowledge.summary.totalLines,
       import_edges: Object.keys(brain.knowledge.importGraph).length,
       exports_mapped: Object.keys(brain.knowledge.exports).length,
+    },
+    token_accounting: {
+      claude_md_bytes: claudeMdBytes,
+      claude_md_kb: Math.round(claudeMdBytes / 1024 * 10) / 10,
+      session_count: totalSessions,
+      learnings_hit_rate_pct: hitRate,
+      note: claudeMdBytes > 30000
+        ? 'CLAUDE.md is large — consider trimming. Tax exceeds typical savings.'
+        : hitRate < 20 && summary.totalEntries > 10
+          ? 'Low hit rate — many learnings unused. Consider pruning stale entries.'
+          : 'Healthy.',
     },
     cache_age_ms: Date.now() - brain.loadedAt,
     instruction: 'Brain is ready. Next: call engram_classify_task with the files you plan to touch to get your tier and phases.',
@@ -633,6 +660,15 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
     cache_hits: brain.knowledgeBase.metrics.cacheHits,
   };
 
+  // 7b. Recent session summaries — what made this session feel compounding
+  const recentSessions = getRecentSessions(root, 3).map((s) => ({
+    date: s.date,
+    branch: s.branch ?? null,
+    summary: s.summary ?? '',
+    tags: s.tags ?? [],
+    outcome: s.outcome,
+  }));
+
   // 8. Patterns (from reflection engine)
   const patterns = reflect(brain.knowledgeBase)
     .slice(0, 3)
@@ -653,11 +689,85 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
       knowledge,
       teams,
       metrics,
+      recent_sessions: recentSessions,
     },
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : topLearnings.length > 0
         ? `Session loaded. ${topLearnings.length} key learnings available. ${fps.length} false positives to suppress. Call engram_classify_task to begin.`
-        : 'Fresh brain — no past learnings yet. Call engram_classify_task to begin your first task.',
+        : recentSessions.length > 0
+          ? `Session loaded. ${recentSessions.length} recent sessions on file. Call engram_classify_task to begin.`
+          : 'Fresh brain — no past learnings yet. Call engram_classify_task to begin your first task.',
+  });
+}
+
+
+/**
+ * Save a session summary. OPT-IN — agent only calls this when there's a
+ * narratable accomplishment a future session would search for.
+ *
+ * Stop hook auto-captures structured tuples (date, branch, files); this
+ * adds the narrative layer (summary, tags, outcome) that makes search useful.
+ */
+export function handleSaveSessionSummary(params: Record<string, string>, brain: BrainCache): string {
+  const validOutcomes: SessionOutcome[] = ['shipped', 'wip', 'failed', 'unknown'];
+  const outcomeRaw = params.outcome || 'unknown';
+  const outcome: SessionOutcome = (validOutcomes as string[]).includes(outcomeRaw)
+    ? (outcomeRaw as SessionOutcome)
+    : 'unknown';
+
+  const entry: SessionSummary = {
+    id: `${Date.now()}-agent`,
+    date: new Date().toISOString().split('T')[0],
+    timestamp: new Date().toISOString(),
+    summary: (params.summary || '').slice(0, 500),
+    tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
+    outcome,
+    filesTouched: params.files_touched
+      ? params.files_touched.split(',').map((f) => f.trim()).filter(Boolean)
+      : undefined,
+    domainsTouched: params.domains
+      ? params.domains.split(',').map((d) => d.trim()).filter(Boolean)
+      : undefined,
+  };
+
+  appendSession(brain.rootPath, entry);
+
+  return JSON.stringify({
+    status: 'saved',
+    id: entry.id,
+    summary: entry.summary,
+    instruction: 'Session summary recorded. Future engram_search_sessions calls can find this.',
+  });
+}
+
+/**
+ * Search this project's sessions.jsonl by free text over summary + tags + branch.
+ * Returns most recent matches first.
+ */
+export function handleSearchSessions(params: Record<string, string>, brain: BrainCache): string {
+  const query = params.query || '';
+  const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
+
+  if (!query.trim()) {
+    return JSON.stringify({ error: 'query is required', results: [] });
+  }
+
+  const matches = searchSessions(brain.rootPath, query, limit);
+  return JSON.stringify({
+    query,
+    count: matches.length,
+    results: matches.map((s) => ({
+      id: s.id,
+      date: s.date,
+      branch: s.branch ?? null,
+      summary: s.summary ?? '',
+      tags: s.tags ?? [],
+      outcome: s.outcome,
+      files_modified: s.filesModified ?? (s.filesTouched?.length ?? 0),
+    })),
+    instruction: matches.length === 0
+      ? 'No matching sessions. This might be the first time we tackle this area.'
+      : `Found ${matches.length} matching past session(s). Review summaries before duplicating prior work.`,
   });
 }

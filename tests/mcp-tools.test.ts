@@ -109,9 +109,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 20 tool definitions', () => {
+  it('returns 25 tool definitions', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(23);
+    expect(tools).toHaveLength(25);
   });
 
   it('all tools have name, description, and inputSchema', () => {
