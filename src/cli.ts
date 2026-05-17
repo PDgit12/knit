@@ -13,7 +13,7 @@
 import { Command } from 'commander';
 
 const args = process.argv.slice(2);
-const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', '--help', '-h', '--version', '-V'].includes(args[0]);
+const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', '--help', '-h', '--version', '-V'].includes(args[0]);
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
@@ -35,6 +35,7 @@ async function runCLI() {
   const { statusCommand } = await import('./commands/status.js');
   const { refreshCommand } = await import('./commands/refresh.js');
   const { installAgentsCommand } = await import('./commands/install-agents.js');
+  const { exportCommand } = await import('./commands/export.js');
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -112,6 +113,21 @@ async function runCLI() {
     .action(async (directory: string, options: { refresh?: boolean; all?: boolean }) => {
       try {
         await installAgentsCommand(directory, options);
+      } catch (error) {
+        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('export')
+    .description('Export engram learnings into a target format (e.g. an Obsidian vault)')
+    .argument('<format>', 'Export format (currently only: obsidian)')
+    .argument('<vault-path>', 'Output directory (Obsidian vault path)')
+    .option('--filter <tag>', 'Only export entries tagged with this tag (e.g. #auth)')
+    .action(async (format: string, vaultPath: string, options: { filter?: string }) => {
+      try {
+        await exportCommand(format, vaultPath, options);
       } catch (error) {
         console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
         process.exit(1);
