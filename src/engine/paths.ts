@@ -79,9 +79,16 @@ export function projectAgentsDir(rootPath: string): string {
   return join(rootPath, '.claude', 'agents');
 }
 
-/** <project>/.claude/agents/engram-<name>.md — engram-managed agent for a project. */
+/**
+ * <project>/.claude/agents/engram-<name>.md — engram-managed agent for a project.
+ *
+ * Accepts either a bare name (`typescript-pro`) or an already-prefixed name
+ * (`engram-typescript-pro`). The leading `engram-` is stripped before
+ * composing the filename so callers can pass whichever they have.
+ */
 export function projectAgentFile(rootPath: string, name: string): string {
-  return join(projectAgentsDir(rootPath), `engram-${name}.md`);
+  const bare = name.replace(/^engram-/, '');
+  return join(projectAgentsDir(rootPath), `engram-${bare}.md`);
 }
 
 /** Refs can be SHAs or branch names; strip filesystem-unsafe chars for safety. */

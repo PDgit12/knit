@@ -50,19 +50,31 @@ const LANG_AGENTS: Record<string, string[]> = {
   // Java + others fall through to no lang-specialist; teams still get code-reviewer etc.
 };
 
-/** Engram's per-role bundle of agents that should be installed for a project. */
+/**
+ * Engram's per-role bundle of agents that should be installed for a project.
+ *
+ * Returns names prefixed with "engram-" so they match the filenames written
+ * by install-agents (e.g. `.claude/agents/engram-typescript-pro.md`). Claude
+ * Code's Agent tool resolves subagents by filename basename, so the orchestrator
+ * must spawn them by the prefixed name or it will find user agents / nothing.
+ */
 export function agentsForRole(role: 'core' | 'security' | 'qa', stack: string): string[] {
   const langSpecific = LANG_AGENTS[stack] || [];
+  let bare: string[];
   switch (role) {
     case 'core':
-      return uniq([...langSpecific, 'code-reviewer', 'architect-reviewer']);
+      bare = uniq([...langSpecific, 'code-reviewer', 'architect-reviewer']);
+      break;
     case 'security':
-      return uniq(['security-engineer', ...langSpecific, 'code-reviewer']);
+      bare = uniq(['security-engineer', ...langSpecific, 'code-reviewer']);
+      break;
     case 'qa':
-      return uniq(['qa-expert', 'debugger', 'build-engineer']);
+      bare = uniq(['qa-expert', 'debugger', 'build-engineer']);
+      break;
     default:
-      return ['code-reviewer'];
+      bare = ['code-reviewer'];
   }
+  return bare.map((n) => `engram-${n}`);
 }
 
 /** All agents engram knows how to fetch + personalize. */
