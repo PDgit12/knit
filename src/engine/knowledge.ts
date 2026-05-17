@@ -14,6 +14,9 @@ const SKIP_DIRS = new Set([
   'node_modules', '.git', '.next', '__pycache__', '.venv', 'venv',
   'dist', 'build', 'out', '.claude', 'coverage', '.turbo', '.cache',
   'target', 'vendor', 'pkg', 'bin',
+  // macOS home-dir noise (when engram is run from $HOME)
+  'Library', 'Caches', 'Downloads', 'Desktop', 'Documents',
+  'Movies', 'Music', 'Pictures', 'Public', 'Applications',
 ]);
 
 /** Source file extensions worth indexing */

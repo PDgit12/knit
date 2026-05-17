@@ -213,7 +213,12 @@ function generateProjectMap(knowledge: ProjectKnowledge): string {
   }
 
   if (summary.highFanoutFiles.length > 0) {
-    content += `**High-fanout files (change carefully):** \`${summary.highFanoutFiles.join('`, `')}\`\n`;
+    const shown = summary.highFanoutFiles.slice(0, 15);
+    content += `**High-fanout files (change carefully):** \`${shown.join('`, `')}\``;
+    if (summary.highFanoutFiles.length > 15) {
+      content += ` (+${summary.highFanoutFiles.length - 15} more)`;
+    }
+    content += '\n';
   }
 
   if (summary.untestedFiles.length > 0) {
