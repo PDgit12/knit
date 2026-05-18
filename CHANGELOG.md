@@ -2,6 +2,25 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] — 2026-05-18
+
+Metadata-only patch. No code changes.
+
+### Changed
+
+- **package.json description** — dropped stale "20 tools" claim (real count
+  is 33 since v0.4.1). New copy describes engram by capability (memory,
+  workflow, worktrees) rather than tool count, so it doesn't drift on every
+  release.
+- **README** — fixed broken npm version badge (was pointing at unscoped
+  `engram-dev`, now URL-encoded `@piyushdua/engram-dev` so shields.io
+  resolves the real published package). Removed hardcoded `MCP_tools-32`
+  badge for the same drift reason.
+- **CLAUDE.md** — domain architecture section synced to actual `src/`:
+  the `src/adapters/*` domain was fictional (never existed); replaced with
+  the real `src/mcp/*` domain (server, handlers, tools, cache). Engine
+  file list now lists the real 15 modules.
+
 ## [0.4.1] — 2026-05-17
 
 Built across 4 parallel team worktrees using engram's own team-worktree
