@@ -245,13 +245,48 @@ describe('generateSettings', () => {
     expect(stopCommands).toContain('totalSessions');
   });
 
+  // ── Protocol Guard (v0.5.0) ──
+  describe('Protocol Guard hooks', () => {
+    it('emits a SessionStart hook tagged _engramOwned', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      expect(hooks.SessionStart).toBeDefined();
+      expect(Array.isArray(hooks.SessionStart)).toBe(true);
+      expect(hooks.SessionStart.length).toBeGreaterThan(0);
+      expect((hooks.SessionStart[0] as any)._engramOwned).toBe(true);
+      const cmd = (hooks.SessionStart[0] as any).hooks?.[0]?.command || '';
+      expect(cmd).toContain('session marker');
+    });
+
+    it('emits a UserPromptSubmit hook that clears the classification marker', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      expect(hooks.UserPromptSubmit).toBeDefined();
+      expect((hooks.UserPromptSubmit[0] as any)._engramOwned).toBe(true);
+      const cmd = (hooks.UserPromptSubmit[0] as any).hooks?.[0]?.command || '';
+      expect(cmd).toContain('.classified-current');
+    });
+
+    it('emits a PreToolUse classification gate for Edit/Write/MultiEdit', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const gate = (hooks.PreToolUse as any[]).find((e) => e.matcher === 'Edit|Write|MultiEdit');
+      expect(gate).toBeDefined();
+      expect(gate._engramOwned).toBe(true);
+      const cmd = gate.hooks?.[0]?.command || '';
+      expect(cmd).toContain('protocol-config.json');
+      expect(cmd).toContain('engram_classify_task');
+      expect(cmd).toContain('process.exit(2)');
+    });
+  });
+
   // ── Cross-platform (Windows + macOS + Linux + WSL) ──
   describe('cross-platform hook commands (v0.3.1+)', () => {
     it('every hook command starts with node -e (no shell-only commands)', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       const allCommands: string[] = [];
-      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+      for (const phase of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
         for (const entry of (hooks[phase] ?? []) as any[]) {
           for (const h of entry.hooks ?? []) {
             if (typeof h.command === 'string') allCommands.push(h.command);
@@ -269,7 +304,7 @@ describe('generateSettings', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       const allCommands: string[] = [];
-      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+      for (const phase of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
         for (const entry of (hooks[phase] ?? []) as any[]) {
           for (const h of entry.hooks ?? []) {
             if (typeof h.command === 'string') allCommands.push(h.command);
@@ -299,7 +334,7 @@ describe('generateSettings', () => {
       const settings = generateSettings(testConfig, '/tmp/test-project') as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       const allCommands: string[] = [];
-      for (const phase of ['PreToolUse', 'PostToolUse', 'Stop']) {
+      for (const phase of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop']) {
         for (const entry of (hooks[phase] ?? []) as any[]) {
           for (const h of entry.hooks ?? []) {
             if (typeof h.command === 'string') allCommands.push(h.command);

@@ -2,6 +2,55 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-05-18
+
+Headline feature: **Protocol Guard**. The engram workflow protocol is now
+runtime-enforced via hooks, not just documented in CLAUDE.md. The protocol
+went from skippable advice to a structural gate, modelled after the
+"make wrong things hard, not just discouraged" principle.
+
+### Added
+
+- **`engram_set_protocol_strictness({ level: "off" | "warn" | "block" })`** —
+  configures Protocol Guard behaviour per project. Default on install: `warn`.
+- **`engram_get_protocol_strictness`** — reads the current level.
+- **SessionStart hook** — drops a session-loaded marker and prints a reminder
+  that `engram_load_session` should be the first MCP call.
+- **UserPromptSubmit hook** — clears the per-turn classification marker so
+  `engram_classify_task` must run fresh on every user turn before Edit/Write.
+- **PreToolUse Edit/Write/MultiEdit gate** — reads
+  `~/.engram/projects/<hash>/protocol-config.json` and the per-turn marker:
+  - `level=off`: hook exits 0 (no checks).
+  - `level=warn` + missing marker: prints a stderr reminder, exits 0.
+  - `level=block` + missing marker: prints a block message, exits 2 (Claude
+    Code refuses the Edit/Write).
+- **`src/engine/protocol-guard.ts`** — pure-IO module for the strictness
+  config and marker files, unit-tested in isolation.
+- **`engram_classify_task` side effect** — every classification call writes
+  `~/.engram/projects/<hash>/.classified-current` with the tier + files so the
+  gate has something to read. Best-effort: marker write errors never break
+  classification.
+- **CLAUDE.md "system-reminder override" paragraph** — defends the protocol
+  block against the harness's default `"this context may or may not be
+  relevant"` wrapper that demotes user instructions to background.
+
+### Changed
+
+- Generator emits two new top-level hook arrays (`SessionStart`,
+  `UserPromptSubmit`). The existing hybrid-merge logic in `src/mcp/cache.ts`
+  already handles new event types per `_engramOwned: true` tagging — no
+  changes needed there.
+- Tool count: 33 → 35. Test assertions and metric badges updated accordingly.
+
+### Internal
+
+- New `tests/protocol-guard.test.ts` with 11 tests covering config
+  round-trip, marker lifecycle, handler validation, and `handleClassifyTask`
+  side-effect behaviour.
+- `tests/generators.test.ts` extended with a Protocol Guard hook suite
+  asserting the new SessionStart/UserPromptSubmit/PreToolUse entries are
+  present, tagged `_engramOwned`, and cross-platform.
+
 ## [0.4.2] — 2026-05-18
 
 Metadata-only patch. No code changes.

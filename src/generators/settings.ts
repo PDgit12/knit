@@ -6,6 +6,9 @@ import {
   sessionsJsonlPath,
   projectDataDir,
   learningsDir,
+  classificationMarkerPath,
+  protocolConfigPath,
+  sessionMarkerPath,
 } from '../engine/paths.js';
 
 /**
@@ -88,8 +91,55 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   const SESSIONS_JSONL = sessionsJsonlPath(rootPath);
   const LEARN_DIR = learningsDir(rootPath);
   const ENGRAM_DIR = projectDataDir(rootPath);
+  const PROTOCOL_CONFIG = protocolConfigPath(rootPath);
+  const CLASSIFIED_MARKER = classificationMarkerPath(rootPath);
+  const SESSION_MARKER = sessionMarkerPath(rootPath);
 
   const hooks: Record<string, unknown[]> = {
+    SessionStart: [
+      // Protocol Guard layer 1: drop a marker that engram_load_session
+      // should be the first MCP call. Hook itself is best-effort; it doesn't
+      // BLOCK on missing load_session, only the per-turn classification gate blocks.
+      {
+        _engramOwned: true,
+        hooks: [
+          {
+            type: 'command',
+            command: nodeHook(`
+              try {
+                const fs = require("fs");
+                const path = require("path");
+                const p = ${jsLit(SESSION_MARKER)};
+                fs.mkdirSync(path.dirname(p), { recursive: true });
+                fs.writeFileSync(p, new Date().toISOString());
+                console.error("[engram] session marker written. Call engram_load_session as your first MCP call.");
+              } catch (e) {}
+            `),
+            timeout: 5,
+          },
+        ],
+      },
+    ],
+    UserPromptSubmit: [
+      // Protocol Guard: each user turn invalidates the previous classification.
+      // engram_classify_task must be called fresh per turn before Edit/Write.
+      {
+        _engramOwned: true,
+        hooks: [
+          {
+            type: 'command',
+            command: nodeHook(`
+              try {
+                const fs = require("fs");
+                const p = ${jsLit(CLASSIFIED_MARKER)};
+                if (fs.existsSync(p)) fs.rmSync(p, { force: true });
+              } catch (e) {}
+            `),
+            timeout: 5,
+          },
+        ],
+      },
+    ],
     PreToolUse: [
       {
         _engramOwned: true,
@@ -109,6 +159,39 @@ function generateHooks(config: EngramConfig, rootPath: string) {
                   }
                 } catch (e) {}
               });
+            `),
+            timeout: 5,
+          },
+        ],
+      },
+      // Protocol Guard layer 2: gate Edit/Write/MultiEdit on prior engram_classify_task.
+      {
+        _engramOwned: true,
+        matcher: 'Edit|Write|MultiEdit',
+        hooks: [
+          {
+            type: 'command',
+            command: nodeHook(`
+              try {
+                const fs = require("fs");
+                const cfgPath = ${jsLit(PROTOCOL_CONFIG)};
+                const markerPath = ${jsLit(CLASSIFIED_MARKER)};
+                let level = "warn";
+                if (fs.existsSync(cfgPath)) {
+                  try {
+                    const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+                    if (cfg && (cfg.level === "off" || cfg.level === "warn" || cfg.level === "block")) level = cfg.level;
+                  } catch (e) {}
+                }
+                if (level === "off") return;
+                const hasMarker = fs.existsSync(markerPath);
+                if (hasMarker) return;
+                if (level === "block") {
+                  console.error("[engram] BLOCKED: call engram_classify_task before Edit/Write. The Protocol Guard prevents implementation without classification.");
+                  process.exit(2);
+                }
+                console.error("[engram] reminder: call engram_classify_task before Edit/Write. Set strictness=block via engram_set_protocol_strictness to make this a hard gate.");
+              } catch (e) {}
             `),
             timeout: 5,
           },

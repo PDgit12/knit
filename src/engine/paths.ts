@@ -101,6 +101,21 @@ export function sessionsJsonlPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'sessions.jsonl');
 }
 
+/** ~/.engram/projects/<hash>/protocol-config.json — Protocol Guard strictness. */
+export function protocolConfigPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'protocol-config.json');
+}
+
+/** ~/.engram/projects/<hash>/.classified-current — per-turn classification marker. */
+export function classificationMarkerPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), '.classified-current');
+}
+
+/** ~/.engram/projects/<hash>/.session-loaded — SessionStart auto-load marker. */
+export function sessionMarkerPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), '.session-loaded');
+}
+
 /** ~/.engram/projects/<hash>/learnings/ */
 export function learningsDir(rootPath: string): string {
   return join(projectDataDir(rootPath), 'learnings');

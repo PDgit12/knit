@@ -28,6 +28,10 @@ import {
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
   getOtherTeamFindings, getBoardSummary,
 } from '../engine/teams.js';
+import {
+  isValidStrictness, readProtocolConfig, writeClassificationMarker, writeProtocolConfig,
+} from '../engine/protocol-guard.js';
+import type { TaskTier } from '../engine/types.js';
 
 
 export function detectDomainsFromFiles(files: string[]): Set<string> {
@@ -221,6 +225,19 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
       ? 'Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.'
       : 'Simple task. EXECUTE → VERIFY → LEARN. Do it directly, then record what you learned.';
 
+  // Protocol Guard side effect: write classification marker so PreToolUse
+  // hook lets Edit/Write through this turn. See src/engine/protocol-guard.ts.
+  try {
+    writeClassificationMarker(brain.rootPath, {
+      turnId: `${Date.now()}-${process.pid}`,
+      classifiedAt: new Date().toISOString(),
+      tier: tier as TaskTier,
+      files,
+    });
+  } catch {
+    // Best-effort: never let marker IO break classification.
+  }
+
   return JSON.stringify({
     tier, affected_domains: [...domains], phases, files_count: files.length,
     cross_domain_ripple: crossDomainRipple, auto_plan_mode: tier === 'complex',
@@ -229,6 +246,33 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
       ? `Complex: ${domains.size} domains affected${isTypes ? ', touches shared types' : ''}${isAuth ? ', security-sensitive' : ''}`
       : tier === 'standard' ? `Standard: ${domains.size} domain(s), ${files.length} file(s)` : `Trivial: 1 domain, simple change`,
   });
+}
+
+export function handleSetProtocolStrictness(params: Record<string, string>, brain: BrainCache): string {
+  const level = (params.level || '').trim().toLowerCase();
+  if (!isValidStrictness(level)) {
+    return JSON.stringify({
+      status: 'error',
+      error: `Invalid level: "${params.level}". Must be one of: off, warn, block.`,
+    });
+  }
+  const config = writeProtocolConfig(brain.rootPath, level);
+  return JSON.stringify({
+    status: 'set',
+    level: config.level,
+    updated_at: config.updatedAt,
+    applies_to: 'next-tool-call',
+    note: level === 'block'
+      ? 'PreToolUse hook will now HARD BLOCK Edit/Write without engram_classify_task first.'
+      : level === 'warn'
+        ? 'PreToolUse hook will print a reminder but not block.'
+        : 'Protocol Guard disabled. No checks on Edit/Write.',
+  });
+}
+
+export function handleGetProtocolStrictness(_params: Record<string, string>, brain: BrainCache): string {
+  const config = readProtocolConfig(brain.rootPath);
+  return JSON.stringify({ level: config.level, updated_at: config.updatedAt });
 }
 
 export function handleBuildContext(params: Record<string, string>, brain: BrainCache): string {

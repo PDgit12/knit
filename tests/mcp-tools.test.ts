@@ -109,9 +109,15 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 33 tool definitions (v0.4.1 — +engram_prune_sessions)', () => {
+  it('returns 35 tool definitions (v0.5.0 — +engram_set/get_protocol_strictness)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(33);
+    expect(tools).toHaveLength(35);
+  });
+
+  it('exposes the Protocol Guard tools', () => {
+    const names = getToolDefinitions().map((t) => t.name);
+    expect(names).toContain('engram_set_protocol_strictness');
+    expect(names).toContain('engram_get_protocol_strictness');
   });
 
   it('exposes the subagent installer tool', () => {

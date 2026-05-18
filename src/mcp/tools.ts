@@ -22,6 +22,7 @@ import {
   handleRecordGlobalLearning, handleSearchGlobalLearnings,
   handleReflect, handleGetSuggestions,
   handleInstallAgent, handlePruneSessions,
+  handleSetProtocolStrictness, handleGetProtocolStrictness,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -296,6 +297,18 @@ export function getToolDefinitions(): ToolDef[] {
         required: ['team_name', 'action'],
       },
     },
+
+    // ── Protocol Guard ───────────────────────────────────────────
+    {
+      name: 'engram_set_protocol_strictness',
+      description: 'Set Protocol Guard strictness for this project. off = no checks. warn = reminder only (default). block = hard-fail Edit/Write without prior engram_classify_task.',
+      inputSchema: { type: 'object', properties: { level: { type: 'string', description: 'One of: off | warn | block.' } }, required: ['level'] },
+    },
+    {
+      name: 'engram_get_protocol_strictness',
+      description: 'Read current Protocol Guard strictness level for this project.',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ];
 }
 
@@ -334,6 +347,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   engram_reflect: handleReflect,
   engram_get_suggestions: handleGetSuggestions,
   engram_install_agent: handleInstallAgent,
+  engram_set_protocol_strictness: handleSetProtocolStrictness,
+  engram_get_protocol_strictness: handleGetProtocolStrictness,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

@@ -73,6 +73,21 @@ export interface TaskClassification {
   phases: string[];
 }
 
+/** Protocol Guard — runtime enforcement of the engram protocol. */
+export type ProtocolStrictness = 'off' | 'warn' | 'block';
+
+export interface ProtocolConfig {
+  level: ProtocolStrictness;
+  updatedAt: string;
+}
+
+export interface ClassificationMarker {
+  turnId: string;
+  classifiedAt: string;
+  tier: TaskTier;
+  files: string[];
+}
+
 /** Domain Context Object — passed to every agent prompt */
 export interface DomainContext {
   affectedDomains: string[];
