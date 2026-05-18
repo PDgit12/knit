@@ -28,7 +28,7 @@ Every file belongs to exactly one domain. Domains are the unit of orchestration.
        │        │        │        │     │
        ▼        ▼        ▼        ▼     ▼
    ┌──────┐ ┌──────┐ ┌──────┐ ┌─────┐ ┌───┐
-   │ CLI  │ │Engine│ │ Gen  │ │Adapt│ │ QA│
+   │ CLI  │ │Engine│ │ Gen  │ │ MCP │ │ QA│
    │ Head │ │ Head │ │ Head │ │Head │ │Head│
    └──┬───┘ └──┬───┘ └──┬───┘ └──┬──┘ └─┬─┘
       │        │        │        │      │
@@ -36,28 +36,28 @@ Every file belongs to exactly one domain. Domains are the unit of orchestration.
 ```
 
 ### Domain 1: CLI (User Interface)
-**Files:** `src/cli.ts`, `src/commands/*.ts`
+**Files:** `src/cli.ts`, `src/commands/*.ts` (`setup`, `status`, `refresh`, `install-agents`, `export`)
 **Head concern:** UX, argument parsing, error messages, interactive prompts, progress output
 **Agents:** `code-reviewer`, `typescript-reviewer`
 
 ### Domain 2: Engine (Core Intelligence)
-**Files:** `src/engine/*.ts` — learnings manager, tier router, context builder, false-positive tracker, handoff manager
-**Head concern:** Memory persistence, tier classification accuracy, token optimization, context object construction
+**Files:** `src/engine/*.ts` — `learnings`, `global-learnings`, `sessions`, `reflect`, `knowledge`, `knowledgebase`, `scanner`, `teams`, `worktrees`, `agent-registry`, `agent-fetcher`, `install-agents`, `paths`, `project-id`, `types`
+**Head concern:** Memory persistence, learnings/sessions storage, pattern reflection, team/worktree orchestration, agent registry, path resolution at `~/.engram/projects/<hash>/`
 **Agents:** `type-design-analyzer`, `code-reviewer`, `code-architect`, `silent-failure-hunter`
 
 ### Domain 3: Generators (Output Templates)
-**Files:** `src/generators/*.ts` — CLAUDE.md generator, settings generator, hooks generator, learnings scaffold
-**Head concern:** Template correctness across frameworks, idiomatic output, no hardcoded paths
+**Files:** `src/generators/*.ts` — `claude-md`, `settings`, `agent-md`, `workflow-protocol`, `learnings`
+**Head concern:** Template correctness across frameworks, idiomatic output, no hardcoded paths, marker-wrapped CLAUDE.md sections
 **Agents:** `code-reviewer`, `typescript-reviewer`
 
-### Domain 4: Adapters (Agent Compatibility)
-**Files:** `src/adapters/*.ts` — Claude Code adapter, Cursor adapter, Codex adapter
-**Head concern:** Hook format compatibility, settings format per agent, memory format translation
+### Domain 4: MCP Server (Tool Surface)
+**Files:** `src/mcp/*.ts` — `server`, `handlers`, `tools`, `cache`
+**Head concern:** MCP tool definitions (33 tools), request handlers, input sanitization, response shape, caching. This is the surface every connected agent (Claude Code, Cursor, Codex) talks to.
 **Agents:** `code-architect`, `code-reviewer`, `silent-failure-hunter`
 
 ### Domain 5: Quality Assurance
 **Files:** `tests/*`, build configs, lint configs
-**Head concern:** Test coverage (80%+), CLI integration tests, template output validation
+**Head concern:** Test coverage (80%+), CLI integration tests, template output validation. Current: 272 tests.
 **Agents:** `tdd-guide`, `pr-test-analyzer`, `build-error-resolver`
 
 ### Cross-Domain Communication Rules
@@ -65,9 +65,9 @@ Every file belongs to exactly one domain. Domains are the unit of orchestration.
 | Change in | Notify | Why |
 |-----------|--------|-----|
 | `src/engine/types.ts` | ALL domains | Types are the universal contract |
-| `src/engine/tier-router.ts` | CLI + Gen + QA | Tier classification affects what gets generated |
-| `src/generators/*` | Adapters + QA | Output format changes must be adapter-compatible |
-| `src/adapters/*` | Gen + QA | Adapter constraints may require generator changes |
+| `src/engine/reflect.ts` or `learnings.ts` | MCP + QA | Engine changes ripple to MCP tool responses + tests |
+| `src/generators/*` | MCP + QA | Generator output is invoked by MCP tools (e.g. `engram_setup_project`) |
+| `src/mcp/tools.ts` | CLI + Engine + QA | New/changed tool means new engine method + handler + test |
 | New CLI command | CLI + Engine + QA | Needs wiring, engine support, tests |
 
 ---
@@ -202,7 +202,7 @@ Launch affected domain heads in parallel with review agents:
 | CLI Head | `code-reviewer`, `typescript-reviewer` |
 | Engine Head | `type-design-analyzer`, `code-reviewer`, `code-architect`, `silent-failure-hunter` |
 | Gen Head | `code-reviewer`, `typescript-reviewer` |
-| Adapter Head | `code-architect`, `code-reviewer`, `silent-failure-hunter` |
+| MCP Head | `code-architect`, `code-reviewer`, `silent-failure-hunter` |
 | QA Head | `tdd-guide`, `pr-test-analyzer`, `build-error-resolver` |
 
 **Gate:** Zero CRITICAL findings. All HIGH acknowledged.

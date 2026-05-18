@@ -1,8 +1,7 @@
 <p align="center">
-  <img src="https://img.shields.io/npm/v/engram-dev?style=for-the-badge&color=7c3aed" alt="npm version" />
+  <a href="https://www.npmjs.com/package/@piyushdua/engram-dev"><img src="https://img.shields.io/npm/v/%40piyushdua%2Fengram-dev?style=for-the-badge&color=7c3aed&label=npm" alt="npm version" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
   <a href="https://github.com/PDgit12/engram/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/engram/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/MCP_tools-32-06b6d4?style=for-the-badge" alt="tools" />
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
