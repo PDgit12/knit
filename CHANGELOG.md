@@ -2,6 +2,20 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-05-18
+
+Metadata-only republish. No code changes.
+
+### Fixed
+
+- **npm README indexing.** v0.6.0's published metadata had `readme: ""` and
+  `readmeFilename: null` in the registry — the README.md was correctly
+  included in the tarball but the registry's indexed `readme` field was
+  empty, causing the npmjs.com package page to render without the long-form
+  content (badges, tool tables, install instructions). v0.6.1 republishes
+  to force the registry to re-index README.md alongside the rest of the
+  metadata.
+
 ## [0.6.0] — 2026-05-18
 
 **Headline: project renamed from `engram` to `Knit`.** This is a breaking change.
