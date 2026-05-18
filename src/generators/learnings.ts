@@ -13,7 +13,7 @@ export function generateLearningsContent(config: KnitConfig): string {
 
 ---
 
-## ${date} Project initialized with Engram workflow
+## ${date} Project initialized with Knit workflow
 **Domain(s):** All — workflow infrastructure
 **Approach:** Auto-detected stack (${config.stack.language}${config.stack.framework ? ' + ' + config.stack.framework : ''}), generated ${config.domains.length} domains, wired hooks for ${config.targetAgent}.
 **Outcome:** Success — workflow infrastructure in place

@@ -29,7 +29,7 @@ export interface WorktreeRecord {
   teamSlug: string;
   /** Absolute path to the worktree's working directory. */
   path: string;
-  /** Branch name (e.g., "engram/team-api-security-<timestamp>"). */
+  /** Branch name (e.g., "knit/team-api-security-<timestamp>"). */
   branch: string;
   /** What the team is being asked to do. */
   taskDescription: string;
@@ -55,7 +55,7 @@ export function spawnWorktree(
   const repoRoot = canonicalRepoRoot(rootPath);
   const slug = slugify(teamName);
   const ts = Date.now();
-  const branch = `engram/team-${slug}-${ts}`;
+  const branch = `knit/team-${slug}-${ts}`;
   const worktreePath = resolve(dirname(repoRoot), `${basename(repoRoot)}-knit-${slug}-${ts}`);
 
   // Fail loudly if a worktree for this exact slug+ts already exists (race condition / re-spawn)

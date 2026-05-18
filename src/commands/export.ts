@@ -128,7 +128,7 @@ async function exportObsidian(
 
   // ── Write index ──────────────────────────────────────────────
   writeFileSync(
-    join(vaultPath, 'Engram Index.md'),
+    join(vaultPath, 'Knit Index.md'),
     renderIndex(exported, perProjectCount, globalCount, projectEntryCounts),
     'utf-8',
   );
@@ -267,7 +267,7 @@ function renderIndex(
     perProjectByName.set(e.projectName, arr);
   }
 
-  let out = `# Engram Knowledge Index
+  let out = `# Knit Knowledge Index
 
 Generated ${new Date().toISOString()}. ${perProjectCount} per-project learnings + ${globalCount} global learnings.
 

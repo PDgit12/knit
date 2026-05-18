@@ -4,7 +4,8 @@ import { knownAgents } from './agent-registry.js';
 import {
   personalizeAgent,
   selectRelevantLearnings,
-  ENGRAM_AGENT_MARKER_START,
+  KNIT_AGENT_MARKER_START,
+  LEGACY_ENGRAM_AGENT_MARKER_START,
 } from '../generators/agent-md.js';
 import { projectAgentFile, projectAgentsDir } from './paths.js';
 import type { KnitConfig, KBEntry, KnowledgeBase, ProjectKnowledge } from './types.js';
@@ -15,7 +16,8 @@ import type { KnitConfig, KBEntry, KnowledgeBase, ProjectKnowledge } from './typ
  * <project>/.claude/agents/knit-<name>.md so Claude Code's Agent tool finds them.
  *
  * Never clobbers user-curated agents. A file at the target path without the
- * engram marker is left alone; engram only owns files it has tagged.
+ * Knit marker (or legacy engram marker) is left alone; Knit only owns
+ * files it has tagged.
  */
 
 export interface InstallOptions {
@@ -61,11 +63,16 @@ export async function installAgentsForProject(
   for (const name of targets) {
     const outFile = projectAgentFile(rootPath, name);
 
-    // Refuse to clobber a user-curated file (no engram marker)
+    // Refuse to clobber a user-curated file (no Knit-managed marker).
+    // Legacy engram marker is also recognized so v0.5.x personalized agents
+    // get regenerated without being treated as user-curated.
     if (existsSync(outFile) && !opts.refresh) {
       try {
         const existing = readFileSync(outFile, 'utf-8');
-        if (!existing.includes(ENGRAM_AGENT_MARKER_START)) {
+        const isKnitManaged =
+          existing.includes(KNIT_AGENT_MARKER_START) ||
+          existing.includes(LEGACY_ENGRAM_AGENT_MARKER_START);
+        if (!isKnitManaged) {
           result.skippedUserCurated.push(name);
           continue;
         }

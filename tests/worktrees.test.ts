@@ -53,7 +53,7 @@ describe('worktrees', () => {
       const rec = spawnWorktree(repoRoot, 'UI', 'Build login page');
       expect(rec.teamName).toBe('UI');
       expect(rec.teamSlug).toBe('ui');
-      expect(rec.branch).toMatch(/^engram\/team-ui-\d+$/);
+      expect(rec.branch).toMatch(/^knit\/team-ui-\d+$/);
       expect(existsSync(rec.path)).toBe(true);
       expect(rec.path).toContain('main-repo-knit-ui-');
       expect(rec.status).toBe('active');

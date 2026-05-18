@@ -34,6 +34,8 @@ npx knit-mcp@latest setup
 
 Adds the Knit MCP server to your Claude Code config (`~/.claude.json`). No per-project setup. Open Claude Code in any project and the first MCP tool call auto-initializes everything.
 
+**Supported shells:** macOS, Linux, WSL, Git Bash, and Windows PowerShell. The generated hooks use POSIX-style single-quoted `node -e '…'` payloads. Windows `cmd.exe` does not treat single quotes as delimiters and is not supported as the hook-runner shell — on Windows, use PowerShell (default in modern Windows Terminal) or Git Bash. If you hit a hook error on Windows, file an issue with the shell you're using.
+
 ## How data is stored
 
 Knit data is centralized — not in every repo's working tree:

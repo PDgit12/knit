@@ -87,9 +87,9 @@ const SECTIONS: Record<WorkflowSection, (ctx: WorkflowContext) => string> = {
 };
 
 function overview(_: WorkflowContext): string {
-  return `# Engram workflow — overview
+  return `# Knit workflow — overview
 
-This protocol is a decision aid. Read once, follow loosely, escalate when something doesn't fit. The principle: engram gives you data; you make the calls.
+This protocol is a decision aid. Read once, follow loosely, escalate when something doesn't fit. The principle: Knit gives you data; you make the calls.
 
 **Navigation:** call \`knit_get_workflow({phase})\` with any of:
 - \`overview\` (this) · \`tier\` · \`phases\`
@@ -102,7 +102,7 @@ When in doubt: under-classify. Easier to escalate mid-task than to downgrade.`;
 }
 
 function tier(_: WorkflowContext): string {
-  return `# Tier classification — you decide, engram informs
+  return `# Tier classification — you decide, Knit informs
 
 Four tiers. You read the user's message and decide. No regex, no auto-rules.
 

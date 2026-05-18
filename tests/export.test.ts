@@ -92,10 +92,10 @@ describe('export command (obsidian)', () => {
     await exportCommand('obsidian', vault, {});
 
     // Index exists with tag headings
-    const indexPath = join(vault, 'Engram Index.md');
+    const indexPath = join(vault, 'Knit Index.md');
     expect(existsSync(indexPath)).toBe(true);
     const index = readFileSync(indexPath, 'utf-8');
-    expect(index).toMatch(/# Engram Knowledge Index/);
+    expect(index).toMatch(/# Knit Knowledge Index/);
     expect(index).toMatch(/3 per-project learnings \+ 2 global learnings/);
     expect(index).toMatch(/### #auth/);
     expect(index).toMatch(/### #stripe/);
@@ -163,7 +163,7 @@ describe('export command (obsidian)', () => {
 
   it('handles a fresh KNIT_HOME with no projects or global learnings', async () => {
     await exportCommand('obsidian', vault, {});
-    expect(existsSync(join(vault, 'Engram Index.md'))).toBe(true);
+    expect(existsSync(join(vault, 'Knit Index.md'))).toBe(true);
     expect(readdirSync(join(vault, 'learnings'))).toHaveLength(0);
     expect(readdirSync(join(vault, 'global-learnings'))).toHaveLength(0);
   });

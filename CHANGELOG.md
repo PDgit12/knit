@@ -2,6 +2,59 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.5] — 2026-05-18
+
+**Polish pass before public link.** Final sweep through user-visible
+strings that escaped the v0.6.0 rename, plus an honest README note on
+Windows shell support.
+
+### Fixed
+
+- **`engram` / `Engram` cleaned out of every user-visible string** the
+  product writes to disk or returns to the agent:
+  - `src/generators/workflow-protocol.ts` — overview + tier-classification
+    headings ("Knit workflow — overview", "you decide, Knit informs").
+    This is what the agent sees when it calls `knit_get_workflow`.
+  - `src/generators/claude-md.ts` — the generated CLAUDE.md block now
+    reads "Knit-powered workflow", "Knit protocol", "Knit MCP tools
+    reference", "Knit-generated", and "Knit will configure domains".
+  - `src/mcp/cache.ts` — the `.claude/KNIT.md` sidecar template (written
+    when a user-curated CLAUDE.md exists without Knit markers) now says
+    "Knit's per-project workflow".
+  - `src/commands/export.ts` — Obsidian export writes `Knit Index.md`
+    with heading `# Knit Knowledge Index` (was `Engram Index.md` / `#
+    Engram Knowledge Index`). Existing exports keep their filenames; a
+    re-export creates the new file.
+  - `src/generators/learnings.ts` — the bootstrap entry now reads
+    "Project initialized with Knit workflow".
+  - `src/engine/worktrees.ts` — new team worktrees use branch names
+    `knit/team-<slug>-<ts>` instead of `engram/team-…`. Existing
+    worktrees keep their branch names; only new spawns are affected.
+- **Agent-md markers renamed with back-compat.**
+  `src/generators/agent-md.ts` writes `<!-- knit:context:start -->` /
+  `<!-- knit:context:end -->` going forward. The legacy
+  `<!-- engram:context:* -->` markers are still recognized so v0.5.x
+  personalized agent files (in `.claude/agents/knit-<name>.md`) regenerate
+  cleanly without leaving an orphan block. `src/engine/install-agents.ts`
+  also checks both marker forms before treating a file as user-curated.
+
+### Added
+
+- **README: explicit Windows shell support boundary.** Knit's hooks use
+  POSIX-style `node -e '…'` quoting which works under bash, zsh, Git
+  Bash, WSL, and Windows PowerShell — but **not** Windows `cmd.exe`
+  (single quotes are literal characters there, not delimiters). Documented
+  alongside setup instructions. Issue template for hook errors invites
+  users to report shell context.
+
+### Internal (not user-visible — left for a later sweep)
+
+- `engram` references inside source comments and internal variable names
+  (`ENGRAM_GRADIENT` in `src/cli.ts`, `ENGRAM_DIR` in
+  `src/generators/settings.ts`, doc comments in `src/mcp/cache.ts` /
+  `src/mcp/handlers.ts` / `src/generators/agent-md.ts` etc.). These don't
+  appear in any output the user sees — chore commit any time.
+
 ## [0.6.4] — 2026-05-18
 
 **Hotfix for Node 22+/25+ hook execution.** Closes a second, distinct

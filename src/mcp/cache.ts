@@ -292,8 +292,8 @@ function writeProjectClaudeMd(
   const sidecarDir = join(rootPath, '.claude');
   const sidecarPath = join(sidecarDir, 'KNIT.md');
   mkdirSync(sidecarDir, { recursive: true });
-  const sidecar = `<!-- This file is engram's per-project workflow. -->
-<!-- Your CLAUDE.md exists without engram markers, so engram wrote here instead of clobbering it. -->
+  const sidecar = `<!-- This file is Knit's per-project workflow. -->
+<!-- Your CLAUDE.md exists without Knit markers, so Knit wrote here instead of clobbering it. -->
 <!-- To include this content in CLAUDE.md, add: @.claude/KNIT.md -->
 
 ${block}`;

@@ -1,25 +1,33 @@
 import type { KnitConfig, KBEntry, ProjectKnowledge } from '../engine/types.js';
 
 /**
- * Compose a personalized agent .md from VoltAgent's base + engram's
+ * Compose a personalized agent .md from VoltAgent's base + Knit's
  * project-specific context block.
  *
  * The base file is left untouched. We append a fenced block:
  *
- *     <!-- engram:context:start -->
+ *     <!-- knit:context:start -->
  *     ## Project context (knit-managed; do not edit by hand)
  *     ...stack, high-fanout files, learnings, false positives...
- *     <!-- engram:context:end -->
+ *     <!-- knit:context:end -->
  *
- * If the file already contains an engram:context block (regeneration), the
- * existing block is replaced. Everything outside the markers is preserved.
+ * If the file already contains a knit:context (or legacy engram:context)
+ * block (regeneration), the existing block is replaced. Everything outside
+ * the markers is preserved.
  *
- * Goal: VoltAgent provides the role expertise; engram provides the project
+ * Goal: VoltAgent provides the role expertise; Knit provides the project
  * knowledge. The agent gets both without us forking VoltAgent's prompts.
  */
 
-export const ENGRAM_AGENT_MARKER_START = '<!-- engram:context:start -->';
-export const ENGRAM_AGENT_MARKER_END = '<!-- engram:context:end -->';
+export const KNIT_AGENT_MARKER_START = '<!-- knit:context:start -->';
+export const KNIT_AGENT_MARKER_END = '<!-- knit:context:end -->';
+// Legacy v0.5.x markers — still recognized so existing personalized agent
+// files regenerate cleanly without leaving duplicate blocks.
+export const LEGACY_ENGRAM_AGENT_MARKER_START = '<!-- engram:context:start -->';
+export const LEGACY_ENGRAM_AGENT_MARKER_END = '<!-- engram:context:end -->';
+// Back-compat aliases for external imports (e.g. install-agents.ts).
+export const ENGRAM_AGENT_MARKER_START = KNIT_AGENT_MARKER_START;
+export const ENGRAM_AGENT_MARKER_END = KNIT_AGENT_MARKER_END;
 
 export interface PersonalizationInputs {
   config: KnitConfig;
@@ -32,18 +40,26 @@ export interface PersonalizationInputs {
 
 /**
  * Take a fetched agent .md and produce the personalized version for this project.
- * Append engram's context block, or replace an existing engram block.
+ * Append Knit's context block, or replace an existing knit (or legacy engram) block.
  */
 export function personalizeAgent(baseMd: string, inputs: PersonalizationInputs): string {
   const block = buildContextBlock(inputs);
-  const startIdx = baseMd.indexOf(ENGRAM_AGENT_MARKER_START);
-  const endIdx = baseMd.indexOf(ENGRAM_AGENT_MARKER_END);
 
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Replace existing engram block; preserve everything else
-    const before = baseMd.slice(0, startIdx);
-    const after = baseMd.slice(endIdx + ENGRAM_AGENT_MARKER_END.length);
-    return `${before.trimEnd()}\n\n${block}\n${after.trimStart() ? '\n' + after.trimStart() : ''}`;
+  // Try current marker first, then legacy engram marker so v0.5.x personalized
+  // agents regenerate cleanly without leaving an orphan block.
+  const candidates: Array<[string, string]> = [
+    [KNIT_AGENT_MARKER_START, KNIT_AGENT_MARKER_END],
+    [LEGACY_ENGRAM_AGENT_MARKER_START, LEGACY_ENGRAM_AGENT_MARKER_END],
+  ];
+
+  for (const [startMarker, endMarker] of candidates) {
+    const startIdx = baseMd.indexOf(startMarker);
+    const endIdx = baseMd.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      const before = baseMd.slice(0, startIdx);
+      const after = baseMd.slice(endIdx + endMarker.length);
+      return `${before.trimEnd()}\n\n${block}\n${after.trimStart() ? '\n' + after.trimStart() : ''}`;
+    }
   }
 
   // No existing block — append at end with a separator
@@ -55,7 +71,7 @@ export function buildContextBlock(inputs: PersonalizationInputs): string {
   const { config, knowledge, relevantLearnings, falsePositives } = inputs;
   const lines: string[] = [];
 
-  lines.push(ENGRAM_AGENT_MARKER_START);
+  lines.push(KNIT_AGENT_MARKER_START);
   lines.push('');
   lines.push('## Project context (knit-managed; do not edit by hand)');
   lines.push('');
@@ -106,13 +122,13 @@ export function buildContextBlock(inputs: PersonalizationInputs): string {
 
   lines.push('## Knit MCP tools you can call');
   lines.push('');
-  lines.push('You have access to engram\'s MCP. Call these when you need depth:');
+  lines.push('You have access to Knit\'s MCP. Call these when you need depth:');
   lines.push('- `knit_query_dependents(file_path)` — what depends on a file');
   lines.push('- `knit_get_false_positives()` — full FP list, not just what\'s above');
   lines.push('- `knit_search_learnings(domains)` — search past lessons by tag');
   lines.push('- `knit_search_sessions(query)` — has a past session touched this area?');
   lines.push('');
-  lines.push(ENGRAM_AGENT_MARKER_END);
+  lines.push(KNIT_AGENT_MARKER_END);
 
   return lines.join('\n');
 }
