@@ -2,6 +2,32 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.4] — 2026-05-18
+
+**Hotfix for Node 22+/25+ hook execution.** Closes a second, distinct
+hook-runtime bug that v0.6.3 didn't catch.
+
+### Fixed
+
+- **`node -e` top-level `return` rejected on Node 22+ / 25+.** Several
+  generated hook scripts (LEARN-compliance, KB-metrics, session-tuple
+  recorder, etc.) used `return;` as an early-exit from a top-level
+  `try { ... }`. Older Node versions tolerated this in `-e`-evaluated
+  scripts; Node 22 and especially Node 25 reject it with
+  `SyntaxError: Illegal return statement`. Every Stop hook fired this
+  on session end.
+  Fix: `nodeHook` in `src/generators/settings.ts` now wraps the script
+  body in an IIFE — `(() => { … })()` — so `return` is legal.
+- **Regression test extended to actually execute generated hooks.**
+  `tests/generators.test.ts` previously used `bash -n` to syntax-check
+  commands without running them; that caught the v0.6.3 quoting bug but
+  not this one (valid shell, valid JS — just illegal under Node's
+  evaluator). The new test runs every generated `node -e` command under
+  the current Node, with empty stdin to prevent stdin-reading hooks from
+  hanging. Would have caught both v0.6.3 and v0.6.4 regressions.
+- **`HOOKS_VERSION` bumped 5 → 6** so users who installed any v0.6.0–0.6.3
+  build get a clean hook regeneration on next brain load.
+
 ## [0.6.3] — 2026-05-18
 
 **Public-link ship-readiness patch.** Closes the first-impression and

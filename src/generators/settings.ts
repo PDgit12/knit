@@ -44,8 +44,11 @@ import {
  *   v4 — 0.6.0+: rename engram→knit (marker tag and tool names)
  *   v5 — 0.6.3+: shell-quoting fix in nodeHook + rename remaining hook
  *                status messages from Engram→Knit
+ *   v6 — 0.6.4+: wrap nodeHook payload in IIFE so `return` early-exits
+ *                are legal under Node 22+/25+ (`node -e` is strict about
+ *                top-level returns)
  */
-export const HOOKS_VERSION = 5;
+export const HOOKS_VERSION = 6;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -68,16 +71,19 @@ function jsLit(s: string): string {
 }
 
 /** Compress a multiline JS snippet into a single-line `node -e '...'` shell command.
- *  POSIX-safe: any single quote inside the script is escaped via the standard
- *  '\'' close-escape-reopen trick so apostrophes in console.log strings can't
- *  prematurely terminate the outer quote and break the Stop hook at runtime. */
+ *  - Wraps the script in `(() => { … })()` so `return` early-exits work under
+ *    Node 22+/25+ where `node -e` is strict about top-level return statements.
+ *  - POSIX-safe: any single quote inside the script is escaped via the standard
+ *    '\'' close-escape-reopen trick so apostrophes in console.log strings can't
+ *    prematurely terminate the outer quote and break the Stop hook at runtime. */
 function nodeHook(script: string): string {
   const compact = script
     .split('\n')
     .map((l) => l.replace(/\/\/.*$/, '').trim())  // strip line comments
     .filter((l) => l.length > 0)
     .join(' ');
-  const escaped = compact.replace(/'/g, `'\\''`);
+  const wrapped = `(() => { ${compact} })();`;
+  const escaped = wrapped.replace(/'/g, `'\\''`);
   return `node -e '${escaped}'`;
 }
 

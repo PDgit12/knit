@@ -373,6 +373,37 @@ describe('generateSettings', () => {
         }).not.toThrow();
       }
     });
+
+    it('every inline node -e command actually runs under the current Node (no top-level `return` regressions)', { timeout: 60000 }, () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, Array<{ hooks: Array<{ command?: unknown }> }>>;
+
+      const commands: string[] = [];
+      for (const eventList of Object.values(hooks)) {
+        for (const entry of eventList) {
+          for (const h of entry.hooks) {
+            if (typeof h.command === 'string' && h.command.startsWith('node -e ')) {
+              commands.push(h.command);
+            }
+          }
+        }
+      }
+      // Actually execute each. This catches the v0.6.4 regression where
+      // Node 22+/25+ rejects top-level `return` in `node -e` — bash -n alone
+      // could not have surfaced this. The hook scripts are best-effort and
+      // wrap their bodies in try/catch, so a healthy hook exits 0 even when
+      // its target file doesn't exist yet.
+      for (const cmd of commands) {
+        try {
+          // Pipe an empty stdin and close it. Some hooks (the PreToolUse
+          // destructive-git blocker) read stdin and wait for EOF; without an
+          // explicit empty input they hang forever.
+          execSync(cmd, { input: '', stdio: ['pipe', 'ignore', 'pipe'], timeout: 20000 });
+        } catch (err) {
+          throw new Error(`Hook crashed at runtime: ${cmd.slice(0, 200)}\n${(err as Error).message}`);
+        }
+      }
+    });
   });
 });
 
