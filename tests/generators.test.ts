@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 import { generateClaudeMd } from '../src/generators/claude-md.js';
 import { generateSettings, generateSettingsLocal } from '../src/generators/settings.js';
 import { generateLearningsContent } from '../src/generators/learnings.js';
@@ -345,6 +346,32 @@ describe('generateSettings', () => {
       // Path separators that could leak through if we accidentally embed Windows-style paths
       // We explicitly normalize to forward slashes via jsLit() — this guards regressions.
       expect(allText).not.toMatch(/\\\\[A-Za-z]/);  // backslash-escaped paths
+    });
+
+    it('every inline node -e command parses cleanly under POSIX shell (no unbalanced quotes)', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, Array<{ hooks: Array<{ command?: unknown }> }>>;
+
+      const commands: string[] = [];
+      for (const eventList of Object.values(hooks)) {
+        for (const entry of eventList) {
+          for (const h of entry.hooks) {
+            if (typeof h.command === 'string' && h.command.startsWith('node -e ')) {
+              commands.push(h.command);
+            }
+          }
+        }
+      }
+      expect(commands.length).toBeGreaterThan(0);
+
+      // Use `bash -n` to syntax-check WITHOUT executing. This catches the v0.6.3
+      // regression where a literal apostrophe inside console.log("That's fine")
+      // closed the outer single quote and the Stop hook crashed at shell parse.
+      for (const cmd of commands) {
+        expect(() => {
+          execSync(`bash -n -c ${JSON.stringify(cmd)}`, { stdio: ['ignore', 'ignore', 'pipe'] });
+        }).not.toThrow();
+      }
     });
   });
 });

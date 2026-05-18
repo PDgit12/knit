@@ -134,7 +134,7 @@ async function exportObsidian(
   );
 
   // Friendly summary (skip when running silently in tests — chalk safe either way)
-  if (!process.env.ENGRAM_EXPORT_QUIET) {
+  if (!process.env.KNIT_EXPORT_QUIET && !process.env.ENGRAM_EXPORT_QUIET) {
     console.log(chalk.green('  ✓'), `Exported ${perProjectCount} per-project + ${globalCount} global learnings to ${vaultPath}`);
   }
 }

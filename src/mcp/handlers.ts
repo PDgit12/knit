@@ -23,6 +23,7 @@ import {
 } from '../engine/global-learnings.js';
 import { getAdaptiveSuggestions } from '../engine/reflect.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
+import { redactSecrets } from './sanitize.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -308,11 +309,11 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   const date = new Date().toISOString().split('T')[0];
   const entry = {
     date,
-    summary: params.summary || 'Untitled learning',
+    summary: redactSecrets(params.summary || 'Untitled learning'),
     domains: (params.domains || 'general').split(',').map((d) => d.trim()),
-    approach: params.approach || '',
+    approach: redactSecrets(params.approach || ''),
     outcome: (['success', 'partial', 'failure'].includes(params.outcome) ? params.outcome : 'success') as 'success' | 'partial' | 'failure',
-    lesson: params.lesson || '',
+    lesson: redactSecrets(params.lesson || ''),
     tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
   };
 
@@ -343,11 +344,11 @@ export function handleRecordFalsePositive(params: Record<string, string>, brain:
   const date = new Date().toISOString().split('T')[0];
   const entry = {
     date,
-    summary: params.summary || 'Untitled FP',
+    summary: redactSecrets(params.summary || 'Untitled FP'),
     domains: ['General'],
     approach: 'Verified manually',
     outcome: 'success' as const,
-    lesson: params.reason || 'Confirmed non-issue',
+    lesson: redactSecrets(params.reason || 'Confirmed non-issue'),
     tags: [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')), '#false-positive'],
   };
 
@@ -363,7 +364,8 @@ export function handleRecordFalsePositive(params: Record<string, string>, brain:
 
 export function handleSaveHandoff(params: Record<string, string>, brain: BrainCache): string {
   const handoffPath = join(brain.rootPath, 'handoff.md');
-  const content = `# Session Handoff\n\n**Goal:** ${params.goal || 'Not specified'}\n\n**Current State:** ${params.current_state || 'Not specified'}\n\n**Files in Flight:** ${params.files_in_flight || 'None'}\n\n**What Changed:** ${params.what_changed || 'Nothing'}\n\n**Failed Attempts:**\n${params.failed_attempts || 'None documented'}\n\n**Decisions Made:** ${params.decisions_made || 'None'}\n\n**Next Step:** ${params.next_step || 'Not specified'}\n\n---\n*Saved: ${new Date().toISOString()}*\n`;
+  const r = (k: string, fallback: string): string => redactSecrets(params[k] || fallback);
+  const content = `# Session Handoff\n\n**Goal:** ${r('goal', 'Not specified')}\n\n**Current State:** ${r('current_state', 'Not specified')}\n\n**Files in Flight:** ${r('files_in_flight', 'None')}\n\n**What Changed:** ${r('what_changed', 'Nothing')}\n\n**Failed Attempts:**\n${r('failed_attempts', 'None documented')}\n\n**Decisions Made:** ${r('decisions_made', 'None')}\n\n**Next Step:** ${r('next_step', 'Not specified')}\n\n---\n*Saved: ${new Date().toISOString()}*\n`;
   writeFileSync(handoffPath, content, 'utf-8');
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
@@ -652,8 +654,8 @@ export function handleGetSuggestions(params: Record<string, string>, brain: Brai
 }
 
 export function handleRecordGlobalLearning(params: Record<string, string>, brain: BrainCache): string {
-  const summary = (params.summary || '').slice(0, 500);
-  const lesson = (params.lesson || '').slice(0, 2000);
+  const summary = redactSecrets((params.summary || '').slice(0, 500));
+  const lesson = redactSecrets((params.lesson || '').slice(0, 2000));
   const tags = (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#'));
   const outcomeRaw = (params.outcome || '').toLowerCase();
   const outcome = ['success', 'partial', 'failure'].includes(outcomeRaw)
@@ -914,7 +916,7 @@ export function handleInstallAgent(params: Record<string, string>, brain: BrainC
     status: 'queued',
     agent: name,
     target: `<project>/.claude/agents/knit-${name}.md`,
-    instruction: 'Install started in background. File will be ready within a few seconds. If it fails, see stderr — engram does not throw from this handler.',
+    instruction: 'Install started in background. File will be ready within a few seconds. If it fails, see stderr — Knit does not throw from this handler.',
   });
 }
 

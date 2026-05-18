@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HOOKS_VERSION } from '../src/generators/settings.js';
 
 let knitHome: string;
 let projectRoot: string;
@@ -55,13 +56,13 @@ describe('maybeRefreshHooks idempotency', () => {
     const cacheMod = await import('../src/mcp/cache.js');
     const refreshBrain = (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain;
 
-    // First call: autoInitialize skipped (centralized data exists) → maybeRefreshHooks fires → version 1 → 3.
+    // First call: autoInitialize skipped (centralized data exists) → maybeRefreshHooks fires → version 1 → current.
     refreshBrain(projectRoot);
     const afterFirst = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(afterFirst._knitHooks.version).toBe(3);
+    expect(afterFirst._knitHooks.version).toBe(HOOKS_VERSION);
 
     // Tamper the file back to stale state. If maybeRefreshHooks ran again it would
-    // bump version back to 3; the per-process Set must suppress the call.
+    // bump version back to current; the per-process Set must suppress the call.
     writeFileSync(
       settingsPath,
       JSON.stringify({ _knitHooks: { version: 1, generatedAt: 'sentinel' }, custom: 'preserved' }, null, 2),
@@ -106,7 +107,7 @@ describe('malformed settings robustness', () => {
     // see a fresh file and not double-fire (covered by the idempotency test above).
     const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(content._knitHooks.version).toBe(3);
+    expect(content._knitHooks.version).toBe(HOOKS_VERSION);
   });
 });
 

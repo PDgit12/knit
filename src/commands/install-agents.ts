@@ -18,7 +18,7 @@ export async function installAgentsCommand(
 
   if (!existsSync(join(rootPath, 'CLAUDE.md'))) {
     console.log(chalk.yellow('  No CLAUDE.md found in this directory.'));
-    console.log(chalk.dim('  Open this project in Claude Code with engram MCP first — it auto-initializes on first tool call.'));
+    console.log(chalk.dim('  Open this project in Claude Code with the Knit MCP first — it auto-initializes on first tool call.'));
     process.exit(1);
   }
 
@@ -59,7 +59,7 @@ export async function installAgentsCommand(
   }
 
   if (result.skippedUserCurated.length > 0) {
-    console.log(chalk.bold('  Skipped (user-curated files; engram won\'t clobber)'));
+    console.log(chalk.bold('  Skipped (user-curated files; Knit won\'t clobber)'));
     for (const name of result.skippedUserCurated) {
       console.log(`  ${chalk.yellow('!')} knit-${name}.md`);
     }

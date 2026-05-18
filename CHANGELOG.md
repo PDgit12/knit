@@ -1,6 +1,111 @@
 # Changelog
 
-All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
+All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
+
+## [0.6.3] — 2026-05-18
+
+**Public-link ship-readiness patch.** Closes the first-impression and
+data-integrity gaps surfaced by the pre-launch audit. No new features —
+purely correctness, branding consistency, and safety.
+
+### Fixed
+
+- **CLI/MCP version now sourced from `package.json` (was hardcoded `0.4.1`).**
+  Three sites (`src/cli.ts` × 2, `src/mcp/server.ts` × 1) reported stale
+  `0.4.1` instead of the real package version. New `src/version.ts` module
+  resolves `package.json` via `createRequire` at module init so every site
+  reads from one source of truth. A new `tests/version.test.ts` asserts
+  this against the package manifest so the drift can't recur.
+- **`HOOKS_VERSION` bumped 3 → 4 to activate the v0.6 rename migration.**
+  The constant in `src/generators/settings.ts` was never bumped during the
+  v0.6.0 rename, so existing v0.5.x users upgrading to v0.6.x silently kept
+  their old `_engramHooks`-tagged settings.local.json — meaning their
+  installed hooks still referenced the legacy marker name and never picked
+  up the SessionStart/UserPromptSubmit gates introduced in v0.5.0. v0.6.3
+  forces regeneration on next MCP call.
+- **Hook merge now strips legacy `_engramOwned` entries on upgrade.** The
+  hybrid-merge logic in `src/mcp/cache.ts` only filtered `_knitOwned`
+  entries, so v0.5.x → v0.6.x upgrade would have left stale engram-flavored
+  hooks alongside fresh knit-flavored ones (duplicates). The filter now
+  removes both. Additionally, files carrying the legacy `_engramHooks`
+  marker are now treated as fully knit-owned and overwritten cleanly, and
+  the stale marker key is deleted after migration.
+- **Setup output: lingering "Engram Brain" branding cleaned up.**
+  - `src/commands/setup.ts` now writes a `## Knit Brain (MCP)` section to
+    `~/.claude/CLAUDE.md`, prints "Knit instructions added", and dedups
+    against BOTH the new heading and the legacy "Engram Brain (MCP)" so
+    users upgrading from v0.5.x don't get a duplicate block appended.
+  - "Agent gets 20 tools" → "Agent gets 35 tools" (correct count).
+- **User-facing "Engram" → "Knit" in error/info messages:**
+  `src/commands/status.ts`, `refresh.ts`, `install-agents.ts`, and the
+  background-install instruction string returned by `knit_install_agent`.
+- **`appendLearning` is now atomic.** Switched from read-modify-write to
+  `appendFileSync`, so concurrent Claude Code instances on the same project
+  (or a crash mid-write) no longer truncate or interleave the learnings file.
+  New concurrency test in `tests/learnings.test.ts` runs 100 parallel
+  appends and asserts all 100 entries persist intact.
+- **Secret-pattern redaction on persistence.** `knit_record_learning`,
+  `knit_record_global_learning`, `knit_save_handoff`, and
+  `knit_record_false_positive` now scrub Anthropic / OpenAI / GitHub PAT /
+  AWS access key ID / Slack / npm tokens and PEM private-key blocks before
+  writing to disk. New `src/mcp/sanitize.ts` module with conservative
+  patterns (no generic base64 catch-all). Covered by `tests/sanitize.test.ts`.
+- **THIRD-PARTY-NOTICES.md** now correctly attributes the redistribution to
+  "Knit" (was "engram") and references `~/.knit/agents/cache/`. VoltAgent
+  attribution unchanged.
+- **Stop-hook shell-quoting bug.** The `nodeHook` helper in
+  `src/generators/settings.ts` wrapped scripts in single quotes (`node -e
+  '…'`), but one Stop-hook script contained a literal apostrophe in
+  `console.log("That's fine…")` — the apostrophe closed the outer shell
+  quote and produced `unexpected EOF while looking for matching ` on every
+  session end. The wrapper now escapes embedded single quotes via the
+  POSIX `'\''` close-escape-reopen pattern. A new regression test in
+  `tests/generators.test.ts` runs every generated `node -e` command
+  through `bash -n` to syntax-check it without execution. Also renamed the
+  remaining `[Engram]` / `Engram:` strings the Stop hooks emit (status
+  messages + the destructive-git block reason) to use Knit branding.
+- **`HOOKS_VERSION` bumped 4 → 5** so users who received the buggy v0.6.3
+  hooks (or any earlier broken regeneration) get a clean rewrite on next
+  brain load. The hooks-version mechanism exists exactly for this case.
+
+### Changed
+
+- **`KNIT_*` env vars are now first-class; legacy `ENGRAM_*` still honored.**
+  - `KNIT_OFFLINE=1` disables network fetches (was `ENGRAM_OFFLINE=1`).
+  - `KNIT_AGENT_REGISTRY_REF=main` overrides the pinned VoltAgent SHA
+    (was `ENGRAM_AGENT_REGISTRY_REF`).
+  - `KNIT_EXPORT_QUIET=1` silences the export-command summary (was
+    `ENGRAM_EXPORT_QUIET`).
+  - `KNIT_HOME` already shipped in v0.3.0; `ENGRAM_HOME` still honored.
+  - README updated. Anyone with the legacy env vars set continues to work
+    unchanged.
+
+### Added
+
+- `src/version.ts` — single source of truth for the package version.
+- `src/mcp/sanitize.ts` — secret-pattern redaction helper.
+- `tests/version.test.ts` — asserts the version centralization.
+- `tests/sanitize.test.ts` — asserts secret patterns redact correctly.
+- New concurrency test under `tests/learnings.test.ts`.
+
+### Deferred to v0.7 (still)
+
+- **CLAUDE.md token-cost trim (~16KB → ~6KB target).** Real rework
+  touching the core protocol output. Held back from v0.6.3 deliberately —
+  this is the public-link patch, and regressing the protocol surface
+  before launch is the opposite of "make sure everything is proper."
+- **Trivial-task fast path in `knit_classify_task`.** The classifier
+  already returns a trivial tier with a minimal phase list (`EXECUTE →
+  VERIFY → LEARN`). The remaining win is skipping the marker write for
+  literally-typo-class tasks; routing-correctness regressions here would
+  silently hurt Protocol Guard, so this needs its own focused PR.
+- **Lazy-load `knit_load_session` response shape.** Inspection shows it
+  already truncates aggressively (300-char session, 2KB handoff, top-5
+  learnings only). Further trimming requires changing the loaded-context
+  contract — a v0.7 concern, not a v0.6.3 patch.
+- **CI workflow gating `npm publish`.** `prepublishOnly` runs typecheck +
+  lint + test + build locally and has held the line through six releases.
+  Adding a GitHub workflow is a v0.7 ergonomics improvement.
 
 ## [0.6.2] — 2026-05-18
 

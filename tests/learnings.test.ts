@@ -134,3 +134,26 @@ describe('findFalsePositives', () => {
     expect(fps[0].summary).toContain('Known FP');
   });
 });
+
+describe('appendLearning concurrency', () => {
+  it('preserves every entry under parallel appends (no truncation, no interleave)', async () => {
+    createLearningsFile(TEST_FILE, 'Concurrent');
+
+    const N = 100;
+    const tasks = Array.from({ length: N }, (_, i) =>
+      Promise.resolve().then(() =>
+        appendLearning(TEST_FILE, {
+          ...sampleEntry,
+          summary: `Parallel entry ${i}`,
+          tags: ['#concurrent'],
+        }),
+      ),
+    );
+    await Promise.all(tasks);
+
+    const entries = readLearnings(TEST_FILE);
+    expect(entries.length).toBe(N);
+    const summaries = new Set(entries.map((e) => e.summary));
+    expect(summaries.size).toBe(N);
+  });
+});

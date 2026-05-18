@@ -55,8 +55,8 @@ function injectAttribution(body: string, name: string, category: string, ref: st
  *      First fetch lands here; subsequent loads avoid the network.
  *   3. Network — raw.githubusercontent.com at the pinned ref.
  *
- * ENGRAM_OFFLINE=1 disables tier 3 entirely. Useful for air-gapped CI and
- * users who want hard guarantees that engram won't touch the network.
+ * KNIT_OFFLINE=1 (legacy ENGRAM_OFFLINE=1) disables tier 3 entirely. Useful for
+ * air-gapped CI and users who want hard guarantees that Knit won't touch the network.
  *
  * The fetch function is injectable so tests can stub it without monkeypatching
  * the global fetch.
@@ -106,11 +106,11 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
     return readFileSync(cachePath, 'utf-8');
   }
 
-  // Tier 3 — network (respect ENGRAM_OFFLINE)
-  if (process.env.ENGRAM_OFFLINE === '1') {
+  // Tier 3 — network (respect KNIT_OFFLINE; legacy ENGRAM_OFFLINE still honored)
+  if (process.env.KNIT_OFFLINE === '1' || process.env.ENGRAM_OFFLINE === '1') {
     throw new AgentFetchError(
-      `Agent "${name}" not bundled and not cached, and ENGRAM_OFFLINE=1 is set. ` +
-      `Either unset ENGRAM_OFFLINE or run \`engram install-agents\` when online to populate the cache.`,
+      `Agent "${name}" not bundled and not cached, and KNIT_OFFLINE=1 is set. ` +
+      `Either unset KNIT_OFFLINE (and legacy ENGRAM_OFFLINE) or run \`knit install-agents\` when online to populate the cache.`,
     );
   }
 

@@ -193,8 +193,9 @@ knit install-agents --all        # install every known agent
 knit install-agents --refresh    # re-fetch from network even if cached
 ```
 
-`ENGRAM_OFFLINE=1` disables network fetches (bundled-core still works).
-`ENGRAM_AGENT_REGISTRY_REF=main` overrides the pinned VoltAgent SHA.
+`KNIT_OFFLINE=1` disables network fetches (bundled-core still works).
+`KNIT_AGENT_REGISTRY_REF=main` overrides the pinned VoltAgent SHA.
+(Legacy `ENGRAM_OFFLINE` / `ENGRAM_AGENT_REGISTRY_REF` are still honored.)
 
 ## Parallel team worktrees
 

@@ -41,8 +41,11 @@ import {
  *
  *   v2 — pre-0.5.0 baseline (PreToolUse/PostToolUse/Stop only)
  *   v3 — 0.5.0+: adds SessionStart, UserPromptSubmit, classification gate
+ *   v4 — 0.6.0+: rename engram→knit (marker tag and tool names)
+ *   v5 — 0.6.3+: shell-quoting fix in nodeHook + rename remaining hook
+ *                status messages from Engram→Knit
  */
-export const HOOKS_VERSION = 3;
+export const HOOKS_VERSION = 5;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -64,14 +67,18 @@ function jsLit(s: string): string {
   return JSON.stringify(s.replace(/\\/g, '/'));
 }
 
-/** Compress a multiline JS snippet into a single-line `node -e '...'` shell command. */
+/** Compress a multiline JS snippet into a single-line `node -e '...'` shell command.
+ *  POSIX-safe: any single quote inside the script is escaped via the standard
+ *  '\'' close-escape-reopen trick so apostrophes in console.log strings can't
+ *  prematurely terminate the outer quote and break the Stop hook at runtime. */
 function nodeHook(script: string): string {
   const compact = script
     .split('\n')
     .map((l) => l.replace(/\/\/.*$/, '').trim())  // strip line comments
     .filter((l) => l.length > 0)
     .join(' ');
-  return `node -e '${compact}'`;
+  const escaped = compact.replace(/'/g, `'\\''`);
+  return `node -e '${escaped}'`;
 }
 
 // ── Reusable JS snippets embedded inside hooks ───────────────────
@@ -167,7 +174,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                   const i = JSON.parse(d);
                   const c = (i.tool_input && i.tool_input.command) || "";
                   if (/^git\\s+(push\\b.*\\s(--force|-f)|reset\\s+--hard|commit.*--no-verify)/.test(c)) {
-                    console.log(JSON.stringify({ decision: "block", reason: "Destructive git operation blocked by Engram. Ask the user first." }));
+                    console.log(JSON.stringify({ decision: "block", reason: "Destructive git operation blocked by Knit. Ask the user first." }));
                   }
                 } catch (e) {}
               });
@@ -353,7 +360,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
             }
           `),
           timeout: 120,
-          statusMessage: 'Engram: final build verification...',
+          statusMessage: 'Knit: final build verification...',
         },
       ],
     });
@@ -386,7 +393,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
           } catch (e) {}
         `),
         timeout: 10,
-        statusMessage: 'Engram: capturing session state...',
+        statusMessage: 'Knit: capturing session state...',
       },
     ],
   });
@@ -422,7 +429,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
           } catch (e) {}
         `),
         timeout: 10,
-        statusMessage: 'Engram: recording session tuple...',
+        statusMessage: 'Knit: recording session tuple...',
       },
     ],
   });
@@ -441,14 +448,14 @@ function generateHooks(config: KnitConfig, rootPath: string) {
             const ageSec = (Date.now() - fs.statSync(file).mtimeMs) / 1000;
             if (ageSec > 300) {
               console.log("");
-              console.log("[Engram] LEARN was not recorded this session. That's fine if nothing reusable surfaced.");
+              console.log("[Knit] LEARN was not recorded this session. That's fine if nothing reusable surfaced.");
               console.log("         If something did, call knit_record_learning in your next session.");
               console.log("");
             }
           } catch (e) {}
         `),
         timeout: 5,
-        statusMessage: 'Engram: checking LEARN compliance...',
+        statusMessage: 'Knit: checking LEARN compliance...',
       },
     ],
   });
@@ -484,7 +491,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
           } catch (e) {}
         `),
         timeout: 10,
-        statusMessage: 'Engram: updating session metrics...',
+        statusMessage: 'Knit: updating session metrics...',
       },
     ],
   });

@@ -7,15 +7,20 @@
  *
  * Names verified against github.com/VoltAgent/awesome-claude-code-subagents
  * README. The pinned ref controls reproducibility: at release time we freeze
- * to a specific commit SHA; users can override via ENGRAM_AGENT_REGISTRY_REF.
+ * to a specific commit SHA; users can override via KNIT_AGENT_REGISTRY_REF
+ * (legacy ENGRAM_AGENT_REGISTRY_REF still honored for back-compat).
  */
 
 /**
- * Pinned reference into VoltAgent's repo. Frozen at engram v0.4.0 release time.
- * Users can override via ENGRAM_AGENT_REGISTRY_REF env var (use 'main' for latest).
+ * Pinned reference into VoltAgent's repo. Frozen at v0.4.0 release time.
+ * Users can override via KNIT_AGENT_REGISTRY_REF env var (use 'main' for latest).
+ * Legacy ENGRAM_AGENT_REGISTRY_REF is still honored.
  */
 export const VOLTAGENT_PINNED_SHA = '6f804f0cfab22fb62668855aa3d62ee3a1453077';
-export const VOLTAGENT_REF = process.env.ENGRAM_AGENT_REGISTRY_REF || VOLTAGENT_PINNED_SHA;
+export const VOLTAGENT_REF =
+  process.env.KNIT_AGENT_REGISTRY_REF ||
+  process.env.ENGRAM_AGENT_REGISTRY_REF ||
+  VOLTAGENT_PINNED_SHA;
 export const VOLTAGENT_RAW_BASE = 'https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents';
 
 /** Single source of truth for which categories each agent lives in. */

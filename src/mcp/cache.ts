@@ -60,8 +60,12 @@ function maybeRefreshHooks(rootPath: string, config: KnitConfig): void {
   if (!existsSync(settingsPath)) return;
 
   try {
-    const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as { _knitHooks?: { version?: number } };
-    const storedVersion = existing?._knitHooks?.version ?? 0;
+    const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as {
+      _knitHooks?: { version?: number };
+      _engramHooks?: { version?: number };
+    };
+    // v0.6 rename: a v0.5.x project carries _engramHooks; treat that as v0 to force regeneration.
+    const storedVersion = existing?._knitHooks?.version ?? (existing?._engramHooks ? 0 : 0);
     if (storedVersion < HOOKS_VERSION) {
       writeKnitHooks(rootPath, config);
     }
@@ -356,8 +360,8 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
     return;
   }
 
-  // Case B — knit-owned file: overwrite
-  if ('_knitHooks' in existing) {
+  // Case B — knit-owned file (current or legacy v0.5.x engram marker): overwrite
+  if ('_knitHooks' in existing || '_engramHooks' in existing) {
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
     return;
@@ -381,11 +385,14 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
 
   for (const event of Object.keys(fresh.hooks)) {
     const userEntries = Array.isArray(userHooks[event]) ? userHooks[event] : [];
-    // Strip any stale knit-owned entries from a prior merge
+    // Strip stale knit-owned entries from a prior merge.
+    // Also strip legacy v0.5.x _engramOwned entries so the v0.6 rename doesn't leave duplicates.
     const preserved = userEntries.filter((entry) => {
-      return !(entry && typeof entry === 'object' && (entry as { _knitOwned?: unknown })._knitOwned === true);
+      if (!entry || typeof entry !== 'object') return true;
+      const e = entry as { _knitOwned?: unknown; _engramOwned?: unknown };
+      return e._knitOwned !== true && e._engramOwned !== true;
     });
-    // Append fresh engram entries after user entries
+    // Append fresh knit entries after user entries
     userHooks[event] = [...preserved, ...fresh.hooks[event]];
   }
 
@@ -394,6 +401,8 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
     hooks: userHooks,
     _knitHooks: { ...fresh._knitHooks, merged: true },
   };
+  // Drop the legacy v0.5.x marker so the file no longer advertises engram ownership.
+  delete (merged as { _engramHooks?: unknown })._engramHooks;
 
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2), 'utf-8');

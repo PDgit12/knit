@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This file lists open-source components redistributed by engram and the licenses
+This file lists open-source components redistributed by Knit and the licenses
 they ship under. Each section satisfies the attribution requirements of the
 upstream license.
 
@@ -13,9 +13,9 @@ upstream license.
 - **License:** MIT
 - **Pinned commit:** `6f804f0cfab22fb62668855aa3d62ee3a1453077`
 
-Engram bundles a curated subset of these subagent definitions in
+Knit bundles a curated subset of these subagent definitions in
 `dist/agents/core/` and fetches additional ones on demand into
-`~/.engram/agents/cache/`. Each redistributed file carries an attribution
+`~/.knit/agents/cache/`. Each redistributed file carries an attribution
 comment immediately after its YAML frontmatter pointing back to the upstream
 source at the pinned commit. The original frontmatter and prompt content are
 unmodified.

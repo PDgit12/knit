@@ -12,9 +12,9 @@ import type { KnitConfig } from '../engine/types.js';
 export async function refreshCommand(targetDir: string): Promise<void> {
   const rootPath = targetDir === '.' ? process.cwd() : targetDir;
 
-  // Verify engram is initialized (either centralized or legacy)
+  // Verify Knit is initialized (either centralized or legacy)
   if (!existsSync(join(rootPath, 'CLAUDE.md')) || !existsSync(projectDataDir(rootPath))) {
-    console.log(chalk.red('  No Engram setup found. Open this project in Claude Code with the Knit MCP — it will auto-initialize.'));
+    console.log(chalk.red('  No Knit setup found. Open this project in Claude Code with the Knit MCP — it will auto-initialize.'));
     process.exit(1);
   }
 

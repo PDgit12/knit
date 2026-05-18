@@ -11,6 +11,7 @@
  */
 
 import { Command } from 'commander';
+import { VERSION } from './version.js';
 
 const args = process.argv.slice(2);
 const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', '--help', '-h', '--version', '-V'].includes(args[0]);
@@ -58,7 +59,7 @@ async function runCLI() {
   program
     .name('knit')
     .description('The second brain for Claude Code — MCP server + analytics dashboard')
-    .version('0.4.1')
+    .version(VERSION)
     .hook('preAction', () => {
       console.log(ENGRAM_GRADIENT.multiline(banner));
       console.log();
@@ -148,7 +149,7 @@ async function runMCP() {
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
-    { name: 'knit-brain', version: '0.4.1' },
+    { name: 'knit-brain', version: VERSION },
     { capabilities: { tools: {} } },
   );
 

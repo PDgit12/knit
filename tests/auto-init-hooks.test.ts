@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { HOOKS_VERSION } from '../src/generators/settings.js';
 
 // We need to (re)load cache.ts after setting KNIT_HOME, because some
 // path resolutions are evaluated at call time but the cache singleton
@@ -43,7 +44,7 @@ describe('auto-init hooks integration', () => {
     expect(settings).toHaveProperty('hooks');
     expect(settings).toHaveProperty('mcpServers');
     expect(settings).toHaveProperty('_knitHooks');
-    expect((settings._knitHooks as { version: number }).version).toBe(3);
+    expect((settings._knitHooks as { version: number }).version).toBe(HOOKS_VERSION);
     expect(settings.hooks).toHaveProperty('Stop');
     expect(Array.isArray(settings.hooks.Stop)).toBe(true);
     expect((settings.hooks.Stop as unknown[]).length).toBeGreaterThan(0);
@@ -67,7 +68,7 @@ describe('auto-init hooks integration', () => {
     (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
 
     const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(after._knitHooks).toMatchObject({ version: 3, merged: true });
+    expect(after._knitHooks).toMatchObject({ version: HOOKS_VERSION, merged: true });
 
     // User entry preserved, no _knitOwned tag
     const pre = after.hooks.PreToolUse as Array<Record<string, unknown>>;
@@ -224,7 +225,7 @@ describe('auto-init hooks integration', () => {
     (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
 
     const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect((after._knitHooks as { version: number }).version).toBe(3);
+    expect((after._knitHooks as { version: number }).version).toBe(HOOKS_VERSION);
     // Protocol Guard hooks now present
     expect(after.hooks).toHaveProperty('SessionStart');
     expect(after.hooks).toHaveProperty('UserPromptSubmit');
@@ -250,7 +251,7 @@ describe('auto-init hooks integration', () => {
     writeFileSync(
       settingsPath,
       JSON.stringify({
-        _knitHooks: { version: 3, generatedAt: sentinel },
+        _knitHooks: { version: HOOKS_VERSION, generatedAt: sentinel },
         hooks: { SessionStart: [], UserPromptSubmit: [], PreToolUse: [], PostToolUse: [], Stop: [] },
       }, null, 2),
       'utf-8',
@@ -261,7 +262,7 @@ describe('auto-init hooks integration', () => {
 
     const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
     // version stays, sentinel preserved → maybeRefreshHooks skipped because storedVersion === HOOKS_VERSION
-    expect((after._knitHooks as { version: number }).version).toBe(3);
+    expect((after._knitHooks as { version: number }).version).toBe(HOOKS_VERSION);
     expect((after._knitHooks as { generatedAt: string }).generatedAt).toBe(sentinel);
   });
 });

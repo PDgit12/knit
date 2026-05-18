@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LearningEntry } from './types.js';
 
@@ -24,16 +24,16 @@ export function createLearningsFile(filePath: string, projectName: string): void
 }
 
 /**
- * Appends a learning entry to the learnings file.
+ * Appends a learning entry to the learnings file. Atomic via O_APPEND —
+ * concurrent appenders cannot truncate or interleave entry bodies because
+ * each formatted entry is delivered as a single write() syscall.
  */
 export function appendLearning(filePath: string, entry: LearningEntry): void {
   if (!existsSync(filePath)) {
     createLearningsFile(filePath, 'Unknown Project');
   }
 
-  const entryText = formatEntry(entry);
-  const existing = readFileSync(filePath, 'utf-8');
-  writeFileSync(filePath, existing + '\n' + entryText, 'utf-8');
+  appendFileSync(filePath, '\n' + formatEntry(entry), 'utf-8');
 }
 
 /**
