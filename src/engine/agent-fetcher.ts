@@ -10,9 +10,9 @@ import {
 } from './agent-registry.js';
 import { agentsCacheFile } from './paths.js';
 
-/** Strip the `engram-` prefix so internal lookups always use the bare name. */
+/** Strip the `knit-` (or legacy `engram-`) prefix so internal lookups always use the bare name. */
 function bareName(name: string): string {
-  return name.replace(/^engram-/, '');
+  return name.replace(/^(knit|engram)-/, '');
 }
 
 /**
@@ -51,7 +51,7 @@ function injectAttribution(body: string, name: string, category: string, ref: st
  *
  *   1. Bundled core (zero network) — agents shipped in the npm package at
  *      dist/agents/core/*.md. Used when isBundledCore(name) is true.
- *   2. Local cache — ~/.engram/agents/cache/<ref>/<category>/<name>.md.
+ *   2. Local cache — ~/.knit/agents/cache/<ref>/<category>/<name>.md.
  *      First fetch lands here; subsequent loads avoid the network.
  *   3. Network — raw.githubusercontent.com at the pinned ref.
  *

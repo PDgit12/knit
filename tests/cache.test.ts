@@ -12,19 +12,19 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-let engramHome: string;
+let knitHome: string;
 let projectRoot: string;
 
 beforeEach(() => {
-  engramHome = mkdtempSync(join(tmpdir(), 'engram-cache-test-'));
-  process.env.ENGRAM_HOME = engramHome;
-  projectRoot = mkdtempSync(join(tmpdir(), 'engram-cache-proj-'));
+  knitHome = mkdtempSync(join(tmpdir(), 'knit-cache-test-'));
+  process.env.KNIT_HOME = knitHome;
+  projectRoot = mkdtempSync(join(tmpdir(), 'knit-cache-proj-'));
   writeFileSync(join(projectRoot, 'package.json'), JSON.stringify({ name: 'cache-test-proj' }), 'utf-8');
 });
 
 afterEach(() => {
-  delete process.env.ENGRAM_HOME;
-  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* */ }
+  delete process.env.KNIT_HOME;
+  try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* */ }
   try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
 });
 
@@ -35,7 +35,7 @@ describe('maybeRefreshHooks idempotency', () => {
     // and never add the project to the per-process Set we're trying to test).
     const { projectId } = await import('../src/engine/project-id.js');
     const hash = projectId(projectRoot);
-    const projectData = join(engramHome, 'projects', hash);
+    const projectData = join(knitHome, 'projects', hash);
     mkdirSync(projectData, { recursive: true });
     writeFileSync(
       join(projectData, 'knowledge.json'),
@@ -48,7 +48,7 @@ describe('maybeRefreshHooks idempotency', () => {
     const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     writeFileSync(
       settingsPath,
-      JSON.stringify({ _engramHooks: { version: 1, generatedAt: '1970-01-01T00:00:00Z' } }, null, 2),
+      JSON.stringify({ _knitHooks: { version: 1, generatedAt: '1970-01-01T00:00:00Z' } }, null, 2),
       'utf-8',
     );
 
@@ -58,13 +58,13 @@ describe('maybeRefreshHooks idempotency', () => {
     // First call: autoInitialize skipped (centralized data exists) → maybeRefreshHooks fires → version 1 → 3.
     refreshBrain(projectRoot);
     const afterFirst = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(afterFirst._engramHooks.version).toBe(3);
+    expect(afterFirst._knitHooks.version).toBe(3);
 
     // Tamper the file back to stale state. If maybeRefreshHooks ran again it would
     // bump version back to 3; the per-process Set must suppress the call.
     writeFileSync(
       settingsPath,
-      JSON.stringify({ _engramHooks: { version: 1, generatedAt: 'sentinel' }, custom: 'preserved' }, null, 2),
+      JSON.stringify({ _knitHooks: { version: 1, generatedAt: 'sentinel' }, custom: 'preserved' }, null, 2),
       'utf-8',
     );
     const tamperedMtime = statSync(settingsPath).mtimeMs;
@@ -74,8 +74,8 @@ describe('maybeRefreshHooks idempotency', () => {
     const afterSecond = JSON.parse(readFileSync(settingsPath, 'utf-8'));
 
     // File should be unchanged from the tampered state — no refresh attempted.
-    expect(afterSecond._engramHooks.version).toBe(1);
-    expect(afterSecond._engramHooks.generatedAt).toBe('sentinel');
+    expect(afterSecond._knitHooks.version).toBe(1);
+    expect(afterSecond._knitHooks.generatedAt).toBe('sentinel');
     expect(afterSecond.custom).toBe('preserved');
     expect(statSync(settingsPath).mtimeMs).toBe(tamperedMtime);
   });
@@ -106,7 +106,7 @@ describe('malformed settings robustness', () => {
     // see a fresh file and not double-fire (covered by the idempotency test above).
     const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
     const content = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(content._engramHooks.version).toBe(3);
+    expect(content._knitHooks.version).toBe(3);
   });
 });
 

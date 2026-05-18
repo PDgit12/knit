@@ -7,14 +7,14 @@ import { buildKnowledge } from '../engine/knowledge.js';
 import { findFalsePositives } from '../engine/learnings.js';
 import { generateClaudeMd } from '../generators/claude-md.js';
 import { knowledgePath, learningsDir, projectDataDir } from '../engine/paths.js';
-import type { EngramConfig } from '../engine/types.js';
+import type { KnitConfig } from '../engine/types.js';
 
 export async function refreshCommand(targetDir: string): Promise<void> {
   const rootPath = targetDir === '.' ? process.cwd() : targetDir;
 
   // Verify engram is initialized (either centralized or legacy)
   if (!existsSync(join(rootPath, 'CLAUDE.md')) || !existsSync(projectDataDir(rootPath))) {
-    console.log(chalk.red('  No Engram setup found. Open this project in Claude Code with the Engram MCP — it will auto-initialize.'));
+    console.log(chalk.red('  No Engram setup found. Open this project in Claude Code with the Knit MCP — it will auto-initialize.'));
     process.exit(1);
   }
 
@@ -52,7 +52,7 @@ export async function refreshCommand(targetDir: string): Promise<void> {
   }
 
   // Build config
-  const config: EngramConfig = {
+  const config: KnitConfig = {
     name: projectName,
     packageManager: scan.packageManager,
     stack: scan.stack,

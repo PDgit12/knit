@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
-import { engramRoot, globalLearningsPath } from '../engine/paths.js';
+import { knitRoot, globalLearningsPath } from '../engine/paths.js';
 import { loadKnowledgeBase } from '../engine/knowledgebase.js';
 import { getRecentGlobalLearnings } from '../engine/global-learnings.js';
 import type { KBEntry, KnowledgeBase, GlobalLearning } from '../engine/types.js';
@@ -52,7 +52,7 @@ async function exportObsidian(
   const projectEntryCounts = new Map<string, number>();
 
   // ── Walk per-project learnings ────────────────────────────────
-  const projectsDir = join(engramRoot(), 'projects');
+  const projectsDir = join(knitRoot(), 'projects');
   let projectHashes: string[] = [];
   if (existsSync(projectsDir)) {
     try {

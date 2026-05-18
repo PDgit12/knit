@@ -24,16 +24,16 @@ function makeEntry(overrides: Partial<SessionSummary>): SessionSummary {
 }
 
 describe('sessions', () => {
-  let engramHome: string;
+  let knitHome: string;
 
   beforeAll(() => {
-    engramHome = mkdtempSync(join(tmpdir(), 'engram-sessions-test-'));
-    process.env.ENGRAM_HOME = engramHome;
+    knitHome = mkdtempSync(join(tmpdir(), 'knit-sessions-test-'));
+    process.env.KNIT_HOME = knitHome;
   });
 
   afterAll(() => {
-    delete process.env.ENGRAM_HOME;
-    try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+    delete process.env.KNIT_HOME;
+    try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   beforeEach(() => {

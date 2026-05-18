@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
-  engramRoot,
+  knitRoot,
   projectDataDir,
   knowledgePath,
   knowledgebasePath,
@@ -24,27 +24,27 @@ describe('paths', () => {
   const PROJECT = '/Users/test/my-project';
 
   beforeEach(() => {
-    delete process.env.ENGRAM_HOME;
+    delete process.env.KNIT_HOME;
   });
   afterEach(() => {
-    delete process.env.ENGRAM_HOME;
+    delete process.env.KNIT_HOME;
   });
 
-  describe('engramRoot', () => {
-    it('defaults to ~/.engram', () => {
-      expect(engramRoot()).toBe(join(homedir(), '.engram'));
+  describe('knitRoot', () => {
+    it('defaults to ~/.knit', () => {
+      expect(knitRoot()).toBe(join(homedir(), '.knit'));
     });
 
-    it('honors ENGRAM_HOME override', () => {
-      process.env.ENGRAM_HOME = '/custom/engram';
-      expect(engramRoot()).toBe('/custom/engram');
+    it('honors KNIT_HOME override', () => {
+      process.env.KNIT_HOME = '/custom/engram';
+      expect(knitRoot()).toBe('/custom/engram');
     });
   });
 
   describe('centralized paths', () => {
-    beforeEach(() => { process.env.ENGRAM_HOME = '/tmp/eng'; });
+    beforeEach(() => { process.env.KNIT_HOME = '/tmp/eng'; });
 
-    it('projectDataDir composes engramRoot + projects + hash', () => {
+    it('projectDataDir composes knitRoot + projects + hash', () => {
       expect(projectDataDir(PROJECT)).toMatch(/^\/tmp\/eng\/projects\/[a-f0-9]{16}$/);
     });
 
@@ -102,17 +102,17 @@ describe('paths', () => {
   describe('projectAgentFile', () => {
     it('composes engram-<name>.md for a bare name', () => {
       expect(projectAgentFile(PROJECT, 'typescript-pro'))
-        .toBe(join(PROJECT, '.claude/agents/engram-typescript-pro.md'));
+        .toBe(join(PROJECT, '.claude/agents/knit-typescript-pro.md'));
     });
     it('strips a leading engram- prefix to avoid double-prefixing', () => {
-      expect(projectAgentFile(PROJECT, 'engram-typescript-pro'))
-        .toBe(join(PROJECT, '.claude/agents/engram-typescript-pro.md'));
+      expect(projectAgentFile(PROJECT, 'knit-typescript-pro'))
+        .toBe(join(PROJECT, '.claude/agents/knit-typescript-pro.md'));
     });
   });
 
-  it('all centralized paths are inside engramRoot', () => {
-    process.env.ENGRAM_HOME = '/tmp/eng';
-    const root = engramRoot();
+  it('all centralized paths are inside knitRoot', () => {
+    process.env.KNIT_HOME = '/tmp/eng';
+    const root = knitRoot();
     expect(projectDataDir(PROJECT).startsWith(root)).toBe(true);
     expect(knowledgePath(PROJECT).startsWith(root)).toBe(true);
     expect(knowledgebasePath(PROJECT).startsWith(root)).toBe(true);

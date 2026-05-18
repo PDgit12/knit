@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { buildKnowledge } from '../src/engine/knowledge.js';
 import { scanProject } from '../src/engine/scanner.js';
 
-const TEST_DIR = join(tmpdir(), 'engram-test-knowledge');
+const TEST_DIR = join(tmpdir(), 'knit-test-knowledge');
 
 function setup() {
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });

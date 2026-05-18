@@ -14,56 +14,56 @@ describe('agent-registry', () => {
   describe('agentsForRole', () => {
     it('core role for typescript includes engram-prefixed typescript-pro + code-reviewer + architect', () => {
       const got = agentsForRole('core', 'typescript');
-      expect(got).toContain('engram-typescript-pro');
-      expect(got).toContain('engram-code-reviewer');
-      expect(got).toContain('engram-architect-reviewer');
+      expect(got).toContain('knit-typescript-pro');
+      expect(got).toContain('knit-code-reviewer');
+      expect(got).toContain('knit-architect-reviewer');
     });
 
     it('all returned names carry the engram- prefix', () => {
       for (const role of ['core', 'security', 'qa'] as const) {
         for (const lang of ['typescript', 'python', 'go', 'rust', 'cobol']) {
           for (const name of agentsForRole(role, lang)) {
-            expect(name.startsWith('engram-'), `${role}/${lang}: ${name}`).toBe(true);
+            expect(name.startsWith('knit-'), `${role}/${lang}: ${name}`).toBe(true);
           }
         }
       }
     });
 
-    it('core role for javascript also maps to engram-typescript-pro', () => {
+    it('core role for javascript also maps to knit-typescript-pro', () => {
       const got = agentsForRole('core', 'javascript');
-      expect(got).toContain('engram-typescript-pro');
+      expect(got).toContain('knit-typescript-pro');
     });
 
     it('core role for python includes engram-python-pro', () => {
-      expect(agentsForRole('core', 'python')).toContain('engram-python-pro');
+      expect(agentsForRole('core', 'python')).toContain('knit-python-pro');
     });
 
     it('core role for go includes engram-golang-pro', () => {
-      expect(agentsForRole('core', 'go')).toContain('engram-golang-pro');
+      expect(agentsForRole('core', 'go')).toContain('knit-golang-pro');
     });
 
     it('core role for rust includes engram-rust-engineer', () => {
-      expect(agentsForRole('core', 'rust')).toContain('engram-rust-engineer');
+      expect(agentsForRole('core', 'rust')).toContain('knit-rust-engineer');
     });
 
     it('security role always leads with engram-security-engineer', () => {
-      expect(agentsForRole('security', 'typescript')[0]).toBe('engram-security-engineer');
-      expect(agentsForRole('security', 'python')[0]).toBe('engram-security-engineer');
+      expect(agentsForRole('security', 'typescript')[0]).toBe('knit-security-engineer');
+      expect(agentsForRole('security', 'python')[0]).toBe('knit-security-engineer');
     });
 
     it('qa role gives engram-qa-expert + debugger + build-engineer (stack-agnostic)', () => {
       const ts = agentsForRole('qa', 'typescript');
       const py = agentsForRole('qa', 'python');
       expect(ts).toEqual(py);
-      expect(ts).toContain('engram-qa-expert');
-      expect(ts).toContain('engram-debugger');
-      expect(ts).toContain('engram-build-engineer');
+      expect(ts).toContain('knit-qa-expert');
+      expect(ts).toContain('knit-debugger');
+      expect(ts).toContain('knit-build-engineer');
     });
 
     it('unknown stack still returns the role defaults', () => {
       const got = agentsForRole('core', 'cobol');
-      expect(got).toContain('engram-code-reviewer');
-      expect(got).toContain('engram-architect-reviewer');
+      expect(got).toContain('knit-code-reviewer');
+      expect(got).toContain('knit-architect-reviewer');
     });
 
     it('returns no duplicates', () => {
@@ -81,7 +81,7 @@ describe('agent-registry', () => {
       for (const role of ['core', 'security', 'qa'] as const) {
         for (const lang of ['typescript', 'python', 'go', 'rust', 'java']) {
           for (const name of agentsForRole(role, lang)) {
-            const bare = name.replace(/^engram-/, '');
+            const bare = name.replace(/^(knit|engram)-/, '');
             expect(isKnownAgent(bare), `${role}/${lang} returned unknown agent: ${name}`).toBe(true);
           }
         }

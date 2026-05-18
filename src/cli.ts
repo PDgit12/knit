@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * engram-dev — the second brain for Claude Code.
+ * knit — the second brain for Claude Code.
  *
  * Single entry point:
- *   engram-dev setup    → add MCP to Claude settings
- *   engram-dev status   → analytics dashboard
- *   engram-dev refresh  → rebuild knowledge brain
- *   engram-dev (no args, called by Claude Code) → start MCP server
+ *   knit setup    → add MCP to Claude settings
+ *   knit status   → analytics dashboard
+ *   knit refresh  → rebuild knowledge brain
+ *   knit (no args, called by Claude Code) → start MCP server
  */
 
 import { Command } from 'commander';
@@ -17,10 +17,10 @@ const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
-  // CLI mode — user ran engram-dev setup/status/refresh
+  // CLI mode — user ran knit setup/status/refresh
   runCLI();
 } else if (isTTY) {
-  // User ran engram-dev with no args in a terminal → show help
+  // User ran knit with no args in a terminal → show help
   process.argv.push('--help');
   runCLI();
 } else {
@@ -49,14 +49,14 @@ async function runCLI() {
   ║   ███████╗██║ ╚████║╚██████╔╝        ║
   ║   ╚══════╝╚═╝  ╚═══╝ ╚═════╝         ║
   ║                                       ║
-  ║   engram — the second brain           ║
+  ║   knit — the second brain           ║
   ║                                       ║
   ╚═══════════════════════════════════════╝`;
 
   const program = new Command();
 
   program
-    .name('engram-dev')
+    .name('knit')
     .description('The second brain for Claude Code — MCP server + analytics dashboard')
     .version('0.4.1')
     .hook('preAction', () => {
@@ -66,7 +66,7 @@ async function runCLI() {
 
   program
     .command('setup')
-    .description('Add Engram MCP to your Claude Code settings (one time)')
+    .description('Add Knit MCP to your Claude Code settings (one time)')
     .option('--global', 'Add to global ~/.claude/settings.json (default)', true)
     .option('--local', 'Add to project .claude/settings.json only', false)
     .action(async (options: Record<string, unknown>) => {
@@ -121,7 +121,7 @@ async function runCLI() {
 
   program
     .command('export')
-    .description('Export engram learnings into a target format (e.g. an Obsidian vault)')
+    .description('Export knit learnings into a target format (e.g. an Obsidian vault)')
     .argument('<format>', 'Export format (currently only: obsidian)')
     .argument('<vault-path>', 'Output directory (Obsidian vault path)')
     .option('--filter <tag>', 'Only export entries tagged with this tag (e.g. #auth)')
@@ -148,7 +148,7 @@ async function runMCP() {
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
-    { name: 'engram-brain', version: '0.4.1' },
+    { name: 'knit-brain', version: '0.4.1' },
     { capabilities: { tools: {} } },
   );
 
@@ -160,7 +160,7 @@ async function runMCP() {
     const { name, arguments: params } = request.params;
 
     try {
-      if (name === 'engram_refresh_index') {
+      if (name === 'knit_refresh_index') {
         refreshBrain(ROOT_PATH);
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({ status: 'refreshed', root: ROOT_PATH }) }],

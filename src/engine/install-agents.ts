@@ -7,12 +7,12 @@ import {
   ENGRAM_AGENT_MARKER_START,
 } from '../generators/agent-md.js';
 import { projectAgentFile, projectAgentsDir } from './paths.js';
-import type { EngramConfig, KBEntry, KnowledgeBase, ProjectKnowledge } from './types.js';
+import type { KnitConfig, KBEntry, KnowledgeBase, ProjectKnowledge } from './types.js';
 
 /**
  * Install VoltAgent subagents into a project. Each agent is fetched (bundled,
  * cached, or network), personalized with project context, and written to
- * <project>/.claude/agents/engram-<name>.md so Claude Code's Agent tool finds them.
+ * <project>/.claude/agents/knit-<name>.md so Claude Code's Agent tool finds them.
  *
  * Never clobbers user-curated agents. A file at the target path without the
  * engram marker is left alone; engram only owns files it has tagged.
@@ -36,7 +36,7 @@ export interface InstallResult {
 
 export async function installAgentsForProject(
   rootPath: string,
-  config: EngramConfig,
+  config: KnitConfig,
   knowledge: ProjectKnowledge | null,
   knowledgeBase: KnowledgeBase | null,
   opts: InstallOptions = {},
@@ -111,7 +111,7 @@ export async function installAgentsForProject(
 }
 
 /** Names of agents referenced by any domain in this project's config. */
-function agentsNeededByProject(config: EngramConfig): string[] {
+function agentsNeededByProject(config: KnitConfig): string[] {
   const names = new Set<string>();
   for (const domain of config.domains) {
     for (const agent of domain.agents) names.add(agent);

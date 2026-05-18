@@ -10,7 +10,7 @@ interface SetupOptions {
 }
 
 const MCP_CONFIG = {
-  'engram-brain': {
+  'knit-brain': {
     command: 'npx',
     args: ['-y', '@piyushdua/engram-dev@latest'],
   },
@@ -26,7 +26,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
 
   const label = isGlobal ? 'global (~/.claude.json)' : 'local (.claude/settings.json)';
 
-  console.log(`  Adding Engram MCP to ${chalk.cyan(label)}`);
+  console.log(`  Adding Knit MCP to ${chalk.cyan(label)}`);
   console.log();
 
   const spinner = ora({ text: chalk.dim('Configuring...'), spinner: 'dots' }).start();
@@ -37,8 +37,8 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     if (existsSync(oldPath)) {
       try {
         const old = JSON.parse(readFileSync(oldPath, 'utf-8'));
-        if (old.mcpServers?.['engram-brain']) {
-          delete old.mcpServers['engram-brain'];
+        if (old.mcpServers?.['knit-brain']) {
+          delete old.mcpServers['knit-brain'];
           if (Object.keys(old.mcpServers).length === 0) delete old.mcpServers;
           writeFileSync(oldPath, JSON.stringify(old, null, 2), 'utf-8');
         }
@@ -63,18 +63,18 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   if (!settings.mcpServers) settings.mcpServers = {};
   const mcpServers = settings.mcpServers as Record<string, unknown>;
 
-  if (mcpServers['engram-brain']) {
-    spinner.succeed(chalk.dim('Engram MCP already configured'));
+  if (mcpServers['knit-brain']) {
+    spinner.succeed(chalk.dim('Knit MCP already configured'));
     console.log();
     console.log(chalk.bold('  Already set up. Open any project in Claude Code — the brain activates automatically.'));
     console.log();
     return;
   }
 
-  mcpServers['engram-brain'] = MCP_CONFIG['engram-brain'];
+  mcpServers['knit-brain'] = MCP_CONFIG['knit-brain'];
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
 
-  spinner.succeed(chalk.dim('Engram MCP configured'));
+  spinner.succeed(chalk.dim('Knit MCP configured'));
 
   // Report
   console.log();
@@ -85,7 +85,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   console.log();
   // Add engram instructions to global CLAUDE.md so agent knows to use the tools
   const globalClaudeMd = join(homedir(), '.claude', 'CLAUDE.md');
-  const engramInstruction = `\n\n## Engram Brain (MCP)\n\nYou have the Engram MCP server connected. USE IT on every task:\n\n1. **First:** Call \`engram_classify_task\` with files you plan to touch — get tier and phases\n2. **Research:** Call \`engram_build_context\` — get domain context with ripple effects\n3. **During:** Use \`engram_query_imports\`, \`engram_query_exports\`, \`engram_query_tests\` instead of grepping\n4. **End:** Call \`engram_record_learning\` before saying "done" — persist what you learned\n\nFor new projects, call \`engram_brain_status\` first — triggers auto-initialization.\n`;
+  const engramInstruction = `\n\n## Engram Brain (MCP)\n\nYou have the Knit MCP server connected. USE IT on every task:\n\n1. **First:** Call \`knit_classify_task\` with files you plan to touch — get tier and phases\n2. **Research:** Call \`knit_build_context\` — get domain context with ripple effects\n3. **During:** Use \`knit_query_imports\`, \`knit_query_exports\`, \`knit_query_tests\` instead of grepping\n4. **End:** Call \`knit_record_learning\` before saying "done" — persist what you learned\n\nFor new projects, call \`knit_brain_status\` first — triggers auto-initialization.\n`;
 
   if (existsSync(globalClaudeMd)) {
     const existing = readFileSync(globalClaudeMd, 'utf-8');
@@ -103,7 +103,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   console.log();
   console.log(chalk.bold('  How it works'));
   console.log(`  ${chalk.cyan('1.')} Open ${chalk.bold('any project')} in Claude Code`);
-  console.log(`  ${chalk.cyan('2.')} Agent calls \`engram_classify_task\` → brain auto-initializes`);
+  console.log(`  ${chalk.cyan('2.')} Agent calls \`knit_classify_task\` → brain auto-initializes`);
   console.log(`  ${chalk.cyan('3.')} Agent gets 20 tools: imports, exports, tests, learnings, teams`);
   console.log(`  ${chalk.cyan('4.')} Brain compounds with every session — gets smarter over time`);
   console.log();

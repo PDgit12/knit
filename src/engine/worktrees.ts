@@ -14,8 +14,8 @@ import { canonicalRepoRoot } from './project-id.js';
  *
  * Worktrees are sibling directories to the main repo (git's native pattern):
  *   /Users/p/my-repo            <- main checkout
- *   /Users/p/my-repo-engram-ui  <- UI team worktree
- *   /Users/p/my-repo-engram-api <- API team worktree
+ *   /Users/p/my-repo-knit-ui  <- UI team worktree
+ *   /Users/p/my-repo-knit-api <- API team worktree
  *
  * We never auto-resolve merge conflicts. If `git merge` fails, we surface
  * the conflict file list back to the orchestrator and leave the worktree
@@ -56,7 +56,7 @@ export function spawnWorktree(
   const slug = slugify(teamName);
   const ts = Date.now();
   const branch = `engram/team-${slug}-${ts}`;
-  const worktreePath = resolve(dirname(repoRoot), `${basename(repoRoot)}-engram-${slug}-${ts}`);
+  const worktreePath = resolve(dirname(repoRoot), `${basename(repoRoot)}-knit-${slug}-${ts}`);
 
   // Fail loudly if a worktree for this exact slug+ts already exists (race condition / re-spawn)
   if (existsSync(worktreePath)) {
@@ -170,7 +170,7 @@ export function finalizeWorktree(
       status: 'conflict',
       worktree: record,
       conflictFiles,
-      message: `Merge conflict. Resolve in ${repoRoot}, then call engram_finalize_worktree again with action='merge' to retry, or 'discard' to throw away. ${msg}`,
+      message: `Merge conflict. Resolve in ${repoRoot}, then call knit_finalize_worktree again with action='merge' to retry, or 'discard' to throw away. ${msg}`,
     };
   }
 

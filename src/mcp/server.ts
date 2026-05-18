@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Engram MCP Server — the Second Brain.
+ * Knit MCP Server — the Second Brain.
  *
  * 32 tools that let AI agents query and update the project knowledge
  * brain mid-session: import graphs, exports, test coverage, per-project
@@ -10,7 +10,7 @@
  * team-scoped git worktrees, and personalized VoltAgent subagents.
  *
  * Configure in ~/.claude.json:
- *   "mcpServers": { "engram-brain": { "command": "npx",
+ *   "mcpServers": { "knit-brain": { "command": "npx",
  *                                     "args": ["-y", "@piyushdua/engram-dev@latest"] } }
  */
 
@@ -27,7 +27,7 @@ import { getToolDefinitions, handleToolCall } from './tools.js';
 const ROOT_PATH = detectProjectRoot();
 
 const server = new Server(
-  { name: 'engram-brain', version: '0.4.1' },
+  { name: 'knit-brain', version: '0.4.1' },
   { capabilities: { tools: {} } },
 );
 
@@ -42,7 +42,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     // Special case: refresh rebuilds the cache
-    if (name === 'engram_refresh_index') {
+    if (name === 'knit_refresh_index') {
       refreshBrain(ROOT_PATH);
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ status: 'refreshed', root: ROOT_PATH }) }],
@@ -71,6 +71,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`Engram MCP server error: ${error}\n`);
+  process.stderr.write(`Knit MCP server error: ${error}\n`);
   process.exit(1);
 });

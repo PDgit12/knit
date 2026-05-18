@@ -6,15 +6,15 @@ import { getToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase } from '../src/engine/types.js';
 
-// Sandbox engram data writes into a temp dir so tests don't touch ~/.engram/
-let engramHome: string;
+// Sandbox engram data writes into a temp dir so tests don't touch ~/.knit/
+let knitHome: string;
 beforeAll(() => {
-  engramHome = mkdtempSync(join(tmpdir(), 'engram-test-'));
-  process.env.ENGRAM_HOME = engramHome;
+  knitHome = mkdtempSync(join(tmpdir(), 'knit-test-'));
+  process.env.KNIT_HOME = knitHome;
 });
 afterAll(() => {
-  delete process.env.ENGRAM_HOME;
-  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+  delete process.env.KNIT_HOME;
+  try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 // Mock brain cache for testing
@@ -109,32 +109,32 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 35 tool definitions (v0.5.0 — +engram_set/get_protocol_strictness)', () => {
+  it('returns 35 tool definitions (v0.5.0 — +knit_set/get_protocol_strictness)', () => {
     const tools = getToolDefinitions();
     expect(tools).toHaveLength(35);
   });
 
   it('exposes the Protocol Guard tools', () => {
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain('engram_set_protocol_strictness');
-    expect(names).toContain('engram_get_protocol_strictness');
+    expect(names).toContain('knit_set_protocol_strictness');
+    expect(names).toContain('knit_get_protocol_strictness');
   });
 
   it('exposes the subagent installer tool', () => {
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain('engram_install_agent');
+    expect(names).toContain('knit_install_agent');
   });
 
   it('exposes the cross-project learnings tools', () => {
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain('engram_record_global_learning');
-    expect(names).toContain('engram_search_global_learnings');
+    expect(names).toContain('knit_record_global_learning');
+    expect(names).toContain('knit_search_global_learnings');
   });
 
   it('re-exposes pattern reflection tools (paired with Model C)', () => {
     const names = getToolDefinitions().map((t) => t.name);
-    expect(names).toContain('engram_reflect');
-    expect(names).toContain('engram_get_suggestions');
+    expect(names).toContain('knit_reflect');
+    expect(names).toContain('knit_get_suggestions');
   });
 
   it('descriptions stay under 200 chars (terse-by-design)', () => {
@@ -150,9 +150,9 @@ describe('getToolDefinitions', () => {
     }
   });
 
-  it('all tool names start with engram_', () => {
+  it('all tool names start with knit_', () => {
     for (const tool of getToolDefinitions()) {
-      expect(tool.name).toMatch(/^engram_/);
+      expect(tool.name).toMatch(/^knit_/);
     }
   });
 });
@@ -160,81 +160,81 @@ describe('getToolDefinitions', () => {
 describe('handleToolCall', () => {
   const brain = createMockBrain();
 
-  it('engram_query_imports — finds who imports a file', () => {
-    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: 'src/types.ts' }, brain));
+  it('knit_query_imports — finds who imports a file', () => {
+    const result = JSON.parse(handleToolCall('knit_query_imports', { file_path: 'src/types.ts' }, brain));
     expect(result.imported_by).toContain('src/index.ts');
     expect(result.imported_by).toContain('src/api.ts');
     expect(result.count).toBe(2);
   });
 
-  it('engram_query_imports — returns empty for leaf files', () => {
-    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: 'src/api.ts' }, brain));
+  it('knit_query_imports — returns empty for leaf files', () => {
+    const result = JSON.parse(handleToolCall('knit_query_imports', { file_path: 'src/api.ts' }, brain));
     expect(result.imported_by).toEqual([]);
     expect(result.count).toBe(0);
   });
 
-  it('engram_query_dependents — finds what a file imports', () => {
-    const result = JSON.parse(handleToolCall('engram_query_dependents', { file_path: 'src/index.ts' }, brain));
+  it('knit_query_dependents — finds what a file imports', () => {
+    const result = JSON.parse(handleToolCall('knit_query_dependents', { file_path: 'src/index.ts' }, brain));
     expect(result.depends_on).toContain('src/types.ts');
     expect(result.depends_on).toContain('src/utils.ts');
   });
 
-  it('engram_query_exports — lists exports', () => {
-    const result = JSON.parse(handleToolCall('engram_query_exports', { file_path: 'src/types.ts' }, brain));
+  it('knit_query_exports — lists exports', () => {
+    const result = JSON.parse(handleToolCall('knit_query_exports', { file_path: 'src/types.ts' }, brain));
     expect(result.count).toBe(2);
     expect(result.exports[0].name).toBe('User');
     expect(result.exports[0].kind).toBe('interface');
   });
 
-  it('engram_query_tests — finds tests for a file', () => {
-    const result = JSON.parse(handleToolCall('engram_query_tests', { file_path: 'src/utils.ts' }, brain));
+  it('knit_query_tests — finds tests for a file', () => {
+    const result = JSON.parse(handleToolCall('knit_query_tests', { file_path: 'src/utils.ts' }, brain));
     expect(result.has_tests).toBe(true);
     expect(result.tested_by).toContain('tests/utils.test.ts');
   });
 
-  it('engram_query_tests — lists untested files', () => {
-    const result = JSON.parse(handleToolCall('engram_query_tests', { filter: 'untested' }, brain));
+  it('knit_query_tests — lists untested files', () => {
+    const result = JSON.parse(handleToolCall('knit_query_tests', { filter: 'untested' }, brain));
     expect(result.untested_files).toContain('src/api.ts');
     expect(result.count).toBe(3);
   });
 
-  it('engram_find_fanout — finds high-fanout files', () => {
-    const result = JSON.parse(handleToolCall('engram_find_fanout', { min_importers: '2' }, brain));
+  it('knit_find_fanout — finds high-fanout files', () => {
+    const result = JSON.parse(handleToolCall('knit_find_fanout', { min_importers: '2' }, brain));
     expect(result.high_fanout_files.length).toBeGreaterThan(0);
     expect(result.high_fanout_files[0].file).toBe('src/types.ts');
   });
 
-  it('engram_search_learnings — finds by domain', () => {
-    const result = JSON.parse(handleToolCall('engram_search_learnings', { domains: 'api' }, brain));
+  it('knit_search_learnings — finds by domain', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { domains: 'api' }, brain));
     expect(result.count).toBe(1);
     expect(result.results[0].summary).toBe('Fixed auth bug');
   });
 
-  it('engram_search_learnings — returns empty for unknown domain', () => {
-    const result = JSON.parse(handleToolCall('engram_search_learnings', { domains: 'nonexistent' }, brain));
+  it('knit_search_learnings — returns empty for unknown domain', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { domains: 'nonexistent' }, brain));
     expect(result.count).toBe(0);
   });
 
-  it('engram_get_false_positives — returns FP entries', () => {
-    const result = JSON.parse(handleToolCall('engram_get_false_positives', {}, brain));
+  it('knit_get_false_positives — returns FP entries', () => {
+    const result = JSON.parse(handleToolCall('knit_get_false_positives', {}, brain));
     expect(result.count).toBe(1);
     expect(result.false_positives[0].summary).toContain('Known FP');
   });
 
-  it('engram_brain_status — returns metrics', () => {
-    const result = JSON.parse(handleToolCall('engram_brain_status', {}, brain));
+  it('knit_brain_status — returns metrics', () => {
+    const result = JSON.parse(handleToolCall('knit_brain_status', {}, brain));
     expect(result.totalSessions).toBe(5);
     expect(result.cacheHits).toBeGreaterThanOrEqual(3);
     expect(result.knowledge_index.files_indexed).toBe(5);
   });
 
   it('blocks path traversal', () => {
-    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: '../../etc/passwd' }, brain));
+    const result = JSON.parse(handleToolCall('knit_query_imports', { file_path: '../../etc/passwd' }, brain));
     expect(result.error).toContain('Invalid file path');
   });
 
   it('blocks absolute paths', () => {
-    const result = JSON.parse(handleToolCall('engram_query_imports', { file_path: '/etc/passwd' }, brain));
+    const result = JSON.parse(handleToolCall('knit_query_imports', { file_path: '/etc/passwd' }, brain));
     expect(result.error).toContain('Invalid file path');
   });
 
@@ -245,16 +245,16 @@ describe('handleToolCall', () => {
 
   // ── Action tools ──────────────────────────────────────────────
 
-  it('engram_classify_task — trivial for single file', () => {
-    const result = JSON.parse(handleToolCall('engram_classify_task', { files_to_touch: 'src/utils.ts' }, brain));
+  it('knit_classify_task — trivial for single file', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', { files_to_touch: 'src/utils.ts' }, brain));
     expect(result.tier).toBe('trivial');
     expect(result.phases).toContain('EXECUTE');
     expect(result.phases).toContain('LEARN');
     expect(result.auto_plan_mode).toBe(false);
   });
 
-  it('engram_classify_task — complex for types + auth', () => {
-    const result = JSON.parse(handleToolCall('engram_classify_task', {
+  it('knit_classify_task — complex for types + auth', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
       files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
     }, brain));
     expect(result.tier).toBe('complex');
@@ -264,8 +264,8 @@ describe('handleToolCall', () => {
     expect(result.phases).toContain('PLAN');
   });
 
-  it('engram_build_context — assembles domain context', () => {
-    const result = JSON.parse(handleToolCall('engram_build_context', {
+  it('knit_build_context — assembles domain context', () => {
+    const result = JSON.parse(handleToolCall('knit_build_context', {
       files_to_touch: 'src/api.ts,src/types.ts',
     }, brain));
     expect(result.domain_context).toBeDefined();
@@ -274,9 +274,9 @@ describe('handleToolCall', () => {
     expect(result.instruction).toContain('Pass this entire object');
   });
 
-  it('engram_record_learning — persists to KB', () => {
+  it('knit_record_learning — persists to KB', () => {
     const kbBefore = brain.knowledgeBase.entries.length;
-    const result = JSON.parse(handleToolCall('engram_record_learning', {
+    const result = JSON.parse(handleToolCall('knit_record_learning', {
       summary: 'Test learning',
       lesson: 'Always test MCP tools',
       tags: '#test #mcp',
@@ -286,9 +286,9 @@ describe('handleToolCall', () => {
     expect(brain.knowledgeBase.entries.length).toBe(kbBefore + 1);
   });
 
-  it('engram_record_false_positive — adds FP tag', () => {
+  it('knit_record_false_positive — adds FP tag', () => {
     const fpBefore = brain.knowledgeBase.entries.filter((e) => e.tags.includes('#false-positive')).length;
-    const result = JSON.parse(handleToolCall('engram_record_false_positive', {
+    const result = JSON.parse(handleToolCall('knit_record_false_positive', {
       summary: 'Missing types for X',
       reason: 'Types are inferred at runtime',
     }, brain));
@@ -297,8 +297,8 @@ describe('handleToolCall', () => {
     expect(fpAfter).toBe(fpBefore + 1);
   });
 
-  it('engram_classify_task — standard for 2 domains', () => {
-    const result = JSON.parse(handleToolCall('engram_classify_task', {
+  it('knit_classify_task — standard for 2 domains', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
       files_to_touch: 'src/api.ts,tests/utils.test.ts',
     }, brain));
     expect(result.tier).toBe('standard');

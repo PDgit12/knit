@@ -6,7 +6,7 @@ import { resolve, dirname, join } from 'node:path';
  * Stable per-project identity hash.
  *
  * Same canonical repository → same id forever. Used as the directory key
- * under ~/.engram/projects/<id>/ so engram data follows the project
+ * under ~/.knit/projects/<id>/ so engram data follows the project
  * across worktrees and doesn't bloat each repo's working tree.
  *
  * For a git worktree (`.git` is a file containing `gitdir: ...`),

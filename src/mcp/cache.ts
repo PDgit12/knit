@@ -1,12 +1,12 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
-import type { ProjectKnowledge, KnowledgeBase, EngramConfig } from '../engine/types.js';
+import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../engine/types.js';
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
-import { generateClaudeMd, spliceEngramBlock, ENGRAM_MARKER_START } from '../generators/claude-md.js';
+import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { pruneSessionsByAge } from '../engine/sessions.js';
 import { generateLearningsContent } from '../generators/learnings.js';
@@ -32,7 +32,7 @@ export interface BrainCache {
   knowledge: ProjectKnowledge;
   reverseDeps: Record<string, string[]>;
   knowledgeBase: KnowledgeBase;
-  config: EngramConfig;
+  config: KnitConfig;
   loadedAt: number;
   autoInitialized: boolean;
 }
@@ -48,11 +48,11 @@ const hooksRefreshed = new Set<string>();
 
 /**
  * If the project's settings.local.json predates the current HOOKS_VERSION,
- * silently regenerate the hooks via writeEngramHooks (which uses hybrid-merge
+ * silently regenerate the hooks via writeKnitHooks (which uses hybrid-merge
  * to preserve user-owned entries). Best-effort: never throw — a malformed
  * settings file must not block the cache load.
  */
-function maybeRefreshHooks(rootPath: string, config: EngramConfig): void {
+function maybeRefreshHooks(rootPath: string, config: KnitConfig): void {
   if (hooksRefreshed.has(rootPath)) return;
   hooksRefreshed.add(rootPath);
 
@@ -60,10 +60,10 @@ function maybeRefreshHooks(rootPath: string, config: EngramConfig): void {
   if (!existsSync(settingsPath)) return;
 
   try {
-    const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as { _engramHooks?: { version?: number } };
-    const storedVersion = existing?._engramHooks?.version ?? 0;
+    const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as { _knitHooks?: { version?: number } };
+    const storedVersion = existing?._knitHooks?.version ?? 0;
     if (storedVersion < HOOKS_VERSION) {
-      writeEngramHooks(rootPath, config);
+      writeKnitHooks(rootPath, config);
     }
   } catch {
     // best-effort: never let stale or malformed settings break the cache
@@ -73,7 +73,7 @@ function maybeRefreshHooks(rootPath: string, config: EngramConfig): void {
 /**
  * Load or return cached brain state.
  * On first call for a project, will either:
- *   - migrate legacy v0.1 data (<project>/.claude/) → ~/.engram/projects/<hash>/
+ *   - migrate legacy v0.1 data (<project>/.claude/) → ~/.knit/projects/<hash>/
  *   - auto-initialize fresh if no legacy or centralized data exists
  *   - load from centralized if it's already there
  *
@@ -104,7 +104,7 @@ export function getBrain(rootPath: string): BrainCache {
   const projectName = detectProjectName(rootPath);
   const knowledgeBase = loadKnowledgeBase(knowledgebasePath(rootPath), projectName);
 
-  const config: EngramConfig = {
+  const config: KnitConfig = {
     name: projectName,
     packageManager: scan.packageManager,
     stack: scan.stack,
@@ -138,7 +138,7 @@ export function getBrain(rootPath: string): BrainCache {
 
 /**
  * Auto-initialize a project on first MCP use (no legacy data found).
- * Creates ~/.engram/projects/<hash>/ + project-root CLAUDE.md.
+ * Creates ~/.knit/projects/<hash>/ + project-root CLAUDE.md.
  * This is what eliminates the need for `engram init`.
  */
 function autoInitialize(rootPath: string): void {
@@ -146,7 +146,7 @@ function autoInitialize(rootPath: string): void {
   const knowledge = buildKnowledge(rootPath, scan);
   const projectName = detectProjectName(rootPath);
 
-  const config: EngramConfig = {
+  const config: KnitConfig = {
     name: projectName,
     packageManager: scan.packageManager,
     stack: scan.stack,
@@ -164,20 +164,20 @@ function autoInitialize(rootPath: string): void {
 
   // Per-project hooks at <project>/.claude/settings.local.json — never settings.json,
   // because settings.json gets committed and our hooks embed machine-specific
-  // ~/.engram/projects/<hash>/ paths.
-  writeEngramHooks(rootPath, config);
+  // ~/.knit/projects/<hash>/ paths.
+  writeKnitHooks(rootPath, config);
 
-  // Per-project subagents at <project>/.claude/agents/engram-*.md (v0.4+).
+  // Per-project subagents at <project>/.claude/agents/knit-*.md (v0.4+).
   // Fire-and-forget: bundled-core agents resolve sync, so they land before
   // the agent makes its next tool call. Network-fetched specialized agents
   // arrive in the background; if a session uses one before it lands, Claude
   // Code falls back to its default and the file is ready by the next session.
   // Pass null for knowledgeBase: on auto-init the project has no learnings
-  // yet — subsequent installs via CLI / engram_install_agent will include them.
+  // yet — subsequent installs via CLI / knit_install_agent will include them.
   installAgentsForProject(rootPath, config, knowledge, null).catch((err) => {
     // Never let an install failure abort autoInit. Log to stderr; agents are
     // best-effort and the rest of engram works without them.
-    process.stderr.write(`[engram] agent install background error: ${err?.message ?? err}\n`);
+    process.stderr.write(`[knit] agent install background error: ${err?.message ?? err}\n`);
   });
 
   // Fire-and-forget: prune sessions.jsonl entries older than 90 days. Deferred
@@ -188,7 +188,7 @@ function autoInitialize(rootPath: string): void {
       pruneSessionsByAge(rootPath, 90);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      process.stderr.write(`[engram] session prune background error: ${msg}\n`);
+      process.stderr.write(`[knit] session prune background error: ${msg}\n`);
     }
   });
 
@@ -211,7 +211,7 @@ function autoInitialize(rootPath: string): void {
 
 /**
  * One-shot migration: v0.1 data lived in <project>/.claude/, v0.2 lives in
- * ~/.engram/projects/<hash>/. When we detect legacy data but no centralized
+ * ~/.knit/projects/<hash>/. When we detect legacy data but no centralized
  * data, copy forward and leave a breadcrumb so the user can find their data.
  */
 function migrateLegacyData(rootPath: string): void {
@@ -239,7 +239,7 @@ function migrateLegacyData(rootPath: string): void {
   const breadcrumb = migrationBreadcrumbPath(rootPath);
   const newPath = projectDataDir(rootPath);
   if (!existsSync(breadcrumb) && existsSync(legacyClaudeDir(rootPath))) {
-    const note = `Engram data migrated to ~/.engram/ on ${new Date().toISOString().split('T')[0]}.
+    const note = `Knit data migrated to ~/.knit/ on ${new Date().toISOString().split('T')[0]}.
 
 Centralized location for this project:
   ${newPath}
@@ -261,12 +261,12 @@ session memory live in the new path.
  *   - No file: write fresh with engram markers.
  *   - Has file + markers: replace only the in-marker block, preserve everything else.
  *   - Has file + no markers: it's user-curated. Write a sidecar at
- *     <project>/.claude/ENGRAM.md instead, and tell the user (in the sidecar)
- *     to add an `@.claude/ENGRAM.md` line if they want engram's section.
+ *     <project>/.claude/KNIT.md instead, and tell the user (in the sidecar)
+ *     to add an `@.claude/KNIT.md` line if they want engram's section.
  */
 function writeProjectClaudeMd(
   rootPath: string,
-  config: EngramConfig,
+  config: KnitConfig,
   knowledge: ProjectKnowledge,
 ): void {
   const claudeMdPath = join(rootPath, 'CLAUDE.md');
@@ -278,19 +278,19 @@ function writeProjectClaudeMd(
   }
 
   const existing = readFileSync(claudeMdPath, 'utf-8');
-  if (existing.includes(ENGRAM_MARKER_START)) {
-    const { content } = spliceEngramBlock(existing, block);
+  if (existing.includes(KNIT_MARKER_START)) {
+    const { content } = spliceKnitBlock(existing, block);
     writeFileSync(claudeMdPath, content, 'utf-8');
     return;
   }
 
   // User-curated CLAUDE.md exists with no engram markers — never clobber.
   const sidecarDir = join(rootPath, '.claude');
-  const sidecarPath = join(sidecarDir, 'ENGRAM.md');
+  const sidecarPath = join(sidecarDir, 'KNIT.md');
   mkdirSync(sidecarDir, { recursive: true });
   const sidecar = `<!-- This file is engram's per-project workflow. -->
 <!-- Your CLAUDE.md exists without engram markers, so engram wrote here instead of clobbering it. -->
-<!-- To include this content in CLAUDE.md, add: @.claude/ENGRAM.md -->
+<!-- To include this content in CLAUDE.md, add: @.claude/KNIT.md -->
 
 ${block}`;
   writeFileSync(sidecarPath, sidecar, 'utf-8');
@@ -307,33 +307,33 @@ function copyIfExists(src: string, dst: string): void {
  * Write <project>/.claude/settings.local.json with engram hooks.
  *
  * Why settings.local.json (and not settings.json): the hook shell commands
- * embed absolute paths like /Users/alice/.engram/projects/<hash>/... which
+ * embed absolute paths like /Users/alice/.knit/projects/<hash>/... which
  * are machine-specific. settings.json is the conventional shared/committed
  * file; settings.local.json is the per-machine file teams typically gitignore.
  * Writing here keeps engram's machine-specific config out of the team's repo.
  *
  * Three cases:
  *   - Case A — no file: write fresh.
- *   - Case B — file exists with `_engramHooks` marker: overwrite with the
- *     current hook set (idempotent regeneration of an engram-owned file).
- *   - Case C — file exists WITHOUT `_engramHooks` marker: hybrid merge.
+ *   - Case B — file exists with `_knitHooks` marker: overwrite with the
+ *     current hook set (idempotent regeneration of an knit-owned file).
+ *   - Case C — file exists WITHOUT `_knitHooks` marker: hybrid merge.
  *     The user owns the file. We merge engram's hook entries (tagged
- *     `_engramOwned: true`) into the user's PreToolUse/PostToolUse/Stop
+ *     `_knitOwned: true`) into the user's PreToolUse/PostToolUse/Stop
  *     arrays, preserving user entries and any other top-level keys
  *     (mcpServers, permissions, etc.). On subsequent regen we filter out
- *     stale engram-owned entries before appending fresh ones, so user
+ *     stale knit-owned entries before appending fresh ones, so user
  *     entries are never disturbed.
  *
  * If the existing file is unreadable / malformed JSON we bail out to avoid
  * damaging the user's config.
  */
-function writeEngramHooks(rootPath: string, config: EngramConfig): void {
+function writeKnitHooks(rootPath: string, config: KnitConfig): void {
   const claudeDir = join(rootPath, '.claude');
   const settingsPath = join(claudeDir, 'settings.local.json');
   const fresh = generateSettings(config, rootPath) as {
     mcpServers?: unknown;
     hooks: Record<string, unknown[]>;
-    _engramHooks: { version: number; generatedAt: string };
+    _knitHooks: { version: number; generatedAt: string };
   };
 
   // Case A — no file: write fresh
@@ -356,8 +356,8 @@ function writeEngramHooks(rootPath: string, config: EngramConfig): void {
     return;
   }
 
-  // Case B — engram-owned file: overwrite
-  if ('_engramHooks' in existing) {
+  // Case B — knit-owned file: overwrite
+  if ('_knitHooks' in existing) {
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
     return;
@@ -381,9 +381,9 @@ function writeEngramHooks(rootPath: string, config: EngramConfig): void {
 
   for (const event of Object.keys(fresh.hooks)) {
     const userEntries = Array.isArray(userHooks[event]) ? userHooks[event] : [];
-    // Strip any stale engram-owned entries from a prior merge
+    // Strip any stale knit-owned entries from a prior merge
     const preserved = userEntries.filter((entry) => {
-      return !(entry && typeof entry === 'object' && (entry as { _engramOwned?: unknown })._engramOwned === true);
+      return !(entry && typeof entry === 'object' && (entry as { _knitOwned?: unknown })._knitOwned === true);
     });
     // Append fresh engram entries after user entries
     userHooks[event] = [...preserved, ...fresh.hooks[event]];
@@ -392,7 +392,7 @@ function writeEngramHooks(rootPath: string, config: EngramConfig): void {
   const merged: Record<string, unknown> = {
     ...existing,
     hooks: userHooks,
-    _engramHooks: { ...fresh._engramHooks, merged: true },
+    _knitHooks: { ...fresh._knitHooks, merged: true },
   };
 
   mkdirSync(claudeDir, { recursive: true });

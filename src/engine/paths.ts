@@ -4,12 +4,12 @@ import { projectId } from './project-id.js';
 
 /**
  * All engram data paths flow through here. No code outside this file
- * should construct paths into ~/.engram/ or <project>/.claude/ by string
+ * should construct paths into ~/.knit/ or <project>/.claude/ by string
  * concatenation — that's how the v0.1 codebase ended up with six scattered
  * disk-writers each using a slightly different convention.
  *
  * Canonical layout:
- *   ~/.engram/                                  ← all engram data
+ *   ~/.knit/                                  ← all engram data
  *     projects/<hash>/                          ← one dir per project
  *       knowledge.json                          ← static-analysis brain
  *       knowledgebase.json                      ← learnings DB
@@ -18,58 +18,64 @@ import { projectId } from './project-id.js';
  *       learnings/<project-slug>.md             ← human-readable learnings
  *
  * The project's own CLAUDE.md stays at the project root (Claude Code
- * needs to find it). Everything else moves to ~/.engram/.
+ * needs to find it). Everything else moves to ~/.knit/.
  */
 
 /**
- * Root of all engram data, normally ~/.engram/.
- * Override with ENGRAM_HOME env var (useful for tests + sandboxed installs).
+ * Root of all knit data, normally ~/.knit/.
+ * Override with KNIT_HOME env var (useful for tests + sandboxed installs).
+ * Back-compat: legacy ENGRAM_HOME env var is honored if KNIT_HOME unset.
  */
-export function engramRoot(): string {
+export function knitRoot(): string {
+  return process.env.KNIT_HOME || process.env.ENGRAM_HOME || join(homedir(), '.knit');
+}
+
+/** Legacy v0.5.x path: ~/.engram/. Used only by the one-shot migration. */
+export function legacyEngramRoot(): string {
   return process.env.ENGRAM_HOME || join(homedir(), '.engram');
 }
 
-/** ~/.engram/projects/<hash>/ — data dir for a specific project. */
+/** ~/.knit/projects/<hash>/ — data dir for a specific project. */
 export function projectDataDir(rootPath: string): string {
-  return join(engramRoot(), 'projects', projectId(rootPath));
+  return join(knitRoot(), 'projects', projectId(rootPath));
 }
 
-/** ~/.engram/projects/<hash>/knowledge.json */
+/** ~/.knit/projects/<hash>/knowledge.json */
 export function knowledgePath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'knowledge.json');
 }
 
-/** ~/.engram/projects/<hash>/knowledgebase.json */
+/** ~/.knit/projects/<hash>/knowledgebase.json */
 export function knowledgebasePath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'knowledgebase.json');
 }
 
-/** ~/.engram/projects/<hash>/teams.json */
+/** ~/.knit/projects/<hash>/teams.json */
 export function teamsPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'teams.json');
 }
 
-/** ~/.engram/projects/<hash>/worktrees.json — registry of active team worktrees. */
+/** ~/.knit/projects/<hash>/worktrees.json — registry of active team worktrees. */
 export function worktreesRegistryPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'worktrees.json');
 }
 
-/** ~/.engram/global/ — opt-in cross-project data, never auto-populated. */
+/** ~/.knit/global/ — opt-in cross-project data, never auto-populated. */
 export function globalDataDir(): string {
-  return join(engramRoot(), 'global');
+  return join(knitRoot(), 'global');
 }
 
-/** ~/.engram/global/learnings.jsonl — opt-in cross-project learnings pool. */
+/** ~/.knit/global/learnings.jsonl — opt-in cross-project learnings pool. */
 export function globalLearningsPath(): string {
   return join(globalDataDir(), 'learnings.jsonl');
 }
 
-/** ~/.engram/agents/cache/<ref>/ — VoltAgent source cache, one dir per pinned ref. */
+/** ~/.knit/agents/cache/<ref>/ — VoltAgent source cache, one dir per pinned ref. */
 export function agentsCacheDir(ref: string): string {
-  return join(engramRoot(), 'agents', 'cache', sanitizeRef(ref));
+  return join(knitRoot(), 'agents', 'cache', sanitizeRef(ref));
 }
 
-/** ~/.engram/agents/cache/<ref>/<category>/<name>.md — single cached source file. */
+/** ~/.knit/agents/cache/<ref>/<category>/<name>.md — single cached source file. */
 export function agentsCacheFile(ref: string, category: string, name: string): string {
   return join(agentsCacheDir(ref), category, `${name}.md`);
 }
@@ -80,15 +86,16 @@ export function projectAgentsDir(rootPath: string): string {
 }
 
 /**
- * <project>/.claude/agents/engram-<name>.md — engram-managed agent for a project.
+ * <project>/.claude/agents/knit-<name>.md — knit-managed agent for a project.
  *
- * Accepts either a bare name (`typescript-pro`) or an already-prefixed name
- * (`engram-typescript-pro`). The leading `engram-` is stripped before
+ * Accepts a bare name (`typescript-pro`), a v0.6+ prefixed name
+ * (`knit-typescript-pro`), or a legacy v0.5.x prefixed name
+ * (`knit-typescript-pro`). The leading prefix is stripped before
  * composing the filename so callers can pass whichever they have.
  */
 export function projectAgentFile(rootPath: string, name: string): string {
-  const bare = name.replace(/^engram-/, '');
-  return join(projectAgentsDir(rootPath), `engram-${bare}.md`);
+  const bare = name.replace(/^(knit|engram)-/, '');
+  return join(projectAgentsDir(rootPath), `knit-${bare}.md`);
 }
 
 /** Refs can be SHAs or branch names; strip filesystem-unsafe chars for safety. */
@@ -96,38 +103,38 @@ function sanitizeRef(ref: string): string {
   return ref.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
-/** ~/.engram/projects/<hash>/sessions.jsonl — reserved for C4. */
+/** ~/.knit/projects/<hash>/sessions.jsonl — reserved for C4. */
 export function sessionsJsonlPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'sessions.jsonl');
 }
 
-/** ~/.engram/projects/<hash>/protocol-config.json — Protocol Guard strictness. */
+/** ~/.knit/projects/<hash>/protocol-config.json — Protocol Guard strictness. */
 export function protocolConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'protocol-config.json');
 }
 
-/** ~/.engram/projects/<hash>/.classified-current — per-turn classification marker. */
+/** ~/.knit/projects/<hash>/.classified-current — per-turn classification marker. */
 export function classificationMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.classified-current');
 }
 
-/** ~/.engram/projects/<hash>/.session-loaded — SessionStart auto-load marker. */
+/** ~/.knit/projects/<hash>/.session-loaded — SessionStart auto-load marker. */
 export function sessionMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.session-loaded');
 }
 
-/** ~/.engram/projects/<hash>/learnings/ */
+/** ~/.knit/projects/<hash>/learnings/ */
 export function learningsDir(rootPath: string): string {
   return join(projectDataDir(rootPath), 'learnings');
 }
 
-/** ~/.engram/projects/<hash>/learnings/<slug>.md */
+/** ~/.knit/projects/<hash>/learnings/<slug>.md */
 export function learningsFilePath(rootPath: string, projectName: string): string {
   const slug = projectName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   return join(learningsDir(rootPath), `${slug}.md`);
 }
 
-/** ~/.engram/projects/<hash>/learnings/sessions.md (legacy Stop-hook output). */
+/** ~/.knit/projects/<hash>/learnings/sessions.md (legacy Stop-hook output). */
 export function sessionsLogPath(rootPath: string): string {
   return join(learningsDir(rootPath), 'sessions.md');
 }

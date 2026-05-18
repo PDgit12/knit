@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scanProject } from '../src/engine/scanner.js';
 
-const TEST_DIR = join(tmpdir(), 'engram-test-scanner');
+const TEST_DIR = join(tmpdir(), 'knit-test-scanner');
 
 beforeEach(() => {
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });

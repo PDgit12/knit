@@ -2,6 +2,50 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-05-18
+
+**Headline: project renamed from `engram` to `Knit`.** This is a breaking change.
+
+### Why
+
+The npm registry already had two prior-art packages in the same product
+space — `engram-mcp` (engram-ai / danielwhyte.com, "MCP server for Engram:
+persistent memory for AI") and `engram-ai` (mareo.ai, "small explicit memory
+layer for AI agents"). Launching publicly under the `engram` name invited
+trademark questions and positioned this project as a clone. With zero
+external users today, the cost of renaming is at its lowest.
+
+`Knit` is the new brand — it suggests the actual product mechanic:
+sessions knitting together into compounding intelligence.
+
+### Migration for existing v0.5.x users
+
+- **New install command:** `npx knit-mcp@latest setup` (was `npx @piyushdua/engram-dev@latest setup`).
+- **Data directory:** moved from `~/.engram/` to `~/.knit/`. Existing data is preserved at the old path — the new code reads from `~/.knit/` and falls back to `ENGRAM_HOME` env var so the migration path works.
+- **MCP tool names:** all `engram_*` tools renamed to `knit_*` (e.g. `engram_classify_task` → `knit_classify_task`). 35 tools, all renamed.
+- **Settings file:** `_engramHooks` and `_engramOwned` markers renamed to `_knitHooks` / `_knitOwned`. HOOKS_VERSION bumped 3 → 4; the auto-refresh path from v0.5.1 detects any settings.local.json with the old marker and regenerates cleanly via hybrid merge, preserving user-owned hooks and permissions.
+- **Subagent files:** `<project>/.claude/agents/engram-<name>.md` → `<project>/.claude/agents/knit-<name>.md`. Path-resolution accepts both prefixes for back-compat reads.
+- **Old package on npm:** `@piyushdua/engram-dev` will receive a `npm deprecate` notice pointing to `knit-mcp`.
+
+### Changed
+
+- Package name: `@piyushdua/engram-dev` → `knit-mcp`.
+- CLI binary: `engram-dev` → `knit`.
+- Repository: `github.com/PDgit12/engram` → `github.com/PDgit12/knit`.
+- All 35 MCP tools renamed `engram_*` → `knit_*`.
+- Env vars: `ENGRAM_HOME` → `KNIT_HOME` (legacy `ENGRAM_HOME` still honored).
+- Settings markers: `_engramHooks` / `_engramOwned` → `_knitHooks` / `_knitOwned`.
+- Generated CLAUDE.md markers: `<!-- engram:start -->` → `<!-- knit:start -->`.
+- Sidecar filename: `.claude/ENGRAM.md` → `.claude/KNIT.md`.
+- Internal types: `EngramConfig` → `KnitConfig`; `ENGRAM_MARKER_*` → `KNIT_MARKER_*`.
+- Internal functions: `writeEngramHooks` → `writeKnitHooks`; `spliceEngramBlock` → `spliceKnitBlock`; `engramRoot` → `knitRoot`.
+- Worktree slug prefix: `<repo>-engram-<team>-<ts>` → `<repo>-knit-<team>-<ts>`.
+
+### Internal
+
+- 299 tests still pass after the rename — no behavior change, only identifier rename.
+- Sed-driven mechanical refactor across 50 source/test files; targeted Edits for back-compat regexes that accept both `knit-` and `engram-` prefixes.
+
 ## [0.5.2] — 2026-05-18
 
 Audit-fix patch. Five doc drifts, two real code fixes, one new test file.

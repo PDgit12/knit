@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exportCommand } from '../src/commands/export.js';
-import { engramRoot, globalLearningsPath } from '../src/engine/paths.js';
+import { knitRoot, globalLearningsPath } from '../src/engine/paths.js';
 import type { KnowledgeBase, KBEntry, GlobalLearning } from '../src/engine/types.js';
 
 function makeKBEntry(overrides: Partial<KBEntry>): KBEntry {
@@ -36,40 +36,40 @@ function makeGlobalLearning(overrides: Partial<GlobalLearning>): GlobalLearning 
 }
 
 function seedProject(hash: string, kb: KnowledgeBase): void {
-  const projectDir = join(engramRoot(), 'projects', hash);
+  const projectDir = join(knitRoot(), 'projects', hash);
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(join(projectDir, 'knowledgebase.json'), JSON.stringify(kb, null, 2), 'utf-8');
 }
 
 function seedGlobal(entries: GlobalLearning[]): void {
   const path = globalLearningsPath();
-  mkdirSync(join(engramRoot(), 'global'), { recursive: true });
+  mkdirSync(join(knitRoot(), 'global'), { recursive: true });
   writeFileSync(path, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
 }
 
 describe('export command (obsidian)', () => {
-  let engramHome: string;
+  let knitHome: string;
   let vault: string;
 
   beforeAll(() => {
-    engramHome = mkdtempSync(join(tmpdir(), 'engram-export-test-'));
-    process.env.ENGRAM_HOME = engramHome;
+    knitHome = mkdtempSync(join(tmpdir(), 'knit-export-test-'));
+    process.env.KNIT_HOME = knitHome;
     process.env.ENGRAM_EXPORT_QUIET = '1';
   });
 
   afterAll(() => {
-    delete process.env.ENGRAM_HOME;
+    delete process.env.KNIT_HOME;
     delete process.env.ENGRAM_EXPORT_QUIET;
-    try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   beforeEach(() => {
-    // Wipe engram_home contents between tests
-    try { rmSync(join(engramHome, 'projects'), { recursive: true, force: true }); } catch { /* best */ }
-    try { rmSync(join(engramHome, 'global'), { recursive: true, force: true }); } catch { /* best */ }
+    // Wipe knit_home contents between tests
+    try { rmSync(join(knitHome, 'projects'), { recursive: true, force: true }); } catch { /* best */ }
+    try { rmSync(join(knitHome, 'global'), { recursive: true, force: true }); } catch { /* best */ }
 
     // Fresh vault dir per test
-    vault = mkdtempSync(join(tmpdir(), 'engram-vault-'));
+    vault = mkdtempSync(join(tmpdir(), 'knit-vault-'));
   });
 
   it('exports 3 per-project + 2 global learnings into the vault', async () => {
@@ -161,7 +161,7 @@ describe('export command (obsidian)', () => {
     await expect(exportCommand('notion', vault, {})).rejects.toThrow(/Unsupported export format/);
   });
 
-  it('handles a fresh ENGRAM_HOME with no projects or global learnings', async () => {
+  it('handles a fresh KNIT_HOME with no projects or global learnings', async () => {
     await exportCommand('obsidian', vault, {});
     expect(existsSync(join(vault, 'Engram Index.md'))).toBe(true);
     expect(readdirSync(join(vault, 'learnings'))).toHaveLength(0);

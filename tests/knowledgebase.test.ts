@@ -19,7 +19,7 @@ import {
 } from '../src/engine/knowledgebase.js';
 import type { LearningEntry } from '../src/engine/types.js';
 
-const TEST_DIR = join(tmpdir(), 'engram-test-kb');
+const TEST_DIR = join(tmpdir(), 'knit-test-kb');
 const KB_PATH = join(TEST_DIR, 'knowledgebase.json');
 
 beforeEach(() => {

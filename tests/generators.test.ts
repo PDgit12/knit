@@ -5,21 +5,21 @@ import { join } from 'node:path';
 import { generateClaudeMd } from '../src/generators/claude-md.js';
 import { generateSettings, generateSettingsLocal } from '../src/generators/settings.js';
 import { generateLearningsContent } from '../src/generators/learnings.js';
-import type { EngramConfig, ProjectKnowledge, LearningEntry } from '../src/engine/types.js';
+import type { KnitConfig, ProjectKnowledge, LearningEntry } from '../src/engine/types.js';
 
-// Sandbox engram data writes; generateSettings embeds paths under ENGRAM_HOME.
-let engramHome: string;
+// Sandbox engram data writes; generateSettings embeds paths under KNIT_HOME.
+let knitHome: string;
 const TEST_ROOT = '/tmp/test-project';
 beforeAll(() => {
-  engramHome = mkdtempSync(join(tmpdir(), 'engram-gen-test-'));
-  process.env.ENGRAM_HOME = engramHome;
+  knitHome = mkdtempSync(join(tmpdir(), 'knit-gen-test-'));
+  process.env.KNIT_HOME = knitHome;
 });
 afterAll(() => {
-  delete process.env.ENGRAM_HOME;
-  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+  delete process.env.KNIT_HOME;
+  try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-const testConfig: EngramConfig = {
+const testConfig: KnitConfig = {
   name: 'test-project',
   packageManager: 'npm',
   stack: {
@@ -63,10 +63,10 @@ describe('generateClaudeMd (v0.2 — thin shape)', () => {
 
   it('is wrapped in engram markers for safe regeneration', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('<!-- engram:start -->');
-    expect(md).toContain('<!-- engram:end -->');
+    expect(md).toContain('<!-- knit:start -->');
+    expect(md).toContain('<!-- knit:end -->');
     // start must appear before end
-    expect(md.indexOf('<!-- engram:start -->')).toBeLessThan(md.indexOf('<!-- engram:end -->'));
+    expect(md.indexOf('<!-- knit:start -->')).toBeLessThan(md.indexOf('<!-- knit:end -->'));
   });
 
   it('emits 150 lines or fewer (v0.2 thin shape target)', () => {
@@ -98,9 +98,9 @@ describe('generateClaudeMd (v0.2 — thin shape)', () => {
     expect(md).toContain('Complex');
   });
 
-  it('points to engram_get_workflow for protocol depth (not inlined)', () => {
+  it('points to knit_get_workflow for protocol depth (not inlined)', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('engram_get_workflow');
+    expect(md).toContain('knit_get_workflow');
     // Must NOT inline the long-form protocol that v0.1 dumped here
     expect(md).not.toContain('Phase 1: RESEARCH');
     expect(md).not.toContain('Phase 6: REVIEW');
@@ -108,9 +108,9 @@ describe('generateClaudeMd (v0.2 — thin shape)', () => {
     expect(md).not.toContain('MANDATORY, NEVER SKIP');
   });
 
-  it('points to engram_load_session for session startup', () => {
+  it('points to knit_load_session for session startup', () => {
     const md = generateClaudeMd(testConfig);
-    expect(md).toContain('engram_load_session');
+    expect(md).toContain('knit_load_session');
   });
 
   it('does not reference ECC, gstack, or gbrain', () => {
@@ -169,25 +169,25 @@ describe('generateClaudeMd (v0.2 — thin shape)', () => {
     expect(md).not.toContain('## Project Map');
     expect(md).not.toContain('## Known False Positives');
     // Still has the workflow pointer + tier vocabulary
-    expect(md).toContain('engram_get_workflow');
+    expect(md).toContain('knit_get_workflow');
   });
 });
 
-describe('spliceEngramBlock', () => {
+describe('spliceKnitBlock', () => {
   it('replaces only the in-marker block, preserving surrounding content', async () => {
-    const { spliceEngramBlock, ENGRAM_MARKER_START, ENGRAM_MARKER_END } = await import('../src/generators/claude-md.js');
+    const { spliceKnitBlock, KNIT_MARKER_START, KNIT_MARKER_END } = await import('../src/generators/claude-md.js');
     const existing = `# My Project
 
 Some user content above.
 
-${ENGRAM_MARKER_START}
+${KNIT_MARKER_START}
 old engram block
-${ENGRAM_MARKER_END}
+${KNIT_MARKER_END}
 
 Some user content below.
 `;
-    const newBlock = `${ENGRAM_MARKER_START}\nnew engram block\n${ENGRAM_MARKER_END}`;
-    const { content, mode } = spliceEngramBlock(existing, newBlock);
+    const newBlock = `${KNIT_MARKER_START}\nnew engram block\n${KNIT_MARKER_END}`;
+    const { content, mode } = spliceKnitBlock(existing, newBlock);
     expect(mode).toBe('replaced');
     expect(content).toContain('Some user content above');
     expect(content).toContain('Some user content below');
@@ -196,9 +196,9 @@ Some user content below.
   });
 
   it('returns sidecar-needed when no markers exist', async () => {
-    const { spliceEngramBlock } = await import('../src/generators/claude-md.js');
+    const { spliceKnitBlock } = await import('../src/generators/claude-md.js');
     const existing = `# My Project\n\nThis CLAUDE.md is user-curated.\n`;
-    const { mode } = spliceEngramBlock(existing, '## new content');
+    const { mode } = spliceKnitBlock(existing, '## new content');
     expect(mode).toBe('sidecar-needed');
   });
 });
@@ -247,13 +247,13 @@ describe('generateSettings', () => {
 
   // ── Protocol Guard (v0.5.0) ──
   describe('Protocol Guard hooks', () => {
-    it('emits a SessionStart hook tagged _engramOwned', () => {
+    it('emits a SessionStart hook tagged _knitOwned', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       expect(hooks.SessionStart).toBeDefined();
       expect(Array.isArray(hooks.SessionStart)).toBe(true);
       expect(hooks.SessionStart.length).toBeGreaterThan(0);
-      expect((hooks.SessionStart[0] as any)._engramOwned).toBe(true);
+      expect((hooks.SessionStart[0] as any)._knitOwned).toBe(true);
       const cmd = (hooks.SessionStart[0] as any).hooks?.[0]?.command || '';
       expect(cmd).toContain('session marker');
     });
@@ -262,7 +262,7 @@ describe('generateSettings', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       expect(hooks.UserPromptSubmit).toBeDefined();
-      expect((hooks.UserPromptSubmit[0] as any)._engramOwned).toBe(true);
+      expect((hooks.UserPromptSubmit[0] as any)._knitOwned).toBe(true);
       const cmd = (hooks.UserPromptSubmit[0] as any).hooks?.[0]?.command || '';
       expect(cmd).toContain('.classified-current');
     });
@@ -272,10 +272,10 @@ describe('generateSettings', () => {
       const hooks = settings.hooks as Record<string, unknown[]>;
       const gate = (hooks.PreToolUse as any[]).find((e) => e.matcher === 'Edit|Write|MultiEdit');
       expect(gate).toBeDefined();
-      expect(gate._engramOwned).toBe(true);
+      expect(gate._knitOwned).toBe(true);
       const cmd = gate.hooks?.[0]?.command || '';
       expect(cmd).toContain('protocol-config.json');
-      expect(cmd).toContain('engram_classify_task');
+      expect(cmd).toContain('knit_classify_task');
       expect(cmd).toContain('process.exit(2)');
     });
   });

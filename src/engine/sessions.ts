@@ -4,7 +4,7 @@ import { sessionsJsonlPath, projectDataDir } from './paths.js';
 import type { SessionSummary } from './types.js';
 
 /**
- * Append a session entry to ~/.engram/projects/<hash>/sessions.jsonl.
+ * Append a session entry to ~/.knit/projects/<hash>/sessions.jsonl.
  * One JSON object per line. Append-only — no rewrites, no race conditions
  * across concurrent writers.
  */

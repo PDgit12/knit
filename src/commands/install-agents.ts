@@ -45,7 +45,7 @@ export async function installAgentsCommand(
   if (result.installed.length > 0) {
     console.log(chalk.bold('  Installed'));
     for (const name of result.installed) {
-      console.log(`  ${chalk.green('✓')} engram-${name}.md`);
+      console.log(`  ${chalk.green('✓')} knit-${name}.md`);
     }
     console.log();
   }
@@ -53,7 +53,7 @@ export async function installAgentsCommand(
   if (result.alreadyCurrent.length > 0) {
     console.log(chalk.bold('  Already current'));
     for (const name of result.alreadyCurrent) {
-      console.log(`  ${chalk.dim('·')} engram-${name}.md ${chalk.dim('(no change)')}`);
+      console.log(`  ${chalk.dim('·')} knit-${name}.md ${chalk.dim('(no change)')}`);
     }
     console.log();
   }
@@ -61,7 +61,7 @@ export async function installAgentsCommand(
   if (result.skippedUserCurated.length > 0) {
     console.log(chalk.bold('  Skipped (user-curated files; engram won\'t clobber)'));
     for (const name of result.skippedUserCurated) {
-      console.log(`  ${chalk.yellow('!')} engram-${name}.md`);
+      console.log(`  ${chalk.yellow('!')} knit-${name}.md`);
     }
     console.log();
   }

@@ -106,7 +106,7 @@ export interface DomainContext {
 }
 
 /** Configuration for generated workflow */
-export interface EngramConfig {
+export interface KnitConfig {
   /** Project name */
   name: string;
   /** Package manager */
@@ -255,7 +255,7 @@ export interface SessionRecord {
 }
 
 /**
- * Cross-project learning entry, stored in ~/.engram/global/learnings.jsonl.
+ * Cross-project learning entry, stored in ~/.knit/global/learnings.jsonl.
  * Opt-in: agent only writes here when an insight applies beyond this project
  * (e.g., "Stripe webhook signature verification" — relevant to any project
  * that integrates Stripe, not just the one where you discovered it).
@@ -285,8 +285,8 @@ export interface GlobalLearning {
  * Two write paths:
  *   - Stop hook auto-writes a thin tuple at session end (id, date, branch,
  *     filesModified, commits). outcome defaults to 'unknown'.
- *   - Agent opt-in calls engram_save_session_summary to attach a rich
- *     summary, tags, and outcome — the entries that make engram_search_sessions
+ *   - Agent opt-in calls knit_save_session_summary to attach a rich
+ *     summary, tags, and outcome — the entries that make knit_search_sessions
  *     useful.
  *
  * Every field except id, date, and outcome is optional so partial tuples
@@ -302,7 +302,7 @@ export interface SessionSummary {
   /** Full ISO timestamp when available. */
   timestamp?: string;
   branch?: string | null;
-  /** Files agent reports touching (from engram_save_session_summary). */
+  /** Files agent reports touching (from knit_save_session_summary). */
   filesTouched?: string[];
   /** Count from Stop hook (git diff --name-only HEAD). */
   filesModified?: number;
@@ -321,5 +321,5 @@ export interface InitResult {
   filesCreated: string[];
   filesSkipped: string[];
   warnings: string[];
-  config: EngramConfig;
+  config: KnitConfig;
 }

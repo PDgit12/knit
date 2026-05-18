@@ -1,9 +1,9 @@
-import type { EngramConfig } from '../engine/types.js';
+import type { KnitConfig } from '../engine/types.js';
 
 /**
  * Generates the initial learnings file for a project.
  */
-export function generateLearningsContent(config: EngramConfig): string {
+export function generateLearningsContent(config: KnitConfig): string {
   const date = new Date().toISOString().split('T')[0];
 
   return `# Project Learnings — ${config.name}

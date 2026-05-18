@@ -5,7 +5,7 @@ import { projectId, canonicalRepoRoot } from './project-id.js';
 import type { GlobalLearning } from './types.js';
 
 /**
- * Cross-project learnings pool, stored at ~/.engram/global/learnings.jsonl.
+ * Cross-project learnings pool, stored at ~/.knit/global/learnings.jsonl.
  *
  * Opt-in by design: per-project learnings remain the primary surface. The
  * agent (or user) chooses when to escalate an insight to the global pool —

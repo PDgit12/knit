@@ -75,8 +75,8 @@ describe('workflow-protocol', () => {
 
   it('tools section lists key engram MCP tools', () => {
     const content = getWorkflowSection('tools')!;
-    expect(content).toContain('engram_load_session');
-    expect(content).toContain('engram_record_learning');
-    expect(content).toContain('engram_search_sessions');
+    expect(content).toContain('knit_load_session');
+    expect(content).toContain('knit_record_learning');
+    expect(content).toContain('knit_search_sessions');
   });
 });

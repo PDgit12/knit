@@ -13,22 +13,22 @@ import { worktreesRegistryPath } from '../src/engine/paths.js';
  */
 
 describe('worktrees', () => {
-  let engramHome: string;
+  let knitHome: string;
   let repoRoot: string;
   let parentDir: string; // contains repoRoot and any sibling worktrees
 
   beforeAll(() => {
-    engramHome = mkdtempSync(join(tmpdir(), 'engram-worktrees-test-'));
-    process.env.ENGRAM_HOME = engramHome;
+    knitHome = mkdtempSync(join(tmpdir(), 'knit-worktrees-test-'));
+    process.env.KNIT_HOME = knitHome;
   });
 
   afterAll(() => {
-    delete process.env.ENGRAM_HOME;
-    try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+    delete process.env.KNIT_HOME;
+    try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   beforeEach(() => {
-    parentDir = mkdtempSync(join(tmpdir(), 'engram-wt-repo-'));
+    parentDir = mkdtempSync(join(tmpdir(), 'knit-wt-repo-'));
     repoRoot = join(parentDir, 'main-repo');
     execSync(`mkdir -p ${repoRoot}`, { stdio: 'pipe' });
     execSync('git init -q -b main', { cwd: repoRoot, stdio: 'pipe' });
@@ -45,7 +45,7 @@ describe('worktrees', () => {
     } catch { /* repo may already be gone */ }
     try { rmSync(parentDir, { recursive: true, force: true }); } catch { /* best effort */ }
     // Clean per-project engram dir between tests so registry is fresh
-    try { rmSync(join(engramHome, 'projects'), { recursive: true, force: true }); } catch { /* best */ }
+    try { rmSync(join(knitHome, 'projects'), { recursive: true, force: true }); } catch { /* best */ }
   });
 
   describe('spawnWorktree', () => {
@@ -55,7 +55,7 @@ describe('worktrees', () => {
       expect(rec.teamSlug).toBe('ui');
       expect(rec.branch).toMatch(/^engram\/team-ui-\d+$/);
       expect(existsSync(rec.path)).toBe(true);
-      expect(rec.path).toContain('main-repo-engram-ui-');
+      expect(rec.path).toContain('main-repo-knit-ui-');
       expect(rec.status).toBe('active');
 
       // Verify git sees it
@@ -92,7 +92,7 @@ describe('worktrees', () => {
     it('slugifies non-alphanumeric team names', () => {
       const rec = spawnWorktree(repoRoot, 'API & Security', 'task');
       expect(rec.teamSlug).toBe('api-security');
-      expect(rec.path).toContain('-engram-api-security-');
+      expect(rec.path).toContain('-knit-api-security-');
     });
   });
 

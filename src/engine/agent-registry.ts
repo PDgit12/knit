@@ -54,7 +54,7 @@ const LANG_AGENTS: Record<string, string[]> = {
  * Engram's per-role bundle of agents that should be installed for a project.
  *
  * Returns names prefixed with "engram-" so they match the filenames written
- * by install-agents (e.g. `.claude/agents/engram-typescript-pro.md`). Claude
+ * by install-agents (e.g. `.claude/agents/knit-typescript-pro.md`). Claude
  * Code's Agent tool resolves subagents by filename basename, so the orchestrator
  * must spawn them by the prefixed name or it will find user agents / nothing.
  */
@@ -74,7 +74,7 @@ export function agentsForRole(role: 'core' | 'security' | 'qa', stack: string): 
     default:
       bare = ['code-reviewer'];
   }
-  return bare.map((n) => `engram-${n}`);
+  return bare.map((n) => `knit-${n}`);
 }
 
 /** All agents engram knows how to fetch + personalize. */

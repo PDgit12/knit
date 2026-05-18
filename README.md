@@ -1,11 +1,11 @@
 <p align="center">
-  <a href="https://www.npmjs.com/package/@piyushdua/engram-dev"><img src="https://img.shields.io/npm/v/%40piyushdua%2Fengram-dev?style=for-the-badge&color=7c3aed&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/knit-mcp"><img src="https://img.shields.io/npm/v/knit-mcp?style=for-the-badge&color=7c3aed&label=npm" alt="npm version" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license" />
-  <a href="https://github.com/PDgit12/engram/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/engram/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://github.com/PDgit12/knit/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/node-%3E%3D18-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
 </p>
 
-<h1 align="center">engram</h1>
+<h1 align="center">knit</h1>
 
 <p align="center">
   <strong>An intelligent command layer for Claude Code.</strong>
@@ -16,12 +16,12 @@
 
 <br/>
 
-## What engram is
+## What knit is
 
-Engram makes Claude Code do the right thing automatically because it can't predict how a user will phrase a request. It does three jobs at once:
+Knit makes Claude Code do the right thing automatically because it can't predict how a user will phrase a request. It does three jobs at once:
 
-- **Memory** — every project keeps a brain at `~/.engram/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session.
-- **Tokens** — `CLAUDE.md` is ~100 lines (project facts only). Workflow protocol is fetched on demand via `engram_get_workflow(phase)`. Engram is net-negative on context cost.
+- **Memory** — every project keeps a brain at `~/.knit/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session.
+- **Tokens** — `CLAUDE.md` is ~100 lines (project facts only). Workflow protocol is fetched on demand via `knit_get_workflow(phase)`. Knit is net-negative on context cost.
 - **Workflow** — a 4-tier classification (Inquiry / Trivial / Standard / Complex) with phase-triggered plan mode, quality-gated `LEARN`, and team-scoped git worktrees so parallel agents don't step on each other.
 
 It's a **single product**, not three. Every design choice has to win on memory + tokens + workflow together.
@@ -29,17 +29,17 @@ It's a **single product**, not three. Every design choice has to win on memory +
 ## Setup (one time)
 
 ```bash
-npx @piyushdua/engram-dev@latest setup
+npx knit-mcp@latest setup
 ```
 
-Adds the Engram MCP server to your Claude Code config (`~/.claude.json`). No per-project setup. Open Claude Code in any project and the first MCP tool call auto-initializes everything.
+Adds the Knit MCP server to your Claude Code config (`~/.claude.json`). No per-project setup. Open Claude Code in any project and the first MCP tool call auto-initializes everything.
 
 ## How data is stored
 
-Engram data is centralized — not in every repo's working tree:
+Knit data is centralized — not in every repo's working tree:
 
 ```
-~/.engram/
+~/.knit/
 └── projects/<hash>/                    ← one dir per project (sha256 of repo root)
     ├── knowledge.json                  ← import graph, exports, test mapping
     ├── knowledgebase.json              ← learnings + access metrics + false positives
@@ -55,28 +55,28 @@ What stays in the project:
 your-project/
 ├── CLAUDE.md                           ← ≤150-line thin shape, marker-wrapped
 └── .claude/
-    └── settings.local.json             ← per-machine hooks (engram-managed; gitignored by convention)
+    └── settings.local.json             ← per-machine hooks (knit-managed; gitignored by convention)
 ```
 
-The project's own `CLAUDE.md` is wrapped in `<!-- engram:start --> ... <!-- engram:end -->` markers. Engram regenerates only the block between markers — never clobbers anything else you write. If your project already has a `CLAUDE.md` without markers, engram writes a sidecar at `.claude/ENGRAM.md` instead.
+The project's own `CLAUDE.md` is wrapped in `<!-- knit:start --> ... <!-- knit:end -->` markers. Knit regenerates only the block between markers — never clobbers anything else you write. If your project already has a `CLAUDE.md` without markers, knit writes a sidecar at `.claude/KNIT.md` instead.
 
-Override the data location with `ENGRAM_HOME=/custom/path` (useful for sandboxes and tests).
+Override the data location with `KNIT_HOME=/custom/path` (useful for sandboxes and tests).
 
 ## Workflow on demand
 
-The protocol is in MCP, not preloaded in every session. CLAUDE.md tells the agent to call `engram_get_workflow(phase)` when it needs the actual procedure. Sections:
+The protocol is in MCP, not preloaded in every session. CLAUDE.md tells the agent to call `knit_get_workflow(phase)` when it needs the actual procedure. Sections:
 
 ```
-engram_get_workflow({phase: "research"})    // RESEARCH phase details
-engram_get_workflow({phase: "plan"})        // PLAN + plan-mode rules
-engram_get_workflow({phase: "execute"})     // EXECUTE + TDD
-engram_get_workflow({phase: "optimize"})    // OPTIMIZE + role briefings
-engram_get_workflow({phase: "review"})      // REVIEW gates
-engram_get_workflow({phase: "learn"})       // LEARN quality gate
-engram_get_workflow({phase: "handoff"})     // session handoff
-engram_get_workflow({phase: "ship"})        // commit + ship + prod checklist
-engram_get_workflow({phase: "tdd"})         // RED → GREEN → REFACTOR
-engram_get_workflow({phase: "tools"})       // engram MCP tools reference
+knit_get_workflow({phase: "research"})    // RESEARCH phase details
+knit_get_workflow({phase: "plan"})        // PLAN + plan-mode rules
+knit_get_workflow({phase: "execute"})     // EXECUTE + TDD
+knit_get_workflow({phase: "optimize"})    // OPTIMIZE + role briefings
+knit_get_workflow({phase: "review"})      // REVIEW gates
+knit_get_workflow({phase: "learn"})       // LEARN quality gate
+knit_get_workflow({phase: "handoff"})     // session handoff
+knit_get_workflow({phase: "ship"})        // commit + ship + prod checklist
+knit_get_workflow({phase: "tdd"})         // RED → GREEN → REFACTOR
+knit_get_workflow({phase: "tools"})       // knit MCP tools reference
 ```
 
 Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
@@ -89,108 +89,108 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 
 | Tool | What it does |
 |------|--------------|
-| `engram_query_imports` | Reverse dependencies for a file. Use before edits. |
-| `engram_query_dependents` | What a file imports. |
-| `engram_query_exports` | What a file exposes. |
-| `engram_query_tests` | Test coverage for a file, or list all untested. |
-| `engram_find_fanout` | High-fanout files — the contracts. |
-| `engram_search_learnings` | Past lessons by domain tag. |
-| `engram_get_false_positives` | Confirmed non-issues to suppress in review. |
-| `engram_brain_status` | Brain health + **token accounting**. |
-| `engram_search_sessions` | Search past sessions by free text over summary+tags+branch. |
-| `engram_load_session` | Call at session start — returns last sessions, handoff, learnings, false positives, teams, project knowledge in one round trip. |
+| `knit_query_imports` | Reverse dependencies for a file. Use before edits. |
+| `knit_query_dependents` | What a file imports. |
+| `knit_query_exports` | What a file exposes. |
+| `knit_query_tests` | Test coverage for a file, or list all untested. |
+| `knit_find_fanout` | High-fanout files — the contracts. |
+| `knit_search_learnings` | Past lessons by domain tag. |
+| `knit_get_false_positives` | Confirmed non-issues to suppress in review. |
+| `knit_brain_status` | Brain health + **token accounting**. |
+| `knit_search_sessions` | Search past sessions by free text over summary+tags+branch. |
+| `knit_load_session` | Call at session start — returns last sessions, handoff, learnings, false positives, teams, project knowledge in one round trip. |
 
 ### Update the brain (write — quality-gated)
 
 | Tool | What it does |
 |------|--------------|
-| `engram_classify_task` | First call on every task. Returns tier, phases, affected domains. |
-| `engram_build_context` | Domain context for the current task. |
-| `engram_record_learning` | Save a non-obvious insight. Quality check first. |
-| `engram_record_false_positive` | Mark a finding as a confirmed non-issue. |
-| `engram_save_session_summary` | Opt-in narrative summary of what this session did. |
-| `engram_save_handoff` | Save state when context degrades. |
-| `engram_setup_project` | Describe a non-code project (legal, marketing, research). |
-| `engram_prune_sessions` | Prune sessions.jsonl by age — keep recent N or drop entries older than N days. |
-| `engram_install_agent` | Install a single VoltAgent subagent (e.g. `typescript-pro`) into `.claude/agents/`. |
+| `knit_classify_task` | First call on every task. Returns tier, phases, affected domains. |
+| `knit_build_context` | Domain context for the current task. |
+| `knit_record_learning` | Save a non-obvious insight. Quality check first. |
+| `knit_record_false_positive` | Mark a finding as a confirmed non-issue. |
+| `knit_save_session_summary` | Opt-in narrative summary of what this session did. |
+| `knit_save_handoff` | Save state when context degrades. |
+| `knit_setup_project` | Describe a non-code project (legal, marketing, research). |
+| `knit_prune_sessions` | Prune sessions.jsonl by age — keep recent N or drop entries older than N days. |
+| `knit_install_agent` | Install a single VoltAgent subagent (e.g. `typescript-pro`) into `.claude/agents/`. |
 
 ### Protocol Guard (v0.5.0+)
 
-Runtime enforcement of the engram protocol via PreToolUse and SessionStart hooks. Default strictness: `warn`.
+Runtime enforcement of the knit protocol via PreToolUse and SessionStart hooks. Default strictness: `warn`.
 
 | Tool | What it does |
 |------|--------------|
-| `engram_set_protocol_strictness` | Set strictness: `off` (no checks), `warn` (reminder), `block` (hard-fail Edit/Write without prior `engram_classify_task`). |
-| `engram_get_protocol_strictness` | Read current strictness level for this project. |
+| `knit_set_protocol_strictness` | Set strictness: `off` (no checks), `warn` (reminder), `block` (hard-fail Edit/Write without prior `knit_classify_task`). |
+| `knit_get_protocol_strictness` | Read current strictness level for this project. |
 
 ### Workflow on demand
 
 | Tool | What it does |
 |------|--------------|
-| `engram_get_workflow` | Fetch protocol depth for one phase. |
+| `knit_get_workflow` | Fetch protocol depth for one phase. |
 
 ### Parallel team worktrees
 
 | Tool | What it does |
 |------|--------------|
-| `engram_spawn_team_worktree` | Create a git worktree for a team. |
-| `engram_list_team_worktrees` | List active team worktrees. |
-| `engram_finalize_team_worktree` | Merge or discard a team's worktree. |
+| `knit_spawn_team_worktree` | Create a git worktree for a team. |
+| `knit_list_team_worktrees` | List active team worktrees. |
+| `knit_finalize_team_worktree` | Merge or discard a team's worktree. |
 
 ### Team review board
 
 | Tool | What it does |
 |------|--------------|
-| `engram_get_teams` | List auto-detected or custom teams. |
-| `engram_define_team` | Create a custom team. |
-| `engram_start_team_review` | Start a parallel review with shared findings. |
-| `engram_get_team_prompt` | Per-team prompt including other teams' findings. |
-| `engram_post_team_findings` | Post findings to the shared board. |
-| `engram_get_board_summary` | Cross-team summary, severity-gated. |
+| `knit_get_teams` | List auto-detected or custom teams. |
+| `knit_define_team` | Create a custom team. |
+| `knit_start_team_review` | Start a parallel review with shared findings. |
+| `knit_get_team_prompt` | Per-team prompt including other teams' findings. |
+| `knit_post_team_findings` | Post findings to the shared board. |
+| `knit_get_board_summary` | Cross-team summary, severity-gated. |
 
 ### Cross-project learnings (Model C, opt-in)
 
 | Tool | What it does |
 |------|--------------|
-| `engram_record_global_learning` | Opt-in: save an insight to `~/.engram/global/learnings.jsonl` when it generalizes beyond this project. |
-| `engram_search_global_learnings` | Free-text search across **all** of your projects' shared learnings. |
-| `engram_reflect` | Detect patterns across recorded learnings. Useful with ≥3 entries (which Model C makes easy to reach). |
-| `engram_get_suggestions` | Adaptive suggestions for the current task based on past patterns in given domains. |
+| `knit_record_global_learning` | Opt-in: save an insight to `~/.knit/global/learnings.jsonl` when it generalizes beyond this project. |
+| `knit_search_global_learnings` | Free-text search across **all** of your projects' shared learnings. |
+| `knit_reflect` | Detect patterns across recorded learnings. Useful with ≥3 entries (which Model C makes easy to reach). |
+| `knit_get_suggestions` | Adaptive suggestions for the current task based on past patterns in given domains. |
 
-Per-project `engram_record_learning` stays primary. The global pool is for the lessons that travel between projects — "Stripe signature rules", "GitHub API pagination quirks", "Redis cluster failover behavior" — the kind of thing future-you will be glad you wrote down once, somewhere.
+Per-project `knit_record_learning` stays primary. The global pool is for the lessons that travel between projects — "Stripe signature rules", "GitHub API pagination quirks", "Redis cluster failover behavior" — the kind of thing future-you will be glad you wrote down once, somewhere.
 
 ## Subagents — VoltAgent + project personalization
 
-v0.4 closes the gap where engram's team configs referenced agent names
+v0.4 closes the gap where knit's team configs referenced agent names
 (`typescript-pro`, `security-engineer`, etc.) without actually installing them.
 A fresh user opening Claude Code had none of those agents on disk, so teams
 fell back to generic prompts.
 
-Now: on first MCP call, engram **installs personalized subagents** into
-`<project>/.claude/agents/engram-<name>.md`. Each agent has:
+Now: on first MCP call, knit **installs personalized subagents** into
+`<project>/.claude/agents/knit-<name>.md`. Each agent has:
 
 1. **The VoltAgent base** — the curated system prompt from
    [github.com/VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
-   (MIT-licensed, 131+ agents). Engram bundles the 6 most common
+   (MIT-licensed, 131+ agents). Knit bundles the 6 most common
    (`code-reviewer`, `security-engineer`, `qa-expert`, `typescript-pro`,
    `python-pro`, `golang-pro`) so they install with zero network. Specialized
-   agents fetch from VoltAgent at a pinned SHA the first time engram needs them.
-2. **An engram context block** appended at the end with project name, stack,
+   agents fetch from VoltAgent at a pinned SHA the first time knit needs them.
+2. **An knit context block** appended at the end with project name, stack,
    high-fanout files, recent relevant learnings, false positives to suppress,
-   and the engram MCP tools the agent can call.
+   and the knit MCP tools the agent can call.
 
-Each agent now has both VoltAgent's role expertise AND engram's project-specific
+Each agent now has both VoltAgent's role expertise AND knit's project-specific
 context. When a team dispatches via Claude Code's Agent tool, the agent inherits
 both layers.
 
 **Never clobbers user-curated agents.** If you have your own
-`<project>/.claude/agents/typescript-pro.md`, engram writes
-`engram-typescript-pro.md` alongside it. Different filename, no conflict.
+`<project>/.claude/agents/typescript-pro.md`, knit writes
+`knit-typescript-pro.md` alongside it. Different filename, no conflict.
 
 ```bash
-engram install-agents              # install agents this project's teams need
-engram install-agents --all        # install every known agent
-engram install-agents --refresh    # re-fetch from network even if cached
+knit install-agents              # install agents this project's teams need
+knit install-agents --all        # install every known agent
+knit install-agents --refresh    # re-fetch from network even if cached
 ```
 
 `ENGRAM_OFFLINE=1` disables network fetches (bundled-core still works).
@@ -202,25 +202,25 @@ A Complex task gets broken across multiple teams. Each team works in its own git
 
 ```
 /Users/p/my-repo                          <- main
-/Users/p/my-repo-engram-ui-<ts>           <- UI team
-/Users/p/my-repo-engram-api-security-<ts> <- API & Security team
+/Users/p/my-repo-knit-ui-<ts>           <- UI team
+/Users/p/my-repo-knit-api-security-<ts> <- API & Security team
 ```
 
 ```js
 // Orchestrator workflow
-const ui = await engram_spawn_team_worktree({ team_name: "UI", task_description: "..." })
+const ui = await knit_spawn_team_worktree({ team_name: "UI", task_description: "..." })
 // Spawn agents with ui.path; they cd there and work
 // ...
-await engram_finalize_team_worktree({ team_name: "UI", action: "merge" })
+await knit_finalize_team_worktree({ team_name: "UI", action: "merge" })
 ```
 
-**Merge conflicts surface cleanly** — `engram_finalize_team_worktree` with `action: "merge"` returns `{status: "conflict", conflict_files: [...]}` without destroying the worktree. Resolve manually, then call again.
+**Merge conflicts surface cleanly** — `knit_finalize_team_worktree` with `action: "merge"` returns `{status: "conflict", conflict_files: [...]}` without destroying the worktree. Resolve manually, then call again.
 
-Compatible with Claude Code's `EnterWorktree({path})` — engram's worktrees register via native `git worktree add`, so any session can switch into one.
+Compatible with Claude Code's `EnterWorktree({path})` — knit's worktrees register via native `git worktree add`, so any session can switch into one.
 
 ## Token accounting
 
-`engram_brain_status` answers the only question that matters: is engram saving more than it costs?
+`knit_brain_status` answers the only question that matters: is knit saving more than it costs?
 
 ```json
 {
@@ -233,17 +233,17 @@ Compatible with Claude Code's `EnterWorktree({path})` — engram's worktrees reg
 }
 ```
 
-Warnings surface when CLAUDE.md > 30 KB (engram is too heavy) or hit rate < 20 % on >10 learnings (most learnings unused — prune).
+Warnings surface when CLAUDE.md > 30 KB (knit is too heavy) or hit rate < 20 % on >10 learnings (most learnings unused — prune).
 
 ## CLI
 
 ```bash
-engram setup       # One time: add MCP to Claude settings
-engram status      # Dashboard: sessions, learnings, hit rate, knowledge health
-engram refresh     # Force rebuild knowledge brain
+knit setup       # One time: add MCP to Claude settings
+knit status      # Dashboard: sessions, learnings, hit rate, knowledge health
+knit refresh     # Force rebuild knowledge brain
 ```
 
-Example `engram status` output:
+Example `knit status` output:
 
 ```
 Knowledge Index
@@ -264,21 +264,21 @@ Token accounting
 
 ## How it's different
 
-|  | gstack (skills) | ECC (agents) | Engram |
+|  | gstack (skills) | ECC (agents) | Knit |
 |--|---|---|---|
 | Setup | Install skills per-project | Manual `.claude/` setup | One command. Done forever. |
-| Memory | jsonl files in-tree | Memory directory | `~/.engram/projects/<hash>/` — centralized, project-keyed, searchable sessions |
+| Memory | jsonl files in-tree | Memory directory | `~/.knit/projects/<hash>/` — centralized, project-keyed, searchable sessions |
 | Token cost | Skills loaded into context | Rules loaded into context | Workflow fetched on-demand. CLAUDE.md is ~2.7 KB. |
 | Parallel work | None | None | Team-scoped git worktrees |
-| Self-measurement | None | None | `engram_brain_status.token_accounting` |
-| Non-code projects | No | No | Description-driven domains via `engram_setup_project` |
+| Self-measurement | None | None | `knit_brain_status.token_accounting` |
+| Non-code projects | No | No | Description-driven domains via `knit_setup_project` |
 
 ## Migration from v0.1
 
-If you have an existing project with engram v0.1 data at `<project>/.claude/`, engram v0.2 auto-migrates on the first MCP call:
+If you have an existing project with knit v0.1 data at `<project>/.claude/`, knit v0.2 auto-migrates on the first MCP call:
 
 1. Detects `<project>/.claude/knowledge.json` (or `knowledgebase.json`)
-2. Copies all engram data forward to `~/.engram/projects/<hash>/`
+2. Copies all knit data forward to `~/.knit/projects/<hash>/`
 3. Writes `<project>/.claude/MIGRATED.txt` breadcrumb explaining where the data went
 4. Leaves the old `.claude/` directory intact (delete at your discretion)
 
@@ -287,8 +287,8 @@ No data loss, no dual-writes. Single migration per project.
 ## Development
 
 ```bash
-git clone https://github.com/PDgit12/engram.git
-cd engram
+git clone https://github.com/PDgit12/knit.git
+cd knit
 npm install
 npm run dev       # Run CLI locally
 npm run test      # 295 tests
@@ -299,11 +299,11 @@ npm run build     # Compile CLI + MCP server
 ## Architecture
 
 ```
-engram-dev (npm package)
+knit (npm package)
 ├── dist/cli.js                 # CLI: setup, status, refresh
 └── dist/mcp/server.js          # MCP server: 27 tools, auto-init
 
-per-project, in ~/.engram/projects/<hash>/
+per-project, in ~/.knit/projects/<hash>/
 ├── knowledge.json              # import graph + exports + test map
 ├── knowledgebase.json          # learnings + access metrics
 ├── sessions.jsonl              # session memory, append-only
@@ -313,7 +313,7 @@ per-project, in ~/.engram/projects/<hash>/
 
 per-project, in <project>/
 ├── CLAUDE.md                   # ≤150-line thin shape, marker-wrapped
-└── .claude/settings.local.json # per-machine hooks, engram-managed (gitignored by convention)
+└── .claude/settings.local.json # per-machine hooks, knit-managed (gitignored by convention)
 ```
 
 Zero external dependencies for the knowledge brain. 295 tests. Strict-mode TypeScript.

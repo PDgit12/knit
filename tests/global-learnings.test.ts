@@ -29,16 +29,16 @@ function makeEntry(overrides: Partial<GlobalLearning>): GlobalLearning {
 }
 
 describe('global-learnings', () => {
-  let engramHome: string;
+  let knitHome: string;
 
   beforeAll(() => {
-    engramHome = mkdtempSync(join(tmpdir(), 'engram-global-test-'));
-    process.env.ENGRAM_HOME = engramHome;
+    knitHome = mkdtempSync(join(tmpdir(), 'knit-global-test-'));
+    process.env.KNIT_HOME = knitHome;
   });
 
   afterAll(() => {
-    delete process.env.ENGRAM_HOME;
-    try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* best effort */ }
+    delete process.env.KNIT_HOME;
+    try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* best effort */ }
   });
 
   beforeEach(() => {

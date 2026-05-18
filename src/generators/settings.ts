@@ -1,4 +1,4 @@
-import type { EngramConfig } from '../engine/types.js';
+import type { KnitConfig } from '../engine/types.js';
 import {
   knowledgebasePath,
   learningsFilePath,
@@ -34,7 +34,7 @@ import {
  */
 /**
  * Bump this whenever the emitted hook shape changes meaningfully.
- * cache.ts reads `_engramHooks.version` from existing settings.local.json on
+ * cache.ts reads `_knitHooks.version` from existing settings.local.json on
  * every brain load; if it's lower than HOOKS_VERSION, the hooks get
  * regenerated via the hybrid-merge path so existing users auto-upgrade
  * without running any CLI command.
@@ -44,16 +44,16 @@ import {
  */
 export const HOOKS_VERSION = 3;
 
-export function generateSettings(config: EngramConfig, rootPath: string): object {
+export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
     mcpServers: {
-      'engram-brain': {
+      'knit-brain': {
         command: 'npx',
         args: ['-y', '@piyushdua/engram-dev@latest'],
       },
     },
     hooks: generateHooks(config, rootPath),
-    _engramHooks: { version: HOOKS_VERSION, generatedAt: new Date().toISOString() },
+    _knitHooks: { version: HOOKS_VERSION, generatedAt: new Date().toISOString() },
   };
 }
 
@@ -96,7 +96,7 @@ const GIT_GET_JS = `
 
 // ── Main hook generator ──────────────────────────────────────────
 
-function generateHooks(config: EngramConfig, rootPath: string) {
+function generateHooks(config: KnitConfig, rootPath: string) {
   const KB_PATH = knowledgebasePath(rootPath);
   const LEARN_FILE = learningsFilePath(rootPath, config.name);
   const SESSIONS_MD = sessionsLogPath(rootPath);
@@ -109,11 +109,11 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   const hooks: Record<string, unknown[]> = {
     SessionStart: [
-      // Protocol Guard layer 1: drop a marker that engram_load_session
+      // Protocol Guard layer 1: drop a marker that knit_load_session
       // should be the first MCP call. Hook itself is best-effort; it doesn't
       // BLOCK on missing load_session, only the per-turn classification gate blocks.
       {
-        _engramOwned: true,
+        _knitOwned: true,
         hooks: [
           {
             type: 'command',
@@ -124,7 +124,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
                 const p = ${jsLit(SESSION_MARKER)};
                 fs.mkdirSync(path.dirname(p), { recursive: true });
                 fs.writeFileSync(p, new Date().toISOString());
-                console.error("[engram] session marker written. Call engram_load_session as your first MCP call.");
+                console.error("[knit] session marker written. Call knit_load_session as your first MCP call.");
               } catch (e) {}
             `),
             timeout: 5,
@@ -134,9 +134,9 @@ function generateHooks(config: EngramConfig, rootPath: string) {
     ],
     UserPromptSubmit: [
       // Protocol Guard: each user turn invalidates the previous classification.
-      // engram_classify_task must be called fresh per turn before Edit/Write.
+      // knit_classify_task must be called fresh per turn before Edit/Write.
       {
-        _engramOwned: true,
+        _knitOwned: true,
         hooks: [
           {
             type: 'command',
@@ -154,7 +154,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
     ],
     PreToolUse: [
       {
-        _engramOwned: true,
+        _knitOwned: true,
         matcher: 'Bash',
         hooks: [
           {
@@ -176,9 +176,9 @@ function generateHooks(config: EngramConfig, rootPath: string) {
           },
         ],
       },
-      // Protocol Guard layer 2: gate Edit/Write/MultiEdit on prior engram_classify_task.
+      // Protocol Guard layer 2: gate Edit/Write/MultiEdit on prior knit_classify_task.
       {
-        _engramOwned: true,
+        _knitOwned: true,
         matcher: 'Edit|Write|MultiEdit',
         hooks: [
           {
@@ -194,19 +194,19 @@ function generateHooks(config: EngramConfig, rootPath: string) {
                     const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
                     if (cfg && (cfg.level === "off" || cfg.level === "warn" || cfg.level === "block")) level = cfg.level;
                   } catch (parseErr) {
-                    console.error("[engram] protocol-config.json unreadable, defaulting strictness=warn:", parseErr && parseErr.message ? parseErr.message : parseErr);
+                    console.error("[knit] protocol-config.json unreadable, defaulting strictness=warn:", parseErr && parseErr.message ? parseErr.message : parseErr);
                   }
                 }
                 if (level === "off") return;
                 const hasMarker = fs.existsSync(markerPath);
                 if (hasMarker) return;
                 if (level === "block") {
-                  console.error("[engram] BLOCKED: call engram_classify_task before Edit/Write. The Protocol Guard prevents implementation without classification.");
+                  console.error("[knit] BLOCKED: call knit_classify_task before Edit/Write. The Protocol Guard prevents implementation without classification.");
                   process.exit(2);
                 }
-                console.error("[engram] reminder: call engram_classify_task before Edit/Write. Set strictness=block via engram_set_protocol_strictness to make this a hard gate.");
+                console.error("[knit] reminder: call knit_classify_task before Edit/Write. Set strictness=block via knit_set_protocol_strictness to make this a hard gate.");
               } catch (hookErr) {
-                console.error("[engram] protocol-guard hook crashed, allowing tool through:", hookErr && hookErr.message ? hookErr.message : hookErr);
+                console.error("[knit] protocol-guard hook crashed, allowing tool through:", hookErr && hookErr.message ? hookErr.message : hookErr);
               }
             `),
             timeout: 5,
@@ -221,7 +221,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // TypeScript typecheck on edit
   if (config.stack.language === 'typescript' && config.stack.typecheckCommand) {
     hooks.PostToolUse.push({
-      _engramOwned: true,
+      _knitOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -249,7 +249,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Python syntax check on edit
   if (config.stack.language === 'python') {
     hooks.PostToolUse.push({
-      _engramOwned: true,
+      _knitOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -277,7 +277,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Go vet on edit
   if (config.stack.language === 'go') {
     hooks.PostToolUse.push({
-      _engramOwned: true,
+      _knitOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -305,7 +305,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
   // Rust check on edit
   if (config.stack.language === 'rust') {
     hooks.PostToolUse.push({
-      _engramOwned: true,
+      _knitOwned: true,
       matcher: 'Write|Edit',
       hooks: [
         {
@@ -338,7 +338,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   if (steps.length > 0) {
     hooks.Stop.push({
-      _engramOwned: true,
+      _knitOwned: true,
       hooks: [
         {
           type: 'command',
@@ -361,7 +361,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // Session log on stop — narrative human-readable, to sessions.md
   hooks.Stop.push({
-    _engramOwned: true,
+    _knitOwned: true,
     hooks: [
       {
         type: 'command',
@@ -393,7 +393,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // Session JSONL tuple on stop — structured searchable session memory
   hooks.Stop.push({
-    _engramOwned: true,
+    _knitOwned: true,
     hooks: [
       {
         type: 'command',
@@ -429,7 +429,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // LEARN compliance soft reminder
   hooks.Stop.push({
-    _engramOwned: true,
+    _knitOwned: true,
     hooks: [
       {
         type: 'command',
@@ -442,7 +442,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
             if (ageSec > 300) {
               console.log("");
               console.log("[Engram] LEARN was not recorded this session. That's fine if nothing reusable surfaced.");
-              console.log("         If something did, call engram_record_learning in your next session.");
+              console.log("         If something did, call knit_record_learning in your next session.");
               console.log("");
             }
           } catch (e) {}
@@ -455,7 +455,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
 
   // KB metrics — update knowledgebase.json with session summary tuple
   hooks.Stop.push({
-    _engramOwned: true,
+    _knitOwned: true,
     hooks: [
       {
         type: 'command',
@@ -497,7 +497,7 @@ function generateHooks(config: EngramConfig, rootPath: string) {
  * Cross-platform: same allowlist works on all OSes since these are Claude Code
  * permission scopes, not shell commands.
  */
-export function generateSettingsLocal(config: EngramConfig): object {
+export function generateSettingsLocal(config: KnitConfig): object {
   const allow: string[] = [
     'Bash(git:*)',
     'Bash(gh:*)',

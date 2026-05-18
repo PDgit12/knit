@@ -21,18 +21,18 @@ import { handleToolCall } from '../src/mcp/tools.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase } from '../src/engine/types.js';
 
-let engramHome: string;
+let knitHome: string;
 let rootPath: string;
 
 beforeEach(() => {
-  engramHome = mkdtempSync(join(tmpdir(), 'engram-pg-test-'));
-  process.env.ENGRAM_HOME = engramHome;
-  rootPath = mkdtempSync(join(tmpdir(), 'engram-pg-root-'));
+  knitHome = mkdtempSync(join(tmpdir(), 'knit-pg-test-'));
+  process.env.KNIT_HOME = knitHome;
+  rootPath = mkdtempSync(join(tmpdir(), 'knit-pg-root-'));
 });
 
 afterEach(() => {
-  delete process.env.ENGRAM_HOME;
-  try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* */ }
+  delete process.env.KNIT_HOME;
+  try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* */ }
   try { rmSync(rootPath, { recursive: true, force: true }); } catch { /* */ }
 });
 
@@ -137,7 +137,7 @@ describe('handleClassifyTask side effect', () => {
     const brain = mockBrain();
     expect(readClassificationMarker(rootPath)).toBeNull();
 
-    const result = JSON.parse(handleToolCall('engram_classify_task', {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
       files_to_touch: 'src/a.ts',
       description: 'add helper',
     }, brain));
@@ -154,17 +154,17 @@ describe('handleClassifyTask side effect', () => {
     const brain = mockBrain();
     // Pre-create a directory where the file should go to force fs error on write
     // (skip — fs.writeFileSync overwrites; this branch is covered by the try/catch surrounding the call)
-    const result = JSON.parse(handleToolCall('engram_classify_task', {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
       files_to_touch: 'src/a.ts',
     }, brain));
     expect(result.tier).toBeDefined();
   });
 });
 
-describe('engram_set_protocol_strictness handler', () => {
+describe('knit_set_protocol_strictness handler', () => {
   it('rejects invalid levels', () => {
     const brain = mockBrain();
-    const result = JSON.parse(handleToolCall('engram_set_protocol_strictness', {
+    const result = JSON.parse(handleToolCall('knit_set_protocol_strictness', {
       level: 'strict',
     }, brain));
     expect(result.status).toBe('error');
@@ -174,7 +174,7 @@ describe('engram_set_protocol_strictness handler', () => {
   it('accepts off, warn, block and persists', () => {
     const brain = mockBrain();
     for (const level of ['off', 'warn', 'block'] as const) {
-      const result = JSON.parse(handleToolCall('engram_set_protocol_strictness', { level }, brain));
+      const result = JSON.parse(handleToolCall('knit_set_protocol_strictness', { level }, brain));
       expect(result.status).toBe('set');
       expect(result.level).toBe(level);
       expect(readProtocolConfig(rootPath).level).toBe(level);
@@ -182,17 +182,17 @@ describe('engram_set_protocol_strictness handler', () => {
   });
 });
 
-describe('engram_get_protocol_strictness handler', () => {
+describe('knit_get_protocol_strictness handler', () => {
   it('returns warn by default', () => {
     const brain = mockBrain();
-    const result = JSON.parse(handleToolCall('engram_get_protocol_strictness', {}, brain));
+    const result = JSON.parse(handleToolCall('knit_get_protocol_strictness', {}, brain));
     expect(result.level).toBe('warn');
   });
 
   it('returns set value', () => {
     const brain = mockBrain();
     writeProtocolConfig(rootPath, 'block');
-    const result = JSON.parse(handleToolCall('engram_get_protocol_strictness', {}, brain));
+    const result = JSON.parse(handleToolCall('knit_get_protocol_strictness', {}, brain));
     expect(result.level).toBe('block');
   });
 });

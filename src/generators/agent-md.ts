@@ -1,4 +1,4 @@
-import type { EngramConfig, KBEntry, ProjectKnowledge } from '../engine/types.js';
+import type { KnitConfig, KBEntry, ProjectKnowledge } from '../engine/types.js';
 
 /**
  * Compose a personalized agent .md from VoltAgent's base + engram's
@@ -7,7 +7,7 @@ import type { EngramConfig, KBEntry, ProjectKnowledge } from '../engine/types.js
  * The base file is left untouched. We append a fenced block:
  *
  *     <!-- engram:context:start -->
- *     ## Project context (engram-managed; do not edit by hand)
+ *     ## Project context (knit-managed; do not edit by hand)
  *     ...stack, high-fanout files, learnings, false positives...
  *     <!-- engram:context:end -->
  *
@@ -22,7 +22,7 @@ export const ENGRAM_AGENT_MARKER_START = '<!-- engram:context:start -->';
 export const ENGRAM_AGENT_MARKER_END = '<!-- engram:context:end -->';
 
 export interface PersonalizationInputs {
-  config: EngramConfig;
+  config: KnitConfig;
   knowledge?: ProjectKnowledge | null;
   /** Top relevant learnings, already filtered to this agent's likely interests. */
   relevantLearnings?: KBEntry[];
@@ -50,14 +50,14 @@ export function personalizeAgent(baseMd: string, inputs: PersonalizationInputs):
   return `${baseMd.trimEnd()}\n\n${block}\n`;
 }
 
-/** Build the engram-context block. Compact: the agent already has its own prompt. */
+/** Build the knit-context block. Compact: the agent already has its own prompt. */
 export function buildContextBlock(inputs: PersonalizationInputs): string {
   const { config, knowledge, relevantLearnings, falsePositives } = inputs;
   const lines: string[] = [];
 
   lines.push(ENGRAM_AGENT_MARKER_START);
   lines.push('');
-  lines.push('## Project context (engram-managed; do not edit by hand)');
+  lines.push('## Project context (knit-managed; do not edit by hand)');
   lines.push('');
 
   // Identity
@@ -104,13 +104,13 @@ export function buildContextBlock(inputs: PersonalizationInputs): string {
     lines.push('');
   }
 
-  lines.push('## Engram MCP tools you can call');
+  lines.push('## Knit MCP tools you can call');
   lines.push('');
   lines.push('You have access to engram\'s MCP. Call these when you need depth:');
-  lines.push('- `engram_query_dependents(file_path)` — what depends on a file');
-  lines.push('- `engram_get_false_positives()` — full FP list, not just what\'s above');
-  lines.push('- `engram_search_learnings(domains)` — search past lessons by tag');
-  lines.push('- `engram_search_sessions(query)` — has a past session touched this area?');
+  lines.push('- `knit_query_dependents(file_path)` — what depends on a file');
+  lines.push('- `knit_get_false_positives()` — full FP list, not just what\'s above');
+  lines.push('- `knit_search_learnings(domains)` — search past lessons by tag');
+  lines.push('- `knit_search_sessions(query)` — has a past session touched this area?');
   lines.push('');
   lines.push(ENGRAM_AGENT_MARKER_END);
 
@@ -144,8 +144,8 @@ export function selectRelevantLearnings(allLearnings: KBEntry[], agentName: stri
 
 /** Map an agent name to the tag fragments it cares about. */
 function inferInterestTags(agentName: string): string[] {
-  // Strip "engram-" prefix if present, then split kebab-case for partial matches
-  const base = agentName.replace(/^engram-/, '');
+  // Strip "knit-" or legacy "engram-" prefix if present, then split kebab-case for partial matches
+  const base = agentName.replace(/^(knit|engram)-/, '');
   const parts = base.split('-');
   return [base, ...parts].map((s) => s.toLowerCase());
 }

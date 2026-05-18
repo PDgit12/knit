@@ -182,7 +182,7 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
           : 'Healthy.',
     },
     cache_age_ms: Date.now() - brain.loadedAt,
-    instruction: 'Brain is ready. Next: call engram_classify_task with the files you plan to touch to get your tier and phases.',
+    instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
   });
 }
 
@@ -263,7 +263,7 @@ export function handleSetProtocolStrictness(params: Record<string, string>, brai
     updated_at: config.updatedAt,
     applies_to: 'next-tool-call',
     note: level === 'block'
-      ? 'PreToolUse hook will now HARD BLOCK Edit/Write without engram_classify_task first.'
+      ? 'PreToolUse hook will now HARD BLOCK Edit/Write without knit_classify_task first.'
       : level === 'warn'
         ? 'PreToolUse hook will print a reminder but not block.'
         : 'Protocol Guard disabled. No checks on Edit/Write.',
@@ -410,7 +410,7 @@ export function handleSetupProject(params: Record<string, string>, brain: BrainC
     domains: domainNames,
     teams_created: teams.length,
     teams: teams.map((t) => ({ name: t.name, role: t.role })),
-    instruction: `Project configured with ${teams.length} teams. Use engram_start_team_review to run parallel team analysis. Use engram_classify_task to classify tasks before starting.`,
+    instruction: `Project configured with ${teams.length} teams. Use knit_start_team_review to run parallel team analysis. Use knit_classify_task to classify tasks before starting.`,
   });
 }
 
@@ -527,7 +527,7 @@ export function handleStartTeamReview(params: Record<string, string>, brain: Bra
   const board = startTeamBoard(`review-${Date.now()}`, params.task_description, teamNames);
   return JSON.stringify({
     status: 'started', board_id: board.taskId, teams: teamNames,
-    instruction: `Launch ${teamNames.length} agents IN PARALLEL. For each team, call engram_get_team_prompt, then spawn an Agent. After each returns, call engram_post_team_findings. Finally, call engram_get_board_summary.`,
+    instruction: `Launch ${teamNames.length} agents IN PARALLEL. For each team, call knit_get_team_prompt, then spawn an Agent. After each returns, call knit_post_team_findings. Finally, call knit_get_board_summary.`,
   });
 }
 
@@ -583,7 +583,7 @@ export function handlePostTeamFindings(params: Record<string, string>, _brain: B
 
 export function handleGetBoardSummary(_params: Record<string, string>, _brain: BrainCache): string {
   const board = getTeamBoard();
-  if (!board) return JSON.stringify({ error: 'No active review board. Call engram_start_team_review first.' });
+  if (!board) return JSON.stringify({ error: 'No active review board. Call knit_start_team_review first.' });
 
   const summary = getBoardSummary();
   const criticals = board.findings.filter((f) => f.severity === 'CRITICAL');
@@ -611,7 +611,7 @@ export function handleReflect(_params: Record<string, string>, brain: BrainCache
   if (patterns.length === 0) {
     return JSON.stringify({
       patterns: [],
-      message: 'Not enough data yet. Record more learnings (minimum 3) for patterns to emerge. Also try engram_search_global_learnings for cross-project patterns.',
+      message: 'Not enough data yet. Record more learnings (minimum 3) for patterns to emerge. Also try knit_search_global_learnings for cross-project patterns.',
     });
   }
 
@@ -640,7 +640,7 @@ export function handleGetSuggestions(params: Record<string, string>, brain: Brai
   if (suggestions.length === 0) {
     return JSON.stringify({
       suggestions: [],
-      message: `No patterns yet for domains: ${domains.join(', ')}. Try engram_search_global_learnings for cross-project insights.`,
+      message: `No patterns yet for domains: ${domains.join(', ')}. Try knit_search_global_learnings for cross-project insights.`,
     });
   }
 
@@ -671,7 +671,7 @@ export function handleRecordGlobalLearning(params: Record<string, string>, brain
     status: 'saved',
     id: entry.id,
     project: entry.projectName,
-    instruction: 'Cross-project learning saved. Future engram_search_global_learnings calls from any project will find it.',
+    instruction: 'Cross-project learning saved. Future knit_search_global_learnings calls from any project will find it.',
   });
 }
 
@@ -797,10 +797,10 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : topLearnings.length > 0
-        ? `Session loaded. ${topLearnings.length} key learnings available. ${fps.length} false positives to suppress. Call engram_classify_task to begin.`
+        ? `Session loaded. ${topLearnings.length} key learnings available. ${fps.length} false positives to suppress. Call knit_classify_task to begin.`
         : recentSessions.length > 0
-          ? `Session loaded. ${recentSessions.length} recent sessions on file. Call engram_classify_task to begin.`
-          : 'Fresh brain — no past learnings yet. Call engram_classify_task to begin your first task.',
+          ? `Session loaded. ${recentSessions.length} recent sessions on file. Call knit_classify_task to begin.`
+          : 'Fresh brain — no past learnings yet. Call knit_classify_task to begin your first task.',
   });
 }
 
@@ -840,7 +840,7 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
     status: 'saved',
     id: entry.id,
     summary: entry.summary,
-    instruction: 'Session summary recorded. Future engram_search_sessions calls can find this.',
+    instruction: 'Session summary recorded. Future knit_search_sessions calls can find this.',
   });
 }
 
@@ -854,7 +854,7 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
   if (!phase) {
     return JSON.stringify({
       sections: listWorkflowSections(),
-      instruction: 'Call engram_get_workflow with one of the section names to fetch its content.',
+      instruction: 'Call knit_get_workflow with one of the section names to fetch its content.',
     });
   }
 
@@ -878,12 +878,12 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
   return JSON.stringify({
     phase,
     content,
-    instruction: 'Apply this section to the current task. For another phase, call engram_get_workflow again with that phase name.',
+    instruction: 'Apply this section to the current task. For another phase, call knit_get_workflow again with that phase name.',
   });
 }
 
 /**
- * Install or refresh a subagent into <project>/.claude/agents/engram-<name>.md.
+ * Install or refresh a subagent into <project>/.claude/agents/knit-<name>.md.
  * For runtime self-heal when a team references an agent that hasn't been
  * fetched yet. Returns a snapshot of what changed on disk.
  *
@@ -907,13 +907,13 @@ export function handleInstallAgent(params: Record<string, string>, brain: BrainC
     brain.knowledgeBase,
     { only: [name], refresh },
   ).catch((err) => {
-    process.stderr.write(`[engram] handleInstallAgent background error for ${name}: ${err?.message ?? err}\n`);
+    process.stderr.write(`[knit] handleInstallAgent background error for ${name}: ${err?.message ?? err}\n`);
   });
 
   return JSON.stringify({
     status: 'queued',
     agent: name,
-    target: `<project>/.claude/agents/engram-${name}.md`,
+    target: `<project>/.claude/agents/knit-${name}.md`,
     instruction: 'Install started in background. File will be ready within a few seconds. If it fails, see stderr — engram does not throw from this handler.',
   });
 }
@@ -942,7 +942,7 @@ export function handleSpawnTeamWorktree(params: Record<string, string>, brain: B
       path: record.path,
       branch: record.branch,
       task_description: record.taskDescription,
-      instruction: `Worktree ready at ${record.path}. Pass this path to the team's agents. They should cd there and make their changes on branch ${record.branch}. When done, call engram_finalize_team_worktree with action="merge".`,
+      instruction: `Worktree ready at ${record.path}. Pass this path to the team's agents. They should cd there and make their changes on branch ${record.branch}. When done, call knit_finalize_team_worktree with action="merge".`,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -6,7 +6,7 @@ import {
   ENGRAM_AGENT_MARKER_START,
   ENGRAM_AGENT_MARKER_END,
 } from '../src/generators/agent-md.js';
-import type { EngramConfig, KBEntry, ProjectKnowledge } from '../src/engine/types.js';
+import type { KnitConfig, KBEntry, ProjectKnowledge } from '../src/engine/types.js';
 
 const BASE_AGENT_MD = `---
 name: typescript-pro
@@ -22,7 +22,7 @@ When invoked:
 2. Identify type issues.
 `;
 
-const TEST_CONFIG: EngramConfig = {
+const TEST_CONFIG: KnitConfig = {
   name: 'demo-project',
   packageManager: 'npm',
   stack: {
@@ -137,8 +137,8 @@ describe('agent-md', () => {
 
     it('always lists engram MCP tools the agent can call', () => {
       const block = buildContextBlock({ config: TEST_CONFIG });
-      expect(block).toContain('engram_query_dependents');
-      expect(block).toContain('engram_search_learnings');
+      expect(block).toContain('knit_query_dependents');
+      expect(block).toContain('knit_search_learnings');
     });
 
     it('opens with the start marker and ends with the end marker', () => {
@@ -174,7 +174,7 @@ describe('agent-md', () => {
 
     it('strips engram- prefix when matching', () => {
       const all = [makeLearning({ summary: 'rust thing', tags: ['#rust'] })];
-      const got = selectRelevantLearnings(all, 'engram-rust-engineer');
+      const got = selectRelevantLearnings(all, 'knit-rust-engineer');
       expect(got).toHaveLength(1);
     });
   });

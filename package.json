@@ -1,10 +1,10 @@
 {
-  "name": "@piyushdua/engram-dev",
-  "version": "0.5.2",
-  "description": "Second brain for Claude Code — MCP server giving any AI agent project-scoped memory, tiered workflow protocol, and parallel team worktrees.",
+  "name": "knit-mcp",
+  "version": "0.6.0",
+  "description": "Knit — second brain for Claude Code. MCP server giving any AI agent project-scoped memory, tiered workflow protocol, and parallel team worktrees.",
   "type": "module",
   "bin": {
-    "engram-dev": "dist/cli.js"
+    "knit": "dist/cli.js"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
@@ -25,17 +25,18 @@
     "mcp",
     "mcp-server",
     "second-brain",
-    "developer-tools"
+    "developer-tools",
+    "knit"
   ],
   "author": "Piyush Dua",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PDgit12/engram.git"
+    "url": "git+https://github.com/PDgit12/knit.git"
   },
-  "homepage": "https://github.com/PDgit12/engram",
+  "homepage": "https://github.com/PDgit12/knit",
   "bugs": {
-    "url": "https://github.com/PDgit12/engram/issues"
+    "url": "https://github.com/PDgit12/knit/issues"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

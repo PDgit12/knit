@@ -20,25 +20,25 @@ You are a fake TypeScript expert for the test suite.
 `;
 
 describe('agent-fetcher', () => {
-  let engramHome: string;
+  let knitHome: string;
   let bundledDir: string;
 
   beforeAll(() => {
-    engramHome = mkdtempSync(join(tmpdir(), 'engram-fetch-test-'));
-    bundledDir = mkdtempSync(join(tmpdir(), 'engram-bundle-test-'));
-    process.env.ENGRAM_HOME = engramHome;
+    knitHome = mkdtempSync(join(tmpdir(), 'knit-fetch-test-'));
+    bundledDir = mkdtempSync(join(tmpdir(), 'knit-bundle-test-'));
+    process.env.KNIT_HOME = knitHome;
   });
 
   afterAll(() => {
-    delete process.env.ENGRAM_HOME;
+    delete process.env.KNIT_HOME;
     delete process.env.ENGRAM_OFFLINE;
-    try { rmSync(engramHome, { recursive: true, force: true }); } catch { /* */ }
+    try { rmSync(knitHome, { recursive: true, force: true }); } catch { /* */ }
     try { rmSync(bundledDir, { recursive: true, force: true }); } catch { /* */ }
   });
 
   beforeEach(() => {
     // Clear cache between tests so we exercise the tier-resolution logic deterministically
-    try { rmSync(join(engramHome, 'agents'), { recursive: true, force: true }); } catch { /* */ }
+    try { rmSync(join(knitHome, 'agents'), { recursive: true, force: true }); } catch { /* */ }
     try {
       const files = ['typescript-pro.md', 'code-reviewer.md', 'not-a-real-bundled-agent.md'];
       for (const f of files) {
@@ -130,7 +130,7 @@ describe('agent-fetcher', () => {
 
     it('accepts an engram- prefixed name and fetches the bare agent', async () => {
       const stub = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
-      const got = await fetchAgent('engram-debugger', { fetchFn: stub as never });
+      const got = await fetchAgent('knit-debugger', { fetchFn: stub as never });
 
       expect(got).toContain('You are a fake TypeScript expert');
       expect(got).toContain('VoltAgent/awesome-claude-code-subagents');
@@ -144,7 +144,7 @@ describe('agent-fetcher', () => {
     it('reads a prefixed bundled-core name without network', async () => {
       writeFileSync(join(bundledDir, 'typescript-pro.md'), FAKE_AGENT_MD, 'utf-8');
       const noNetwork = () => { throw new Error('Network should not be called'); };
-      const got = await fetchAgent('engram-typescript-pro', {
+      const got = await fetchAgent('knit-typescript-pro', {
         bundledCoreDir: bundledDir,
         fetchFn: noNetwork as never,
       });
