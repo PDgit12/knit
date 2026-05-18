@@ -11,7 +11,7 @@
  *
  * Configure in ~/.claude.json:
  *   "mcpServers": { "knit-brain": { "command": "npx",
- *                                     "args": ["-y", "@piyushdua/engram-dev@latest"] } }
+ *                                     "args": ["-y", "knit-mcp@latest"] } }
  */
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';

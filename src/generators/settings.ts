@@ -49,7 +49,7 @@ export function generateSettings(config: KnitConfig, rootPath: string): object {
     mcpServers: {
       'knit-brain': {
         command: 'npx',
-        args: ['-y', '@piyushdua/engram-dev@latest'],
+        args: ['-y', 'knit-mcp@latest'],
       },
     },
     hooks: generateHooks(config, rootPath),

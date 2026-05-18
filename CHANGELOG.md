@@ -2,6 +2,20 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] — 2026-05-18
+
+### Fixed
+
+- **Critical: `knit setup` was registering the MCP server with args
+  pointing at the DEPRECATED `@piyushdua/engram-dev@latest` package.**
+  Three source files (`src/commands/setup.ts`, `src/generators/settings.ts`,
+  `src/mcp/server.ts`) still hardcoded the legacy scoped name — sed missed
+  them during the v0.6.0 rename because the path-style `@piyushdua/engram-dev`
+  string wasn't covered by the `engram-` pattern. Now all three correctly
+  reference `knit-mcp@latest`. Anyone who ran `knit setup` between v0.6.0
+  and v0.6.1 has a broken MCP registration that runs deprecated code; they
+  should re-run `npx knit-mcp@latest setup` after upgrading.
+
 ## [0.6.1] — 2026-05-18
 
 Metadata-only republish. No code changes.
