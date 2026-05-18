@@ -10,7 +10,7 @@ import { generateClaudeMd, spliceEngramBlock, ENGRAM_MARKER_START } from '../gen
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { pruneSessionsByAge } from '../engine/sessions.js';
 import { generateLearningsContent } from '../generators/learnings.js';
-import { generateSettings } from '../generators/settings.js';
+import { generateSettings, HOOKS_VERSION } from '../generators/settings.js';
 import {
   projectDataDir,
   knowledgePath,
@@ -38,6 +38,37 @@ export interface BrainCache {
 }
 
 let cache: BrainCache | null = null;
+
+/**
+ * Per-process set of rootPaths whose hook version we've already checked.
+ * Prevents the version comparison from running on every single MCP call —
+ * once per session is enough since hook version can only change via npm upgrade.
+ */
+const hooksRefreshed = new Set<string>();
+
+/**
+ * If the project's settings.local.json predates the current HOOKS_VERSION,
+ * silently regenerate the hooks via writeEngramHooks (which uses hybrid-merge
+ * to preserve user-owned entries). Best-effort: never throw — a malformed
+ * settings file must not block the cache load.
+ */
+function maybeRefreshHooks(rootPath: string, config: EngramConfig): void {
+  if (hooksRefreshed.has(rootPath)) return;
+  hooksRefreshed.add(rootPath);
+
+  const settingsPath = join(rootPath, '.claude', 'settings.local.json');
+  if (!existsSync(settingsPath)) return;
+
+  try {
+    const existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) as { _engramHooks?: { version?: number } };
+    const storedVersion = existing?._engramHooks?.version ?? 0;
+    if (storedVersion < HOOKS_VERSION) {
+      writeEngramHooks(rootPath, config);
+    }
+  } catch {
+    // best-effort: never let stale or malformed settings break the cache
+  }
+}
 
 /**
  * Load or return cached brain state.
@@ -85,6 +116,12 @@ export function getBrain(rootPath: string): BrainCache {
   // Save refreshed knowledge index to disk
   writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
   saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
+
+  // v0.5.1: silently upgrade hooks for projects initialized on older engram versions.
+  // Skipped right after autoInitialize, which already wrote fresh hooks.
+  if (!autoInitialized) {
+    maybeRefreshHooks(rootPath, config);
+  }
 
   cache = {
     rootPath,

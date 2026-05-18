@@ -2,6 +2,32 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — 2026-05-18
+
+Upgrade-path fix for the Protocol Guard hooks shipped in v0.5.0. Without
+this, existing v0.4.x users would never receive the new hooks — the
+`writeEngramHooks` call only ran on first-time `autoInitialize`.
+
+### Added
+
+- **`HOOKS_VERSION` constant** in `src/generators/settings.ts` — single
+  source of truth for the emitted `_engramHooks.version` field. Bumped to 3
+  for v0.5.0+ (SessionStart, UserPromptSubmit, classification gate). Anyone
+  whose settings file stamps an older version is treated as stale.
+- **Auto-refresh on brain load** — `getBrain()` reads the project's
+  `.claude/settings.local.json` once per process; if the stored hook version
+  is below `HOOKS_VERSION`, `writeEngramHooks` runs to regenerate. Hybrid
+  merge preserves user-owned hooks and permissions, only `_engramOwned`
+  entries get refreshed.
+- Two new tests in `tests/auto-init-hooks.test.ts` cover the upgrade path
+  (stale v2 install → v3 with Protocol Guard hooks, user permissions
+  survive) and the no-op case (current version untouched).
+
+### Fixed
+
+- Existing v0.4.x installs now auto-upgrade silently on next MCP call. No
+  user action required, no `engram refresh` command needed.
+
 ## [0.5.0] — 2026-05-18
 
 Headline feature: **Protocol Guard**. The engram workflow protocol is now

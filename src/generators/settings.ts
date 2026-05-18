@@ -32,6 +32,18 @@ import {
  * rootPath must be the canonical repo root (not a worktree path) so that
  * embedded paths resolve to the shared brain for all worktrees of this project.
  */
+/**
+ * Bump this whenever the emitted hook shape changes meaningfully.
+ * cache.ts reads `_engramHooks.version` from existing settings.local.json on
+ * every brain load; if it's lower than HOOKS_VERSION, the hooks get
+ * regenerated via the hybrid-merge path so existing users auto-upgrade
+ * without running any CLI command.
+ *
+ *   v2 — pre-0.5.0 baseline (PreToolUse/PostToolUse/Stop only)
+ *   v3 — 0.5.0+: adds SessionStart, UserPromptSubmit, classification gate
+ */
+export const HOOKS_VERSION = 3;
+
 export function generateSettings(config: EngramConfig, rootPath: string): object {
   return {
     mcpServers: {
@@ -41,7 +53,7 @@ export function generateSettings(config: EngramConfig, rootPath: string): object
       },
     },
     hooks: generateHooks(config, rootPath),
-    _engramHooks: { version: 2, generatedAt: new Date().toISOString() },
+    _engramHooks: { version: HOOKS_VERSION, generatedAt: new Date().toISOString() },
   };
 }
 

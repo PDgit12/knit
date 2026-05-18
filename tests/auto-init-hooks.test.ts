@@ -43,7 +43,7 @@ describe('auto-init hooks integration', () => {
     expect(settings).toHaveProperty('hooks');
     expect(settings).toHaveProperty('mcpServers');
     expect(settings).toHaveProperty('_engramHooks');
-    expect((settings._engramHooks as { version: number }).version).toBe(2);
+    expect((settings._engramHooks as { version: number }).version).toBe(3);
     expect(settings.hooks).toHaveProperty('Stop');
     expect(Array.isArray(settings.hooks.Stop)).toBe(true);
     expect((settings.hooks.Stop as unknown[]).length).toBeGreaterThan(0);
@@ -67,7 +67,7 @@ describe('auto-init hooks integration', () => {
     (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
 
     const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    expect(after._engramHooks).toMatchObject({ version: 2, merged: true });
+    expect(after._engramHooks).toMatchObject({ version: 3, merged: true });
 
     // User entry preserved, no _engramOwned tag
     const pre = after.hooks.PreToolUse as Array<Record<string, unknown>>;
@@ -204,5 +204,64 @@ describe('auto-init hooks integration', () => {
     const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
     expect((after._engramHooks as { generatedAt: string }).generatedAt).not.toBe('1970-01-01T00:00:00Z');
     expect(after.hooks).toHaveProperty('Stop');
+  });
+
+  // v0.5.1 — auto hook-version upgrade
+  it('upgrades a user-owned v0.4.x settings file (no _engramHooks marker) to v3 hooks via hybrid merge', async () => {
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true });
+    // User-owned file: no _engramHooks marker → storedVersion=0 → upgrade triggers,
+    // hybrid-merge preserves user permissions.
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        permissions: { allow: ['Bash(custom-user-thing:*)'] },
+      }, null, 2),
+      'utf-8',
+    );
+
+    const cacheMod = await import('../src/mcp/cache.js');
+    (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
+
+    const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    expect((after._engramHooks as { version: number }).version).toBe(3);
+    // Protocol Guard hooks now present
+    expect(after.hooks).toHaveProperty('SessionStart');
+    expect(after.hooks).toHaveProperty('UserPromptSubmit');
+    // User-owned permissions survived the hybrid merge
+    expect(after.permissions).toEqual({ allow: ['Bash(custom-user-thing:*)'] });
+  });
+
+  it('leaves a current-version engram-owned settings file alone (no refresh on cached project)', async () => {
+    // Pre-populate centralized data so autoInitialize doesn't fire on getBrain.
+    const { projectId } = await import('../src/engine/project-id.js');
+    const hash = projectId(projectRoot);
+    const projectData = join(engramHome, 'projects', hash);
+    mkdirSync(projectData, { recursive: true });
+    writeFileSync(
+      join(projectData, 'knowledge.json'),
+      JSON.stringify({ generatedAt: new Date().toISOString(), summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] }, files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] } }),
+      'utf-8',
+    );
+
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true });
+    const sentinel = '2026-05-18T00:00:00.000Z';
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        _engramHooks: { version: 3, generatedAt: sentinel },
+        hooks: { SessionStart: [], UserPromptSubmit: [], PreToolUse: [], PostToolUse: [], Stop: [] },
+      }, null, 2),
+      'utf-8',
+    );
+
+    const cacheMod = await import('../src/mcp/cache.js');
+    (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain(projectRoot);
+
+    const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    // version stays, sentinel preserved → maybeRefreshHooks skipped because storedVersion === HOOKS_VERSION
+    expect((after._engramHooks as { version: number }).version).toBe(3);
+    expect((after._engramHooks as { generatedAt: string }).generatedAt).toBe(sentinel);
   });
 });
