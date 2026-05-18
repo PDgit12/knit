@@ -83,7 +83,7 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 
 **Effect:** v0.1's CLAUDE.md was ~700 lines / ~20 KB per session, every session. v0.2's is ~100 lines / ~2.7 KB. Protocol depth pulled only when needed.
 
-## 32 MCP Tools
+## 35 MCP Tools
 
 ### Query the brain (read-only, cached, ~5ms)
 
@@ -111,6 +111,17 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 | `engram_save_session_summary` | Opt-in narrative summary of what this session did. |
 | `engram_save_handoff` | Save state when context degrades. |
 | `engram_setup_project` | Describe a non-code project (legal, marketing, research). |
+| `engram_prune_sessions` | Prune sessions.jsonl by age — keep recent N or drop entries older than N days. |
+| `engram_install_agent` | Install a single VoltAgent subagent (e.g. `typescript-pro`) into `.claude/agents/`. |
+
+### Protocol Guard (v0.5.0+)
+
+Runtime enforcement of the engram protocol via PreToolUse and SessionStart hooks. Default strictness: `warn`.
+
+| Tool | What it does |
+|------|--------------|
+| `engram_set_protocol_strictness` | Set strictness: `off` (no checks), `warn` (reminder), `block` (hard-fail Edit/Write without prior `engram_classify_task`). |
+| `engram_get_protocol_strictness` | Read current strictness level for this project. |
 
 ### Workflow on demand
 
@@ -280,7 +291,7 @@ git clone https://github.com/PDgit12/engram.git
 cd engram
 npm install
 npm run dev       # Run CLI locally
-npm run test      # 181 tests
+npm run test      # 295 tests
 npm run typecheck # TypeScript strict mode
 npm run build     # Compile CLI + MCP server
 ```
@@ -305,7 +316,7 @@ per-project, in <project>/
 └── .claude/settings.local.json # per-machine hooks, engram-managed (gitignored by convention)
 ```
 
-Zero external dependencies for the knowledge brain. 181 tests. Strict-mode TypeScript.
+Zero external dependencies for the knowledge brain. 295 tests. Strict-mode TypeScript.
 
 ## License
 

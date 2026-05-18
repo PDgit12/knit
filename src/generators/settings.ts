@@ -193,7 +193,9 @@ function generateHooks(config: EngramConfig, rootPath: string) {
                   try {
                     const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
                     if (cfg && (cfg.level === "off" || cfg.level === "warn" || cfg.level === "block")) level = cfg.level;
-                  } catch (e) {}
+                  } catch (parseErr) {
+                    console.error("[engram] protocol-config.json unreadable, defaulting strictness=warn:", parseErr && parseErr.message ? parseErr.message : parseErr);
+                  }
                 }
                 if (level === "off") return;
                 const hasMarker = fs.existsSync(markerPath);
@@ -203,7 +205,9 @@ function generateHooks(config: EngramConfig, rootPath: string) {
                   process.exit(2);
                 }
                 console.error("[engram] reminder: call engram_classify_task before Edit/Write. Set strictness=block via engram_set_protocol_strictness to make this a hard gate.");
-              } catch (e) {}
+              } catch (hookErr) {
+                console.error("[engram] protocol-guard hook crashed, allowing tool through:", hookErr && hookErr.message ? hookErr.message : hookErr);
+              }
             `),
             timeout: 5,
           },

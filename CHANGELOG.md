@@ -2,6 +2,35 @@
 
 All notable changes to engram. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); engram uses [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] — 2026-05-18
+
+Audit-fix patch. Five doc drifts, two real code fixes, one new test file.
+
+### Changed
+
+- **README.md** — header `32 MCP Tools` → `35 MCP Tools`; added the four
+  tools that were missing from the tool tables (`engram_prune_sessions`,
+  `engram_install_agent`, `engram_set_protocol_strictness`,
+  `engram_get_protocol_strictness`); test count `181 tests` → `295 tests`.
+- **CLAUDE.md** — Phase Status: `latest → v0.4.1` updated to `v0.5.1` and
+  added v0.4.2 / v0.5.0 / v0.5.1 release entries; Domain 2 (Engine) file
+  list now includes `protocol-guard`; Domain 4 (MCP) tool count `33` → `35`;
+  Domain 5 (QA) test count `272` → `295`.
+- **src/engine/protocol-guard.ts** — `from 'fs'` → `from 'node:fs'` and
+  `from 'path'` → `from 'node:path'`. The only file in src/ using bare
+  module names instead of `node:*` prefix.
+- **src/generators/settings.ts** — replaced two silent `catch (e) {}` blocks
+  in the Protocol Guard PreToolUse hook with `console.error` logging.
+  Previously a malformed `protocol-config.json` would silently fall through
+  to warn-level with no diagnostic; now operators see why.
+
+### Added
+
+- **tests/cache.test.ts** — direct unit coverage for `maybeRefreshHooks`
+  idempotency (per-process Set prevents double-refresh), malformed
+  settings.local.json robustness (no crash on corrupt JSON), and
+  `detectProjectRoot` cwd-fallback path. 299 tests total (+4).
+
 ## [0.5.1] — 2026-05-18
 
 Upgrade-path fix for the Protocol Guard hooks shipped in v0.5.0. Without

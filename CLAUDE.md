@@ -41,7 +41,7 @@ Every file belongs to exactly one domain. Domains are the unit of orchestration.
 **Agents:** `code-reviewer`, `typescript-reviewer`
 
 ### Domain 2: Engine (Core Intelligence)
-**Files:** `src/engine/*.ts` — `learnings`, `global-learnings`, `sessions`, `reflect`, `knowledge`, `knowledgebase`, `scanner`, `teams`, `worktrees`, `agent-registry`, `agent-fetcher`, `install-agents`, `paths`, `project-id`, `types`
+**Files:** `src/engine/*.ts` — `learnings`, `global-learnings`, `sessions`, `reflect`, `knowledge`, `knowledgebase`, `scanner`, `teams`, `worktrees`, `agent-registry`, `agent-fetcher`, `install-agents`, `paths`, `project-id`, `protocol-guard`, `types`
 **Head concern:** Memory persistence, learnings/sessions storage, pattern reflection, team/worktree orchestration, agent registry, path resolution at `~/.engram/projects/<hash>/`
 **Agents:** `type-design-analyzer`, `code-reviewer`, `code-architect`, `silent-failure-hunter`
 
@@ -52,12 +52,12 @@ Every file belongs to exactly one domain. Domains are the unit of orchestration.
 
 ### Domain 4: MCP Server (Tool Surface)
 **Files:** `src/mcp/*.ts` — `server`, `handlers`, `tools`, `cache`
-**Head concern:** MCP tool definitions (33 tools), request handlers, input sanitization, response shape, caching. This is the surface every connected agent (Claude Code, Cursor, Codex) talks to.
+**Head concern:** MCP tool definitions (35 tools as of v0.5.0), request handlers, input sanitization, response shape, caching. This is the surface every connected agent (Claude Code, Cursor, Codex) talks to.
 **Agents:** `code-architect`, `code-reviewer`, `silent-failure-hunter`
 
 ### Domain 5: Quality Assurance
 **Files:** `tests/*`, build configs, lint configs
-**Head concern:** Test coverage (80%+), CLI integration tests, template output validation. Current: 272 tests.
+**Head concern:** Test coverage (80%+), CLI integration tests, template output validation. Current: 295 tests.
 **Agents:** `tdd-guide`, `pr-test-analyzer`, `build-error-resolver`
 
 ### Cross-Domain Communication Rules
@@ -293,7 +293,7 @@ Built with TypeScript, compiled via tsup, tested with Vitest. The Engram Orchest
 
 ## Phase Status
 
-All four releases below are live on npm as `@piyushdua/engram-dev`. `latest` → v0.4.1.
+All releases below are live on npm as `@piyushdua/engram-dev`. `latest` → v0.5.1.
 
 - **Phase 0** (project setup + workflow): ✅ Complete
 - **v0.1.x** — shipped. 23 MCP tools, 111 tests. Original baseline.
@@ -301,6 +301,9 @@ All four releases below are live on npm as `@piyushdua/engram-dev`. `latest` →
 - **v0.3.1** — git-tagged, NOT published to npm. Windows-compatible hooks (rewrote all 7 hooks as inline `node -e '…'` cross-platform). Folded into v0.4.0's npm release.
 - **v0.4.0** — shipped. VoltAgent subagent integration (`github.com/VoltAgent/awesome-claude-code-subagents`, MIT, pinned SHA `6f804f0c…`) with engram personalization layer. Bundled-core 6 agents in `dist/agents/core/`; specialized agents fetched on demand to `~/.engram/agents/cache/<sha>/`. `engram install-agents` CLI + `engram_install_agent` MCP tool. 32 MCP tools, 247 tests.
 - **v0.4.1** — shipped. Built across 4 parallel team worktrees via Claude Code's Agent `isolation:"worktree"` — engram eating its own dogfood. Fixed agent-prefix wiring bug (`agentsForRole` now returns `engram-<name>`). VoltAgent attribution added to fetched agents + `THIRD-PARTY-NOTICES.md` shipped. JSONL session pruning + `engram_prune_sessions` tool. Reflect falls back to global pool when local entries < 3. Hybrid hook merging (`_engramOwned: true` tag per entry; merge into existing user `settings.local.json` without clobbering). `engram export obsidian <vault>` CLI. 33 MCP tools, 272 tests.
+- **v0.4.2** — shipped. Metadata-only patch. Dropped stale "20 tools" copy from package.json description; fixed broken npm version badge in README (URL-encoded scoped name `%40piyushdua%2Fengram-dev`); removed hardcoded `MCP_tools-32` badge that drifts every release; synced Domain Architecture in CLAUDE.md to actual `src/` (replaced fictional `adapters/` with real `mcp/`). No code changes. 33 MCP tools, 272 tests.
+- **v0.5.0** — shipped. Headline feature: **Protocol Guard** — runtime enforcement of the engram protocol via hooks. New SessionStart hook (auto-loads session marker), UserPromptSubmit hook (clears classification marker per turn), PreToolUse `Edit|Write|MultiEdit` gate (reads strictness config; off/warn/block). New tools `engram_set_protocol_strictness` + `engram_get_protocol_strictness`. `engram_classify_task` writes the marker as a side effect so the gate has something to read. CLAUDE.md generator gained a "system-reminder override" paragraph that defends the protocol block from the harness's default `"may or may not be relevant"` wrapper. New `src/engine/protocol-guard.ts` module. 35 MCP tools, 293 tests.
+- **v0.5.1** — shipped. Upgrade-path fix for v0.5.0. `HOOKS_VERSION` constant in `generators/settings.ts` (now 3); `cache.ts` reads stored `_engramHooks.version` on every brain load; if stale, runs `writeEngramHooks` once per process to refresh. Hybrid merge preserves user permissions. Means existing v0.4.x users auto-receive Protocol Guard hooks on next MCP call — no `engram refresh` needed. 35 MCP tools, 295 tests.
 
 ## v0.5 candidates (deferred, ranked by value × cost)
 

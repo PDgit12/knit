@@ -10,8 +10,8 @@
  * unit tests trivial and lets the handler layer compose freely.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 import {
   classificationMarkerPath,

@@ -1,6 +1,6 @@
 {
   "name": "@piyushdua/engram-dev",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Second brain for Claude Code — MCP server giving any AI agent project-scoped memory, tiered workflow protocol, and parallel team worktrees.",
   "type": "module",
   "bin": {
