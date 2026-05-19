@@ -9,6 +9,8 @@ import {
   classificationMarkerPath,
   protocolConfigPath,
   sessionMarkerPath,
+  searchMarkerPath,
+  knowledgePath,
 } from '../engine/paths.js';
 
 /**
@@ -47,8 +49,11 @@ import {
  *   v6 — 0.6.4+: wrap nodeHook payload in IIFE so `return` early-exits
  *                are legal under Node 22+/25+ (`node -e` is strict about
  *                top-level returns)
+ *   v7 — 0.9.0+: v0.9 hook-level enforcement — search-marker clear on
+ *                UserPromptSubmit, search-gate in PreToolUse Edit, pre/post
+ *                import validation, Stop-hook budget watch
  */
-export const HOOKS_VERSION = 6;
+export const HOOKS_VERSION = 7;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -119,6 +124,12 @@ function generateHooks(config: KnitConfig, rootPath: string) {
   const PROTOCOL_CONFIG = protocolConfigPath(rootPath);
   const CLASSIFIED_MARKER = classificationMarkerPath(rootPath);
   const SESSION_MARKER = sessionMarkerPath(rootPath);
+  const SEARCH_MARKER = searchMarkerPath(rootPath);
+  const CLAUDE_MD = `${rootPath}/CLAUDE.md`;
+  // KNOWLEDGE_JSON exists in the import surface for future hook-side use
+  // (e.g. cross-checking imports against the indexed graph) but is not yet
+  // referenced. Keep the path helper accessible via the import.
+  void knowledgePath;
 
   const hooks: Record<string, unknown[]> = {
     SessionStart: [
@@ -158,6 +169,10 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                 const fs = require("fs");
                 const p = ${jsLit(CLASSIFIED_MARKER)};
                 if (fs.existsSync(p)) fs.rmSync(p, { force: true });
+                // v0.9 #5: per-turn search marker is also cleared at the turn boundary
+                // so the next non-trivial task has to call knit_search_learnings again.
+                const sm = ${jsLit(SEARCH_MARKER)};
+                if (fs.existsSync(sm)) fs.rmSync(sm, { force: true });
               } catch (e) {}
             `),
             timeout: 5,
@@ -201,6 +216,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                 const fs = require("fs");
                 const cfgPath = ${jsLit(PROTOCOL_CONFIG)};
                 const markerPath = ${jsLit(CLASSIFIED_MARKER)};
+                const searchMarkerPath = ${jsLit(SEARCH_MARKER)};
                 let level = "warn";
                 if (fs.existsSync(cfgPath)) {
                   try {
@@ -211,16 +227,88 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                   }
                 }
                 if (level === "off") return;
+                // Classification gate (v0.5).
                 const hasMarker = fs.existsSync(markerPath);
-                if (hasMarker) return;
-                if (level === "block") {
-                  console.error("[knit] BLOCKED: call knit_classify_task before Edit/Write. The Protocol Guard prevents implementation without classification.");
-                  process.exit(2);
+                if (!hasMarker) {
+                  if (level === "block") {
+                    console.error("[knit] BLOCKED: call knit_classify_task before Edit/Write. The Protocol Guard prevents implementation without classification.");
+                    process.exit(2);
+                  }
+                  console.error("[knit] reminder: call knit_classify_task before Edit/Write. Set strictness=block via knit_set_protocol_strictness to make this a hard gate.");
+                  return;
                 }
-                console.error("[knit] reminder: call knit_classify_task before Edit/Write. Set strictness=block via knit_set_protocol_strictness to make this a hard gate.");
+                // v0.9 #5: search gate. For standard/complex tasks, knit_search_learnings
+                // (or knit_search_global_learnings) must run before the Edit lands —
+                // otherwise the agent is re-investigating without checking memory.
+                try {
+                  const marker = JSON.parse(fs.readFileSync(markerPath, "utf-8"));
+                  if (marker && (marker.tier === "standard" || marker.tier === "complex")) {
+                    if (!fs.existsSync(searchMarkerPath)) {
+                      if (level === "block") {
+                        console.error("[knit] BLOCKED: " + marker.tier + " task — call knit_search_learnings or knit_search_global_learnings before Edit/Write so memory is checked before re-investigation.");
+                        process.exit(2);
+                      }
+                      console.error("[knit] reminder: " + marker.tier + " task — call knit_search_learnings before Edit/Write. Skipping memory check means re-doing work the project already learned.");
+                    }
+                  }
+                } catch (markerErr) {
+                  // Marker exists but JSON unreadable — be lenient.
+                }
               } catch (hookErr) {
                 console.error("[knit] protocol-guard hook crashed, allowing tool through:", hookErr && hookErr.message ? hookErr.message : hookErr);
               }
+            `),
+            timeout: 5,
+          },
+        ],
+      },
+      // v0.9 #9 — Pre-write content inspection. Reads the proposed Write/Edit
+      // content from tool_input, parses local import statements, and reports
+      // any relative paths that don't resolve on disk. Warn-level by default
+      // (the existing classification gate handles block mode); soft signal,
+      // never blocks on its own.
+      {
+        _knitOwned: true,
+        matcher: 'Write|Edit|MultiEdit',
+        hooks: [
+          {
+            type: 'command',
+            command: nodeHook(`
+              let d = "";
+              process.stdin.on("data", (c) => d += c);
+              process.stdin.on("end", () => {
+                try {
+                  const fs = require("fs");
+                  const path = require("path");
+                  const i = JSON.parse(d);
+                  const filePath = (i.tool_input && i.tool_input.file_path) || "";
+                  if (!/\\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(filePath)) return;
+                  // Pull proposed content from any of the Edit/Write shapes.
+                  let content = (i.tool_input && (i.tool_input.content || i.tool_input.new_string)) || "";
+                  if (i.tool_input && Array.isArray(i.tool_input.edits)) {
+                    content = i.tool_input.edits.map((e) => e && e.new_string ? e.new_string : "").join("\\n");
+                  }
+                  if (!content) return;
+                  const dir = path.dirname(filePath);
+                  const re = /^import\\s+(?:[^'"]+?\\s+from\\s+)?['"]([^'"]+)['"]/gm;
+                  const unresolved = [];
+                  let m;
+                  while ((m = re.exec(content)) !== null) {
+                    const target = m[1];
+                    if (!target.startsWith(".") && !target.startsWith("/")) continue;
+                    const candidates = [target, target + ".ts", target + ".tsx", target + ".js", target + ".jsx", target + "/index.ts", target + "/index.tsx", target + "/index.js"];
+                    let resolved = false;
+                    for (const c of candidates) {
+                      const abs = path.resolve(dir, c);
+                      if (fs.existsSync(abs)) { resolved = true; break; }
+                    }
+                    if (!resolved) unresolved.push(target);
+                  }
+                  if (unresolved.length > 0) {
+                    console.error("[knit] heads-up: proposed edit references " + unresolved.length + " unresolved relative import(s): " + unresolved.join(", ") + ". Likely hallucinated paths — verify with knit_query_imports or knit_verify_claim before relying on them.");
+                  }
+                } catch (e) {}
+              });
             `),
             timeout: 5,
           },
@@ -230,6 +318,54 @@ function generateHooks(config: KnitConfig, rootPath: string) {
     PostToolUse: [],
     Stop: [],
   };
+
+  // v0.9 #3 — Post-write import validation. After the file lands on disk,
+  // re-parse imports and report any unresolved relative paths. Catches
+  // anything that slipped past the pre-write check (#9) — e.g. a MultiEdit
+  // that combined snippets in a way the static check missed.
+  hooks.PostToolUse.push({
+    _knitOwned: true,
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          let d = "";
+          process.stdin.on("data", (c) => d += c);
+          process.stdin.on("end", () => {
+            try {
+              const fs = require("fs");
+              const path = require("path");
+              const i = JSON.parse(d);
+              const f = (i.tool_input && i.tool_input.file_path) || (i.tool_response && i.tool_response.filePath) || "";
+              if (!/\\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(f)) return;
+              if (!fs.existsSync(f)) return;
+              const content = fs.readFileSync(f, "utf-8");
+              const dir = path.dirname(f);
+              const re = /^import\\s+(?:[^'"]+?\\s+from\\s+)?['"]([^'"]+)['"]/gm;
+              const unresolved = [];
+              let m;
+              while ((m = re.exec(content)) !== null) {
+                const target = m[1];
+                if (!target.startsWith(".") && !target.startsWith("/")) continue;
+                const candidates = [target, target + ".ts", target + ".tsx", target + ".js", target + ".jsx", target + "/index.ts", target + "/index.tsx", target + "/index.js"];
+                let resolved = false;
+                for (const c of candidates) {
+                  if (fs.existsSync(path.resolve(dir, c))) { resolved = true; break; }
+                }
+                if (!resolved) unresolved.push(target);
+              }
+              if (unresolved.length > 0) {
+                console.error("[knit] post-write check: " + f + " has " + unresolved.length + " unresolved relative import(s): " + unresolved.join(", ") + ". Run typecheck before relying on this file.");
+              }
+            } catch (e) {}
+          });
+        `),
+        timeout: 5,
+        statusMessage: 'Knit: validating imports...',
+      },
+    ],
+  });
 
   // TypeScript typecheck on edit
   if (config.stack.language === 'typescript' && config.stack.typecheckCommand) {
@@ -371,6 +507,34 @@ function generateHooks(config: KnitConfig, rootPath: string) {
       ],
     });
   }
+
+  // v0.9 #4 — Stop hook budget watch. Cheap CLAUDE.md size check that runs
+  // at session end. The token-budget guardrail in knit_brain_status is read
+  // on demand; this surfaces drift even when the agent doesn't call status.
+  // Reads the size from disk and prints a warning if it crosses the 25%
+  // over-budget threshold (12.5KB for a 10KB target — generous because we
+  // don't want false positives on legitimately large projects).
+  hooks.Stop.push({
+    _knitOwned: true,
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          try {
+            const fs = require("fs");
+            const p = ${jsLit(CLAUDE_MD)};
+            if (!fs.existsSync(p)) return;
+            const size = fs.statSync(p).size;
+            if (size > 12500) {
+              console.error("[knit] budget watch: CLAUDE.md is " + Math.round(size/1024*10)/10 + "KB (target 6.5KB; over-budget threshold 12.5KB). Call knit_brain_status to confirm and consider regenerating via knit refresh.");
+            }
+          } catch (e) {}
+        `),
+        timeout: 5,
+        statusMessage: 'Knit: budget check...',
+      },
+    ],
+  });
 
   // Session log on stop — narrative human-readable, to sessions.md
   hooks.Stop.push({

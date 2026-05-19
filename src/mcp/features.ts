@@ -78,6 +78,7 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_compounding_metrics', tier: 1, category: 'diagnostics', rationale: 'Quantifies "Knit gets cheaper over time" — sessions, learnings, reuse ratio, estimated tokens saved. Companion to knit_brain_status budget surface.' },
   { tool: 'knit_verify_claim', tier: 1, category: 'knowledge-graph', rationale: 'On-demand fact-check against the knowledge graph. Companion to knit_query_* — those tools answer "what?"; this one answers "is the agent\'s claim about it true?"' },
   { tool: 'knit_get_learning', tier: 1, category: 'memory', rationale: 'Hierarchical-retrieval companion: fetch one full learning by id after knit_search_learnings returned a headline. Saves tokens on the upfront list, pays per-detail.' },
+  { tool: 'knit_consolidate_learnings', tier: 1, category: 'memory', rationale: 'Cluster similar learnings via tag-Jaccard, propose a single pattern entry, optionally commit. Keeps the working set lean as the KB grows.' },
 
   // ── Tier 2 — Team worktrees (9) ─────────────────────────────────
   { tool: 'knit_spawn_team_worktree', tier: 2, category: 'teams', rationale: 'Multi-domain parallel write orchestration', enable_via: 'knit_enable_feature("teams") or auto-exposed when ≥3 domains detected' },

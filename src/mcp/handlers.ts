@@ -30,7 +30,7 @@ import {
   type ProjectShape,
   type EnableableFeature,
 } from './features.js';
-import { featuresConfigPath } from '../engine/paths.js';
+import { featuresConfigPath, searchMarkerPath } from '../engine/paths.js';
 import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
@@ -136,6 +136,19 @@ export function handleFindFanout(params: Record<string, string>, brain: BrainCac
   return JSON.stringify({ high_fanout_files: fanout, count: fanout.length });
 }
 
+/** v0.9 — write a per-turn marker that the PreToolUse gate reads to enforce
+ *  the "search before Edit" discipline on standard/complex tasks. Best-effort:
+ *  failure to write doesn't block the search itself. Cleared on the next
+ *  UserPromptSubmit hook (turn boundary). */
+function writeSearchMarker(rootPath: string): void {
+  try {
+    writeFileSync(searchMarkerPath(rootPath), new Date().toISOString(), 'utf-8');
+  } catch {
+    // best-effort; if the marker can't be written, the agent will see the
+    // PreToolUse warning but the search itself already succeeded
+  }
+}
+
 /** v0.8 — BM25 + import-graph retrieval for knit_search_learnings.
  *
  *  Two parameters now drive the search:
@@ -170,6 +183,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   if (!query) {
     const results = queryByDomains(brain.knowledgeBase, domains);
     if (results.length > 0) recordCacheHit(brain.knowledgeBase);
+    writeSearchMarker(brain.rootPath);
     return JSON.stringify(buildLearningsResponse(results, domains, []));
   }
 
@@ -219,6 +233,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
 
   entries = entries.slice(0, limit);
   if (entries.length > 0) recordCacheHit(brain.knowledgeBase);
+  writeSearchMarker(brain.rootPath);
   const retrieverLabel: 'bm25' | 'bm25+graph' = graphHits.length > 0 ? 'bm25+graph' : 'bm25';
   return JSON.stringify(buildLearningsResponse(entries, domains, [query], retrieverLabel));
 }
@@ -536,6 +551,140 @@ export function handleEnableFeature(params: Record<string, string>, brain: Brain
     instruction: wasAlreadyOn
       ? 'Already enabled. Call knit_list_features to see the active tool list.'
       : 'Tools list updated for this session. The newly-enabled tools should be available immediately — call knit_list_features to confirm.',
+  });
+}
+
+/** v0.9 #10 — knit_consolidate_learnings.
+ *
+ *  Detects clusters of similar learnings and proposes a single consolidated
+ *  pattern entry. Two signals: heavy tag overlap (Jaccard ≥ 0.5) AND high
+ *  token overlap in summary+lesson (BM25 self-similarity). When a cluster
+ *  forms, the handler:
+ *    - Generates a pattern entry summarizing the cluster
+ *    - Tags the originals with #consolidated (preserved for history)
+ *    - Returns the cluster + the proposed pattern; agent applies via
+ *      knit_record_learning if it confirms
+ *
+ *  Dry-run by default (no writes). Pass commit=true to persist. Safe because
+ *  knowledgebase mutations can corrupt the access-count history if a bad
+ *  consolidation runs unattended. */
+export function handleConsolidateLearnings(params: Record<string, string>, brain: BrainCache): string {
+  const minClusterSize = Math.max(2, Math.min(20, parseInt(params.min_cluster_size || '3', 10) || 3));
+  const jaccardThreshold = parseFloat(params.jaccard_threshold || '0.5') || 0.5;
+  const commit = params.commit === 'true' || params.commit === '1';
+
+  const entries = brain.knowledgeBase.entries.filter((e) => !e.tags.includes('#consolidated'));
+  if (entries.length < minClusterSize) {
+    return JSON.stringify({
+      status: 'no-op',
+      reason: `Need at least ${minClusterSize} non-consolidated learnings; found ${entries.length}.`,
+      clusters: [],
+    });
+  }
+
+  // Build a tag-set per entry for Jaccard comparison.
+  const tagSets: Map<string, Set<string>> = new Map();
+  for (const e of entries) {
+    tagSets.set(e.id, new Set([...e.tags, ...e.domains.map((d) => `#${d.toLowerCase()}`)]));
+  }
+
+  // Greedy clustering: for each unclustered entry, find others with high
+  // tag overlap. Seed = entry with the most accesses (likely the canonical
+  // version of the pattern). O(N^2) is fine at Knit's typical entry count.
+  const clustered = new Set<string>();
+  const clusters: Array<{ seed: KBEntry; members: KBEntry[] }> = [];
+
+  const sortedByAccess = [...entries].sort((a, b) => b.accessCount - a.accessCount);
+  for (const seed of sortedByAccess) {
+    if (clustered.has(seed.id)) continue;
+    const seedTags = tagSets.get(seed.id)!;
+    const members: KBEntry[] = [seed];
+    for (const candidate of entries) {
+      if (candidate.id === seed.id || clustered.has(candidate.id)) continue;
+      const candTags = tagSets.get(candidate.id)!;
+      const intersection = [...seedTags].filter((t) => candTags.has(t)).length;
+      const union = new Set([...seedTags, ...candTags]).size;
+      const jaccard = union === 0 ? 0 : intersection / union;
+      if (jaccard >= jaccardThreshold) {
+        members.push(candidate);
+      }
+    }
+    if (members.length >= minClusterSize) {
+      for (const m of members) clustered.add(m.id);
+      clusters.push({ seed, members });
+    }
+  }
+
+  if (clusters.length === 0) {
+    return JSON.stringify({
+      status: 'no-op',
+      reason: `No clusters of ≥${minClusterSize} entries with Jaccard ≥ ${jaccardThreshold}. Either the corpus is heterogeneous or thresholds are too strict.`,
+      clusters: [],
+    });
+  }
+
+  // For each cluster, propose a consolidated pattern. The pattern summary is
+  // a digest of the seed; the lesson concatenates the unique lessons. Tags
+  // are the union of all member tags PLUS #pattern.
+  const proposals = clusters.map((c) => {
+    const allTags = new Set<string>();
+    for (const m of c.members) for (const t of m.tags) allTags.add(t);
+    allTags.add('#pattern');
+    const allDomains = new Set<string>();
+    for (const m of c.members) for (const d of m.domains) allDomains.add(d);
+    return {
+      cluster_size: c.members.length,
+      seed_id: c.seed.id,
+      member_ids: c.members.map((m) => m.id),
+      proposed_pattern: {
+        summary: `[Pattern] ${c.seed.summary} (consolidates ${c.members.length} similar learnings)`,
+        domains: [...allDomains],
+        approach: c.seed.approach,
+        outcome: c.seed.outcome,
+        lesson: c.members.map((m) => `- ${m.summary}: ${m.lesson}`).join('\n'),
+        tags: [...allTags].sort(),
+      },
+    };
+  });
+
+  // If commit=true, mark originals as #consolidated and emit a new pattern
+  // entry per cluster. Otherwise it's a dry-run report — agent reviews,
+  // edits if needed, and calls knit_record_learning manually.
+  let committed = 0;
+  if (commit) {
+    const today = new Date().toISOString().split('T')[0];
+    for (const proposal of proposals) {
+      // Mark originals
+      for (const memberId of proposal.member_ids) {
+        const entry = brain.knowledgeBase.entries.find((e) => e.id === memberId);
+        if (entry && !entry.tags.includes('#consolidated')) {
+          entry.tags.push('#consolidated');
+        }
+      }
+      // Record the new pattern entry
+      addEntry(brain.knowledgeBase, {
+        date: today,
+        summary: proposal.proposed_pattern.summary,
+        domains: proposal.proposed_pattern.domains,
+        approach: proposal.proposed_pattern.approach,
+        outcome: proposal.proposed_pattern.outcome,
+        lesson: proposal.proposed_pattern.lesson,
+        tags: proposal.proposed_pattern.tags,
+      });
+      committed++;
+    }
+    saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
+  }
+
+  return JSON.stringify({
+    status: commit ? 'committed' : 'dry-run',
+    clusters_found: clusters.length,
+    entries_clustered: [...clustered].length,
+    committed,
+    proposals,
+    instruction: commit
+      ? `Consolidated ${committed} clusters. Originals tagged #consolidated and deprioritized in future retrieval; the new pattern entries surface in their place.`
+      : 'Dry run — no changes written. Call again with commit=true to apply, or edit a proposal manually via knit_record_learning then mark originals via #consolidated tag.',
   });
 }
 
@@ -1507,7 +1656,8 @@ export function handleRecordGlobalLearning(params: Record<string, string>, brain
  *  Falls back to the original substring scan if BM25 returns nothing — keeps
  *  partial-word queries like "auth bug" working even when no tokenized term
  *  fully matches. */
-export function handleSearchGlobalLearnings(params: Record<string, string>, _brain: BrainCache): string {
+export function handleSearchGlobalLearnings(params: Record<string, string>, brain: BrainCache): string {
+  const _brain = brain;
   const query = (params.query || '').trim();
   const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
   if (!query) {
@@ -1539,6 +1689,9 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, _bra
     matches = searchGlobalLearnings(query, limit);
     if (matches.length > 0) retriever = 'substring-fallback';
   }
+
+  // Mark turn as having searched — same gate as knit_search_learnings.
+  writeSearchMarker(_brain.rootPath);
 
   return JSON.stringify({
     query,

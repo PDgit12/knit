@@ -2,6 +2,131 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] — 2026-05-19
+
+**The "tackle the honest limits" release.** v0.8 closed the retrieval story
+(BM25 + graph fusion). v0.9 closes the *enforcement* story — every limit
+in the v0.8 architecture got a structural fix:
+
+| Limit (pre-v0.9) | Structural fix shipped |
+|---|---|
+| Verifier exists but model has to call it | `knit_verify_claim` + citation requirement in `instructions` + auto-search in `knit_classify_task` |
+| No background fact checker | PostToolUse import-validation hook + Stop-hook budget watch |
+| Hooks remind but don't intervene mid-call | PreToolUse content inspection + mandatory-search gate for standard/complex |
+| Model has its own context limits | `knit_get_learning` for hierarchical retrieval + `knit_consolidate_learnings` for KB compaction |
+| Relies on agent calling search before re-investigating | Auto-search in classify_task + PreToolUse search-gate |
+| Doesn't decide what content to read | `suggested_reads` from `knit_build_context` |
+| Doesn't grade context relevance in real time | Stop-hook budget watch (closes the loop) |
+
+### Added — handler/tool surface (Round 1)
+
+- **`knit_verify_claim`** (Tier 1, knowledge-graph). Single-call fact-check
+  against the knowledge graph. Parses patterns ("A imports B", "X exports Y",
+  "A is tested by B", "X exists") and returns verdict (verified /
+  contradicted / unparseable) with evidence. The on-demand companion to the
+  `knit_query_*` family — they answer "what?"; this answers "is the agent's
+  claim about it true?".
+
+- **`knit_get_learning`** (Tier 1, memory). Fetch one full learning by id.
+  Pair with `knit_search_learnings` (which returns headlines) for
+  hierarchical retrieval — expand only what turned out to be relevant.
+  Sets up the v0.9 path where summaries are the default and detail is on demand.
+
+- **`knit_consolidate_learnings`** (Tier 1, memory). Detects clusters of
+  similar learnings via tag-Jaccard ≥ 0.5, proposes a single pattern entry
+  per cluster, optionally commits with `commit=true`. Dry-run by default.
+  Keeps the KB working set lean as it grows — old similar learnings
+  collapse into patterns; originals are tagged `#consolidated` (preserved
+  but deprioritized in retrieval).
+
+### Added — auto-injection inside existing handlers
+
+- **Auto-search in `knit_classify_task`**. For `standard`/`complex` tier,
+  classify_task automatically runs BM25 over (description + affected
+  domains) and embeds top-3 hits as `pre_emptive_learnings` in the response.
+  Closes the "agent skipped search before re-investigation" gap without
+  requiring a new tool call.
+
+- **`suggested_reads` in `knit_build_context`**. Returns a curated list of
+  files the agent should consider reading before editing the files-to-touch.
+  Three signals: graph-importers (blast radius), graph-imports (likely
+  needed for the edit), memory-mentions (files referenced by past learnings
+  in these domains). Caps at 8 entries; each carries `{ path, reason, via }`
+  for diagnostic transparency.
+
+### Added — system prompt directive
+
+- **Citation rule** in `KNIT_INSTRUCTIONS_BASE`. Tells the agent: "when you
+  state a fact about this codebase, cite the Knit tool result that verified
+  it — e.g. '(per knit_query_imports)'. If you can't cite, mark the claim
+  as 'unverified' explicitly." Norm-setting at the system-prompt level.
+  Makes hallucinations visible at the claim level instead of letting them
+  ship as confident-sounding prose.
+
+### Added — hook-level enforcement (Round 2)
+
+`HOOKS_VERSION` bumped 6 → 7. Existing installs auto-refresh on next
+brain load.
+
+- **`.searched-current` marker** (`searchMarkerPath`). Written by
+  `knit_search_learnings` and `knit_search_global_learnings`. Cleared on
+  `UserPromptSubmit` (turn boundary).
+
+- **PreToolUse search-gate**. Extends the existing classification gate.
+  When `marker.tier ∈ {standard, complex}` and the search-marker is
+  absent, the gate fires:
+  - `warn` (default): stderr nudge "call knit_search_learnings before Edit"
+  - `block`: hard-fail with exit 2
+
+- **PreToolUse content inspection** on Write/Edit/MultiEdit. Reads the
+  proposed content from `tool_input` (or assembled from `tool_input.edits`),
+  extracts relative `import` statements, validates each path resolves on
+  disk. Warns about unresolved relative imports — likely hallucinated paths.
+  Never blocks on its own; the existing classification gate is the block
+  vehicle.
+
+- **PostToolUse import-validation** on Write/Edit/MultiEdit. After the file
+  lands on disk, re-parses imports and warns about any unresolved relative
+  paths. Catches anything that slipped past the pre-write check (e.g.
+  MultiEdit combinations).
+
+- **Stop-hook budget watch**. Reads CLAUDE.md size at session end. Emits
+  a warning to stderr if it crosses the 12.5KB over-budget threshold (25%
+  above the 6.5KB target). Drift becomes visible even if the agent never
+  calls `knit_brain_status`.
+
+### Tool registry now 43 entries (Tier 1 = 31)
+
+Added: `knit_verify_claim` (knowledge-graph), `knit_get_learning` (memory),
+`knit_consolidate_learnings` (memory). Knowledge-graph cluster grows
+5 → 6. Memory cluster grows 8 → 10.
+
+### Tests — 467 → 492 (+25 new)
+
+- `tests/verify-claim.test.ts` (NEW, 14 tests) — claim parsing per
+  pattern (import/export/test/exists), true + false cases, unparseable
+  free-form, pre_emptive_learnings not firing on trivial/inquiry,
+  suggested_reads graph-importer + graph-import, knit_get_learning
+  fetch + error paths, citation rule presence.
+- `tests/consolidate-learnings.test.ts` (NEW, 7 tests) — no-op
+  conditions (size, threshold), clustering with high overlap, dry-run
+  preserves KB, commit=true persists, custom min_cluster_size,
+  skip-already-consolidated.
+- Updated count assertions across `features.test.ts` and
+  `mcp-tools.test.ts` (38 → 43 across the three v0.9 rounds).
+
+### Gates
+
+typecheck ✓ · lint 0 errors ✓ · 492/492 tests pass ✓ · build ✓ ·
+dist/cli.js --version → 0.9.0.
+
+### Upgrade path
+
+After `npx knit-mcp@latest setup` (or just letting npx auto-fetch), restart
+Claude Code. The HOOKS_VERSION 6 → 7 bump triggers automatic regeneration
+of `.claude/settings.local.json` with the new hooks on the next brain
+load — no manual `knit refresh` needed.
+
 ## [0.8.0] — 2026-05-19
 
 **Vectorless RAG ships.** All three search tools (`knit_search_learnings`,

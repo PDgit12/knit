@@ -25,7 +25,7 @@ import {
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
   handleScanIntegrations, handleCompoundingMetrics, handleVerifyClaim,
-  handleGetLearning,
+  handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
@@ -367,6 +367,18 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Fetch one full learning by id. Pair with knit_search_learnings (default returns headlines) for hierarchical retrieval — expand only what you need.',
       inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Learning id from a prior knit_search_learnings result.' } }, required: ['id'] },
     },
+    {
+      name: 'knit_consolidate_learnings',
+      description: 'Detect clusters of similar learnings (Jaccard tag overlap) and propose a single pattern entry per cluster. Dry-run by default; pass commit=true to persist.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          min_cluster_size: { type: 'string', description: 'Minimum cluster size (default 3, max 20).' },
+          jaccard_threshold: { type: 'string', description: 'Min Jaccard tag overlap to cluster (default 0.5).' },
+          commit: { type: 'string', description: '"true" to apply; default is dry-run.' },
+        },
+      },
+    },
   ];
 }
 
@@ -434,6 +446,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_compounding_metrics: handleCompoundingMetrics,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
+  knit_consolidate_learnings: handleConsolidateLearnings,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

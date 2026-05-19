@@ -123,6 +123,14 @@ export function sessionMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.session-loaded');
 }
 
+/** ~/.knit/projects/<hash>/.searched-current — per-turn search marker.
+ *  Written by knit_search_learnings / knit_search_global_learnings; cleared
+ *  on UserPromptSubmit. The PreToolUse Edit gate reads it to enforce the
+ *  "search before re-investigate" discipline on standard/complex tasks. */
+export function searchMarkerPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), '.searched-current');
+}
+
 /** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
 export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');
