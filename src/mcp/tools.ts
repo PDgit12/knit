@@ -23,8 +23,10 @@ import {
   handleReflect, handleGetSuggestions,
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
-  handleListFeatures,
+  handleListFeatures, handleEnableFeature, handleDisableFeature,
+  detectProjectShape,
 } from './handlers.js';
+import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
 
 /** MCP tool definition */
 interface ToolDef {
@@ -317,7 +319,45 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'List which Knit tools are active vs hidden in this project and why. Call when a tool you expect to use isn\'t in the tool list — the response tells you how to enable it.',
       inputSchema: { type: 'object', properties: {} },
     },
+    {
+      name: 'knit_enable_feature',
+      description: 'Enable a Tier-2/3 feature flag (teams, subagents, admin) for this project. Persisted across sessions. After enabling, the hidden tools appear in tools/list on the next request.',
+      inputSchema: {
+        type: 'object',
+        properties: { feature: { type: 'string', description: 'One of: teams, subagents, admin.' } },
+        required: ['feature'],
+      },
+    },
+    {
+      name: 'knit_disable_feature',
+      description: 'Disable a previously-enabled feature flag. Tools auto-exposed by project-shape detection (e.g., team tools when ≥3 domains) stay visible regardless of this flag.',
+      inputSchema: {
+        type: 'object',
+        properties: { feature: { type: 'string', description: 'One of: teams, subagents, admin.' } },
+        required: ['feature'],
+      },
+    },
   ];
+}
+
+/** Filter the tool definitions by project shape — used by ListToolsRequestSchema
+ *  handlers so hidden Tier-2/3 tools don't appear in the agent's tool list at all.
+ *  Falls through to the full registry if no shape is provided, so direct callers
+ *  (tests, ad-hoc scripts) still get everything. */
+export function getActiveToolDefinitions(shape?: ProjectShape): ToolDef[] {
+  const all = getToolDefinitions();
+  if (!shape) return all;
+  const activeNames = new Set(
+    TOOL_REGISTRY.filter((info) => isToolActive(info, shape)).map((info) => info.tool),
+  );
+  return all.filter((def) => activeNames.has(def.name));
+}
+
+/** Convenience: build the shape from a brain and return its filtered tool list.
+ *  Server.ts and cli.ts's runMCP both call this in their ListToolsRequestSchema
+ *  handlers so the agent never sees tools it can't usefully call. */
+export function getActiveToolDefinitionsForBrain(brain: BrainCache): ToolDef[] {
+  return getActiveToolDefinitions(detectProjectShape(brain));
 }
 
 /** Handler routing table */
@@ -358,6 +398,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_set_protocol_strictness: handleSetProtocolStrictness,
   knit_get_protocol_strictness: handleGetProtocolStrictness,
   knit_list_features: handleListFeatures,
+  knit_enable_feature: handleEnableFeature,
+  knit_disable_feature: handleDisableFeature,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

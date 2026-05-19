@@ -69,9 +69,11 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_set_protocol_strictness', tier: 1, category: 'protocol-config', rationale: 'Universal — every install ships Protocol Guard' },
   { tool: 'knit_get_protocol_strictness', tier: 1, category: 'protocol-config', rationale: 'Universal' },
 
-  // ── Tier 1 — Diagnostics + meta (2) ─────────────────────────────
+  // ── Tier 1 — Diagnostics + meta (4) ─────────────────────────────
   { tool: 'knit_brain_status', tier: 1, category: 'diagnostics', rationale: 'Health + token-accounting; universal' },
   { tool: 'knit_list_features', tier: 1, category: 'diagnostics', rationale: 'The discoverability escape hatch itself' },
+  { tool: 'knit_enable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip on a Tier-2/3 feature flag — must always be reachable so hidden tools are recoverable' },
+  { tool: 'knit_disable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip off a previously-enabled feature flag' },
 
   // ── Tier 2 — Team worktrees (9) ─────────────────────────────────
   { tool: 'knit_spawn_team_worktree', tier: 2, category: 'teams', rationale: 'Multi-domain parallel write orchestration', enable_via: 'knit_enable_feature("teams") or auto-exposed when ≥3 domains detected' },
@@ -116,10 +118,27 @@ export interface FeatureListing {
   by_category: Record<ToolCategory, { active: number; available: number }>;
 }
 
-/** Compute the active/available split for a given project shape.
- *  Step 3 (this commit): everything is active. Step 4 will plug in real
- *  gating that respects ProjectShape. */
-export function computeFeatureListing(_shape: ProjectShape): FeatureListing {
+/** Decide whether a tool should be active given the current project shape.
+ *  Tier 1 is always active. Tier 2 gates on the relevant project signal OR
+ *  an explicit opt-in. Tier 3 is admin-only — strictly opt-in. */
+export function isToolActive(info: FeatureInfo, shape: ProjectShape): boolean {
+  if (info.tier === 1) return true;
+  if (info.tier === 3) return shape.enabledFeatures.has('admin');
+
+  // Tier 2 — auto-expose by category-specific signal OR explicit opt-in.
+  if (info.category === 'teams') {
+    return shape.domainCount >= 3 || shape.enabledFeatures.has('teams');
+  }
+  if (info.category === 'subagents') {
+    return shape.hasInstalledSubagents || shape.enabledFeatures.has('subagents');
+  }
+  // Any new Tier-2 category added without an explicit rule defaults to hidden
+  // so the agent surface stays narrow until someone codes the detection.
+  return false;
+}
+
+/** Compute the active/available split for a given project shape. */
+export function computeFeatureListing(shape: ProjectShape): FeatureListing {
   const active: FeatureListing['active'] = [];
   const available: FeatureListing['available'] = [];
   const by_category: FeatureListing['by_category'] = {
@@ -135,9 +154,19 @@ export function computeFeatureListing(_shape: ProjectShape): FeatureListing {
   };
 
   for (const info of TOOL_REGISTRY) {
-    // Step 3 placeholder: all tools active. Step 4 will gate Tier-2/3 here.
-    active.push({ name: info.tool, tier: info.tier, category: info.category });
-    by_category[info.category].active++;
+    if (isToolActive(info, shape)) {
+      active.push({ name: info.tool, tier: info.tier, category: info.category });
+      by_category[info.category].active++;
+    } else {
+      available.push({
+        name: info.tool,
+        tier: info.tier,
+        category: info.category,
+        reason: info.rationale,
+        enable_via: info.enable_via,
+      });
+      by_category[info.category].available++;
+    }
   }
 
   return {
@@ -146,4 +175,11 @@ export function computeFeatureListing(_shape: ProjectShape): FeatureListing {
     totals: { active: active.length, available: available.length, total: TOOL_REGISTRY.length },
     by_category,
   };
+}
+
+/** Valid feature-flag names users can flip on via knit_enable_feature. */
+export type EnableableFeature = 'teams' | 'subagents' | 'admin';
+
+export function isEnableableFeature(name: string): name is EnableableFeature {
+  return name === 'teams' || name === 'subagents' || name === 'admin';
 }

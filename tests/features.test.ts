@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { TOOL_REGISTRY, computeFeatureListing, type ProjectShape } from '../src/mcp/features.js';
+import {
+  TOOL_REGISTRY,
+  computeFeatureListing,
+  isToolActive,
+  isEnableableFeature,
+  type ProjectShape,
+} from '../src/mcp/features.js';
 
 const emptyShape: ProjectShape = {
   hasAnalyzableCode: false,
@@ -9,9 +15,17 @@ const emptyShape: ProjectShape = {
   enabledFeatures: new Set(),
 };
 
+const allEnabled: ProjectShape = {
+  hasAnalyzableCode: true,
+  domainCount: 5,
+  hasInstalledSubagents: true,
+  sessionCount: 50,
+  enabledFeatures: new Set(['teams', 'subagents', 'admin']),
+};
+
 describe('TOOL_REGISTRY', () => {
-  it('declares 36 tools (35 existing + knit_list_features)', () => {
-    expect(TOOL_REGISTRY.length).toBe(36);
+  it('declares 38 tools (36 from step 3 + knit_enable_feature + knit_disable_feature)', () => {
+    expect(TOOL_REGISTRY.length).toBe(38);
   });
 
   it('every tool has a unique name', () => {
@@ -31,9 +45,9 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
-  it('Tier 1 contains exactly 24 universal tools', () => {
+  it('Tier 1 contains exactly 26 universal tools (24 original + knit_enable_feature + knit_disable_feature)', () => {
     const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
-    expect(tier1.length).toBe(24);
+    expect(tier1.length).toBe(26);
   });
 
   it('Tier 2 contains exactly 10 conditional tools', () => {
@@ -69,39 +83,100 @@ describe('TOOL_REGISTRY', () => {
       expect(t.tier).toBe(2);
     }
   });
+
+  it('feature-flag controls are in Tier 1 so hidden tools are always recoverable', () => {
+    const enableTool = TOOL_REGISTRY.find((t) => t.tool === 'knit_enable_feature');
+    const disableTool = TOOL_REGISTRY.find((t) => t.tool === 'knit_disable_feature');
+    expect(enableTool?.tier).toBe(1);
+    expect(disableTool?.tier).toBe(1);
+  });
 });
 
-describe('computeFeatureListing (step 3 placeholder behavior)', () => {
-  it('returns all tools as active until step 4 plugs in real gating', () => {
+describe('isToolActive — gating rules', () => {
+  it('every Tier 1 tool is active under an empty project shape', () => {
+    const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
+    for (const t of tier1) {
+      expect(isToolActive(t, emptyShape), `Tier 1 tool ${t.tool} should always be active`).toBe(true);
+    }
+  });
+
+  it('team tools auto-activate when ≥3 domains detected', () => {
+    const teamsTool = TOOL_REGISTRY.find((t) => t.tool === 'knit_spawn_team_worktree')!;
+    expect(isToolActive(teamsTool, emptyShape)).toBe(false);
+    expect(isToolActive(teamsTool, { ...emptyShape, domainCount: 3 })).toBe(true);
+    expect(isToolActive(teamsTool, { ...emptyShape, domainCount: 2 })).toBe(false);
+  });
+
+  it('team tools also activate via explicit opt-in even on solo-domain projects', () => {
+    const teamsTool = TOOL_REGISTRY.find((t) => t.tool === 'knit_spawn_team_worktree')!;
+    expect(isToolActive(teamsTool, { ...emptyShape, enabledFeatures: new Set(['teams']) })).toBe(true);
+  });
+
+  it('subagent tool activates when .claude/agents/ exists OR explicit opt-in', () => {
+    const sub = TOOL_REGISTRY.find((t) => t.tool === 'knit_install_agent')!;
+    expect(isToolActive(sub, emptyShape)).toBe(false);
+    expect(isToolActive(sub, { ...emptyShape, hasInstalledSubagents: true })).toBe(true);
+    expect(isToolActive(sub, { ...emptyShape, enabledFeatures: new Set(['subagents']) })).toBe(true);
+  });
+
+  it('Tier 3 admin tools are strictly opt-in', () => {
+    const tier3 = TOOL_REGISTRY.filter((t) => t.tier === 3);
+    for (const t of tier3) {
+      expect(isToolActive(t, emptyShape), `Tier 3 ${t.tool} should default-hidden`).toBe(false);
+      expect(isToolActive(t, { ...emptyShape, enabledFeatures: new Set(['admin']) })).toBe(true);
+    }
+  });
+});
+
+describe('computeFeatureListing', () => {
+  it('empty project shape exposes only Tier 1 (26 tools)', () => {
     const listing = computeFeatureListing(emptyShape);
-    expect(listing.active.length).toBe(36);
+    expect(listing.active.length).toBe(26);
+    expect(listing.available.length).toBe(12);
+    expect(listing.totals).toEqual({ active: 26, available: 12, total: 38 });
+  });
+
+  it('fully-enabled project shape exposes everything (38)', () => {
+    const listing = computeFeatureListing(allEnabled);
+    expect(listing.active.length).toBe(38);
     expect(listing.available.length).toBe(0);
-    expect(listing.totals).toEqual({ active: 36, available: 0, total: 36 });
   });
 
-  it('breaks the count down per-category', () => {
+  it('≥3 domains exposes all 9 team tools without needing opt-in', () => {
+    const listing = computeFeatureListing({ ...emptyShape, domainCount: 3 });
+    const teamsActive = listing.active.filter((t) => t.category === 'teams').length;
+    expect(teamsActive).toBe(9);
+  });
+
+  it('reports available tools with reason + enable_via hint', () => {
     const listing = computeFeatureListing(emptyShape);
-    expect(listing.by_category.memory.active).toBe(8);
-    expect(listing.by_category['knowledge-graph'].active).toBe(5);
-    expect(listing.by_category.workflow.active).toBe(4);
-    expect(listing.by_category['fp-reflection'].active).toBe(3);
-    expect(listing.by_category['protocol-config'].active).toBe(2);
-    expect(listing.by_category.diagnostics.active).toBe(2);
-    expect(listing.by_category.teams.active).toBe(9);
-    expect(listing.by_category.subagents.active).toBe(1);
-    expect(listing.by_category.admin.active).toBe(2);
+    const teamsEntry = listing.available.find((t) => t.name === 'knit_spawn_team_worktree');
+    expect(teamsEntry).toBeDefined();
+    expect(teamsEntry?.reason.length).toBeGreaterThan(0);
+    expect(teamsEntry?.enable_via).toMatch(/teams/);
   });
 
-  it('placeholder behavior does not depend on project shape', () => {
-    // Until step 4, the listing should be identical regardless of shape.
-    const a = computeFeatureListing(emptyShape);
-    const b = computeFeatureListing({
-      hasAnalyzableCode: true,
-      domainCount: 5,
-      hasInstalledSubagents: true,
-      sessionCount: 50,
-      enabledFeatures: new Set(['teams', 'subagents', 'admin']),
-    });
-    expect(a.totals).toEqual(b.totals);
+  it('Tier-1 categories always have zero available (memory, knowledge-graph, workflow, etc.)', () => {
+    const listing = computeFeatureListing(emptyShape);
+    expect(listing.by_category.memory.available).toBe(0);
+    expect(listing.by_category['knowledge-graph'].available).toBe(0);
+    expect(listing.by_category.workflow.available).toBe(0);
+    expect(listing.by_category['fp-reflection'].available).toBe(0);
+    expect(listing.by_category['protocol-config'].available).toBe(0);
+    expect(listing.by_category.diagnostics.available).toBe(0);
+  });
+});
+
+describe('isEnableableFeature', () => {
+  it('accepts the three valid flags', () => {
+    expect(isEnableableFeature('teams')).toBe(true);
+    expect(isEnableableFeature('subagents')).toBe(true);
+    expect(isEnableableFeature('admin')).toBe(true);
+  });
+
+  it('rejects unknown flags', () => {
+    expect(isEnableableFeature('typos')).toBe(false);
+    expect(isEnableableFeature('TEAMS')).toBe(false);
+    expect(isEnableableFeature('')).toBe(false);
   });
 });

@@ -24,7 +24,13 @@ import {
 import { getAdaptiveSuggestions } from '../engine/reflect.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { redactSecrets } from './sanitize.js';
-import { computeFeatureListing, type ProjectShape } from './features.js';
+import {
+  computeFeatureListing,
+  isEnableableFeature,
+  type ProjectShape,
+  type EnableableFeature,
+} from './features.js';
+import { featuresConfigPath } from '../engine/paths.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -188,24 +194,51 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
   });
 }
 
-/** Build the ProjectShape signal for this project. Used by tier-gating step 4;
- *  knit_list_features surfaces the same signals so the agent can explain why a
- *  tool is hidden. */
-function detectProjectShape(brain: BrainCache): ProjectShape {
-  const enabled = new Set<'teams' | 'subagents' | 'admin'>();
+/** Read the opt-in feature flags from disk. Best-effort: never throws — a
+ *  missing or malformed file just means "no opt-ins yet." */
+function loadEnabledFeatures(rootPath: string): Set<EnableableFeature> {
+  const enabled = new Set<EnableableFeature>();
+  try {
+    const path = featuresConfigPath(rootPath);
+    if (!existsSync(path)) return enabled;
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as { enabled?: string[] };
+    if (Array.isArray(parsed?.enabled)) {
+      for (const name of parsed.enabled) {
+        if (isEnableableFeature(name)) enabled.add(name);
+      }
+    }
+  } catch {
+    // best-effort: never let a malformed features.json break the brain.
+  }
+  return enabled;
+}
+
+function saveEnabledFeatures(rootPath: string, enabled: Set<EnableableFeature>): void {
+  const path = featuresConfigPath(rootPath);
+  const payload = {
+    enabled: [...enabled].sort(),
+    updatedAt: new Date().toISOString(),
+  };
+  writeFileSync(path, JSON.stringify(payload, null, 2), 'utf-8');
+}
+
+/** Build the ProjectShape signal for this project. Used by tier-gating in
+ *  computeFeatureListing and getToolDefinitions. knit_list_features surfaces
+ *  the same signals so the agent can explain why a tool is hidden. */
+export function detectProjectShape(brain: BrainCache): ProjectShape {
   return {
     hasAnalyzableCode: brain.knowledge.summary.totalFiles >= 10,
     domainCount: brain.config.domains?.length ?? 0,
     hasInstalledSubagents: existsSync(projectAgentsDir(brain.rootPath)),
     sessionCount: sessionCount(brain.rootPath),
-    enabledFeatures: enabled,
+    enabledFeatures: loadEnabledFeatures(brain.rootPath),
   };
 }
 
 /** knit_list_features — the discoverability escape hatch.
  *  Returns the active/available split for this project plus a per-category
- *  breakdown. Step 3 returns all tools as "active"; step 4 adds the gating
- *  logic so Tier-2/3 tools appear in `available` with enable hints. */
+ *  breakdown. Tier-2 tools auto-activate when the project shape matches; Tier-3
+ *  is strictly opt-in via knit_enable_feature. */
 export function handleListFeatures(_params: Record<string, string>, brain: BrainCache): string {
   const shape = detectProjectShape(brain);
   const listing = computeFeatureListing(shape);
@@ -218,7 +251,53 @@ export function handleListFeatures(_params: Record<string, string>, brain: Brain
       session_count: shape.sessionCount,
       enabled_features: [...shape.enabledFeatures],
     },
-    instruction: 'If a tool you want is in `available` rather than `active`, the `enable_via` field tells you how to switch it on.',
+    instruction: 'If a tool you want is in `available` rather than `active`, the `enable_via` field tells you how to switch it on. Most commonly: knit_enable_feature({ feature: "teams" | "subagents" | "admin" }).',
+  });
+}
+
+/** knit_enable_feature — flip on a Tier-2/3 feature flag. Persists to
+ *  features.json so the next session sees the change too. */
+export function handleEnableFeature(params: Record<string, string>, brain: BrainCache): string {
+  const feature = (params.feature || '').trim().toLowerCase();
+  if (!isEnableableFeature(feature)) {
+    return JSON.stringify({
+      status: 'error',
+      error: `Invalid feature: "${params.feature}". Valid values: teams, subagents, admin.`,
+    });
+  }
+  const enabled = loadEnabledFeatures(brain.rootPath);
+  const wasAlreadyOn = enabled.has(feature);
+  enabled.add(feature);
+  if (!wasAlreadyOn) {
+    saveEnabledFeatures(brain.rootPath, enabled);
+  }
+  return JSON.stringify({
+    status: wasAlreadyOn ? 'already-enabled' : 'enabled',
+    feature,
+    enabled_features: [...enabled].sort(),
+    instruction: 'New tools may now appear in tools/list on the next request. Call knit_list_features to confirm.',
+  });
+}
+
+/** knit_disable_feature — flip off a previously-enabled feature flag. */
+export function handleDisableFeature(params: Record<string, string>, brain: BrainCache): string {
+  const feature = (params.feature || '').trim().toLowerCase();
+  if (!isEnableableFeature(feature)) {
+    return JSON.stringify({
+      status: 'error',
+      error: `Invalid feature: "${params.feature}". Valid values: teams, subagents, admin.`,
+    });
+  }
+  const enabled = loadEnabledFeatures(brain.rootPath);
+  const wasOn = enabled.delete(feature);
+  if (wasOn) {
+    saveEnabledFeatures(brain.rootPath, enabled);
+  }
+  return JSON.stringify({
+    status: wasOn ? 'disabled' : 'already-disabled',
+    feature,
+    enabled_features: [...enabled].sort(),
+    instruction: 'Disabled tools will be filtered out of tools/list on the next request.',
   });
 }
 

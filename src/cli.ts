@@ -144,7 +144,7 @@ async function runMCP() {
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
   const { getBrain, detectProjectRoot, refreshBrain } = await import('./mcp/cache.js');
-  const { getToolDefinitions, handleToolCall } = await import('./mcp/tools.js');
+  const { getActiveToolDefinitionsForBrain, handleToolCall } = await import('./mcp/tools.js');
   const { KNIT_INSTRUCTIONS } = await import('./mcp/instructions.js');
 
   const ROOT_PATH = detectProjectRoot();
@@ -155,7 +155,7 @@ async function runMCP() {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: getToolDefinitions(),
+    tools: getActiveToolDefinitionsForBrain(getBrain(ROOT_PATH)),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

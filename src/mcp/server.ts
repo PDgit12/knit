@@ -21,7 +21,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { getBrain, detectProjectRoot, refreshBrain } from './cache.js';
-import { getToolDefinitions, handleToolCall } from './tools.js';
+import { getActiveToolDefinitionsForBrain, handleToolCall } from './tools.js';
 import { VERSION } from '../version.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
 
@@ -33,9 +33,11 @@ const server = new Server(
   { capabilities: { tools: {} }, instructions: KNIT_INSTRUCTIONS },
 );
 
-// List available tools
+// List available tools — filtered by project shape so hidden Tier-2/3 tools
+// don't appear in the agent's tool list. Loading the brain here is safe;
+// it's cached after the first call.
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: getToolDefinitions(),
+  tools: getActiveToolDefinitionsForBrain(getBrain(ROOT_PATH)),
 }));
 
 // Handle tool calls — with error boundary

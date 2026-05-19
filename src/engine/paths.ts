@@ -123,6 +123,11 @@ export function sessionMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.session-loaded');
 }
 
+/** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
+export function featuresConfigPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'features.json');
+}
+
 /** ~/.knit/projects/<hash>/learnings/ */
 export function learningsDir(rootPath: string): string {
   return join(projectDataDir(rootPath), 'learnings');
