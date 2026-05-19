@@ -12,7 +12,7 @@ import { scanProject } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
 import { statSync } from 'node:fs';
 import {
-  knowledgebasePath, learningsDir, teamsPath, sessionsLogPath,
+  knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
 } from '../engine/paths.js';
 import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge } from '../engine/sessions.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
@@ -24,6 +24,7 @@ import {
 import { getAdaptiveSuggestions } from '../engine/reflect.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { redactSecrets } from './sanitize.js';
+import { computeFeatureListing, type ProjectShape } from './features.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -184,6 +185,40 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
     },
     cache_age_ms: Date.now() - brain.loadedAt,
     instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
+  });
+}
+
+/** Build the ProjectShape signal for this project. Used by tier-gating step 4;
+ *  knit_list_features surfaces the same signals so the agent can explain why a
+ *  tool is hidden. */
+function detectProjectShape(brain: BrainCache): ProjectShape {
+  const enabled = new Set<'teams' | 'subagents' | 'admin'>();
+  return {
+    hasAnalyzableCode: brain.knowledge.summary.totalFiles >= 10,
+    domainCount: brain.config.domains?.length ?? 0,
+    hasInstalledSubagents: existsSync(projectAgentsDir(brain.rootPath)),
+    sessionCount: sessionCount(brain.rootPath),
+    enabledFeatures: enabled,
+  };
+}
+
+/** knit_list_features — the discoverability escape hatch.
+ *  Returns the active/available split for this project plus a per-category
+ *  breakdown. Step 3 returns all tools as "active"; step 4 adds the gating
+ *  logic so Tier-2/3 tools appear in `available` with enable hints. */
+export function handleListFeatures(_params: Record<string, string>, brain: BrainCache): string {
+  const shape = detectProjectShape(brain);
+  const listing = computeFeatureListing(shape);
+  return JSON.stringify({
+    ...listing,
+    project_shape: {
+      has_analyzable_code: shape.hasAnalyzableCode,
+      domain_count: shape.domainCount,
+      has_installed_subagents: shape.hasInstalledSubagents,
+      session_count: shape.sessionCount,
+      enabled_features: [...shape.enabledFeatures],
+    },
+    instruction: 'If a tool you want is in `available` rather than `active`, the `enable_via` field tells you how to switch it on.',
   });
 }
 

@@ -109,9 +109,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 35 tool definitions (v0.5.0 — +knit_set/get_protocol_strictness)', () => {
+  it('returns 36 tool definitions (v0.7 — +knit_list_features)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(35);
+    expect(tools).toHaveLength(36);
   });
 
   it('exposes the Protocol Guard tools', () => {

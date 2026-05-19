@@ -23,6 +23,7 @@ import {
   handleReflect, handleGetSuggestions,
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
+  handleListFeatures,
 } from './handlers.js';
 
 /** MCP tool definition */
@@ -309,6 +310,13 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Read current Protocol Guard strictness level for this project.',
       inputSchema: { type: 'object', properties: {} },
     },
+
+    // ── Meta — feature discoverability ───────────────────────────
+    {
+      name: 'knit_list_features',
+      description: 'List which Knit tools are active vs hidden in this project and why. Call when a tool you expect to use isn\'t in the tool list — the response tells you how to enable it.',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ];
 }
 
@@ -349,6 +357,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_install_agent: handleInstallAgent,
   knit_set_protocol_strictness: handleSetProtocolStrictness,
   knit_get_protocol_strictness: handleGetProtocolStrictness,
+  knit_list_features: handleListFeatures,
 };
 
 /** Handle a tool call — validate inputs, route to handler */
