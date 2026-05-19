@@ -146,13 +146,21 @@ async function runMCP() {
   const { getBrain, detectProjectRoot, refreshBrain } = await import('./mcp/cache.js');
   const { getActiveToolDefinitionsForBrain, handleToolCall } = await import('./mcp/tools.js');
   const { KNIT_INSTRUCTIONS } = await import('./mcp/instructions.js');
+  const { registerToolsListChangedNotifier } = await import('./mcp/notifier.js');
 
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
     { name: 'knit-brain', version: VERSION },
-    { capabilities: { tools: {} }, instructions: KNIT_INSTRUCTIONS },
+    {
+      capabilities: { tools: { listChanged: true } },
+      instructions: KNIT_INSTRUCTIONS,
+    },
   );
+
+  registerToolsListChangedNotifier(() => {
+    void server.sendToolListChanged().catch(() => { /* swallow */ });
+  });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: getActiveToolDefinitionsForBrain(getBrain(ROOT_PATH)),

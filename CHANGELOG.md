@@ -2,6 +2,69 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] — 2026-05-19
+
+**Hot-reload for tier-gated tools.** `knit_enable_feature` and
+`knit_disable_feature` now emit the MCP `notifications/tools/list_changed`
+notification when they successfully change persisted state. The client
+(Claude Code, Cursor, Codex) re-fetches `tools/list` immediately and
+newly-active tools appear in the same session — no Claude Code restart
+needed for these operations.
+
+This was the realistic partial win from the v0.7.0 "auto-update on
+MCP code change" question. Handler code changes still require restart
+(MCP transport limitation, not Knit), but the visible tool surface
+update is restart-free starting in v0.7.1.
+
+### Added
+
+- **`src/mcp/notifier.ts`** — late-bound dispatcher that bridges the
+  handler layer (no Server reference) to the transport layer.
+  `registerToolsListChangedNotifier(fn)` is called once by `server.ts`
+  and `cli.ts` after constructing the Server. `notifyToolsListChanged()`
+  is called by handlers after a state change; fire-and-forget, never
+  throws, swallows both sync exceptions and async rejections so a
+  notification failure can't tear down the handler.
+
+- **Server capability advertisement.** `tools: { listChanged: true }`
+  now appears in `capabilities` on both `src/mcp/server.ts` and
+  `src/cli.ts` runMCP-mode constructors, telling clients we may emit
+  the notification.
+
+### Changed
+
+- **`handleEnableFeature`** fires `notifyToolsListChanged()` after a
+  successful enable (NOT on already-enabled — re-enable is a no-op
+  notification too). Response `instruction` updated to reflect the new
+  live behavior: "Tools list updated for this session. The newly-
+  enabled tools should be available immediately — call
+  knit_list_features to confirm."
+
+- **`handleDisableFeature`** symmetric: fires on successful disable
+  (real state transition), no-ops on already-disabled.
+
+### Tests
+
+366 → 374. New `tests/notifier.test.ts` covers:
+- Notifier registration + invocation.
+- No-op when no notifier registered (handlers running outside MCP).
+- Sync exceptions and async rejections from the notifier are swallowed.
+- `handleEnableFeature` fires exactly on real flag-flip-on; idempotent
+  re-enable does NOT fire.
+- `handleDisableFeature` fires exactly on real flag-flip-off.
+- Invalid feature names hit the error path and do NOT fire.
+
+### What still requires a Claude Code restart (honest scope)
+
+- Handler code bug fixes (the v0.6.4 Stop-hook fix would still need
+  restart even after v0.7.1).
+- Server `instructions` field changes — sent at handshake only.
+- Upgrading the npm package version itself (process is already running
+  the prior version's code).
+
+For these, the answer is and will remain "restart Claude Code." It's
+a property of the MCP stdio transport, not a Knit limitation.
+
 ## [0.7.0] — 2026-05-19
 
 **The "connective tissue" release.** Knit becomes the universal MCP layer

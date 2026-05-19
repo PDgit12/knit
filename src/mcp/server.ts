@@ -24,14 +24,29 @@ import { getBrain, detectProjectRoot, refreshBrain } from './cache.js';
 import { getActiveToolDefinitionsForBrain, handleToolCall } from './tools.js';
 import { VERSION } from '../version.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
+import { registerToolsListChangedNotifier } from './notifier.js';
 
 // Cache project root at startup — doesn't change during a session
 const ROOT_PATH = detectProjectRoot();
 
 const server = new Server(
   { name: 'knit-brain', version: VERSION },
-  { capabilities: { tools: {} }, instructions: KNIT_INSTRUCTIONS },
+  {
+    // Advertising `listChanged: true` tells the MCP client we may emit
+    // notifications/tools/list_changed (we do, when knit_enable_feature
+    // or knit_disable_feature changes the visible tool surface).
+    capabilities: { tools: { listChanged: true } },
+    instructions: KNIT_INSTRUCTIONS,
+  },
 );
+
+// Bridge: handlers signal "tool surface changed" via notifyToolsListChanged();
+// here we plumb that into the actual MCP notification. Best-effort: if the
+// SDK's send rejects (client not yet initialized, transport closed, etc.),
+// the handler's primary work has already succeeded — we never throw out.
+registerToolsListChangedNotifier(() => {
+  void server.sendToolListChanged().catch(() => { /* swallow */ });
+});
 
 // List available tools — filtered by project shape so hidden Tier-2/3 tools
 // don't appear in the agent's tool list. Loading the brain here is safe;

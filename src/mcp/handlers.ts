@@ -31,6 +31,7 @@ import {
   type EnableableFeature,
 } from './features.js';
 import { featuresConfigPath } from '../engine/paths.js';
+import { notifyToolsListChanged } from './notifier.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -282,12 +283,18 @@ export function handleEnableFeature(params: Record<string, string>, brain: Brain
   enabled.add(feature);
   if (!wasAlreadyOn) {
     saveEnabledFeatures(brain.rootPath, enabled);
+    // Tell the MCP client the active tool surface just expanded.
+    // Client re-fetches tools/list and sees the newly-enabled tools
+    // appear in this same session, without requiring a Claude Code restart.
+    notifyToolsListChanged();
   }
   return JSON.stringify({
     status: wasAlreadyOn ? 'already-enabled' : 'enabled',
     feature,
     enabled_features: [...enabled].sort(),
-    instruction: 'New tools may now appear in tools/list on the next request. Call knit_list_features to confirm.',
+    instruction: wasAlreadyOn
+      ? 'Already enabled. Call knit_list_features to see the active tool list.'
+      : 'Tools list updated for this session. The newly-enabled tools should be available immediately — call knit_list_features to confirm.',
   });
 }
 
@@ -304,12 +311,18 @@ export function handleDisableFeature(params: Record<string, string>, brain: Brai
   const wasOn = enabled.delete(feature);
   if (wasOn) {
     saveEnabledFeatures(brain.rootPath, enabled);
+    // Tool surface contracted — notify the client to re-fetch tools/list.
+    // Tools auto-exposed by project-shape detection (e.g. teams when ≥3
+    // domains) stay visible regardless; only opt-in-only tools disappear.
+    notifyToolsListChanged();
   }
   return JSON.stringify({
     status: wasOn ? 'disabled' : 'already-disabled',
     feature,
     enabled_features: [...enabled].sort(),
-    instruction: 'Disabled tools will be filtered out of tools/list on the next request.',
+    instruction: wasOn
+      ? 'Tools list updated for this session. Opt-in-only tools for this feature are no longer visible.'
+      : 'Already disabled. Auto-exposed tools (e.g. teams when ≥3 domains) stay visible regardless of this flag.',
   });
 }
 
