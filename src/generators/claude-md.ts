@@ -26,6 +26,12 @@ import type { KnitConfig, Domain, ProjectKnowledge, LearningEntry } from '../eng
 
 export const KNIT_MARKER_START = '<!-- knit:start -->';
 export const KNIT_MARKER_END = '<!-- knit:end -->';
+// Legacy v0.5.x markers from before the engram→knit rename. spliceKnitBlock
+// recognizes these so users upgrading from v0.5.x get their orphan 16KB
+// engram-marked CLAUDE.md block cleanly replaced with the v0.7 lean version
+// instead of accumulating both blocks.
+export const LEGACY_ENGRAM_MARKER_START = '<!-- engram:start -->';
+export const LEGACY_ENGRAM_MARKER_END = '<!-- engram:end -->';
 
 export function generateClaudeMd(
   config: KnitConfig,
@@ -47,16 +53,28 @@ export function generateClaudeMd(
   return `${KNIT_MARKER_START}\n\n${body}\n\n${KNIT_MARKER_END}\n`;
 }
 
-/** Replace the engram block inside an existing CLAUDE.md, or append it if no markers exist. */
+/** Replace the Knit block inside an existing CLAUDE.md, or append it if no markers exist.
+ *  Recognizes both the current `<!-- knit:start -->/<!-- knit:end -->` markers
+ *  and the legacy v0.5.x `<!-- engram:start -->/<!-- engram:end -->` markers so
+ *  users upgrading from pre-v0.6 don't end up with an orphan block. */
 export function spliceKnitBlock(existing: string, newBlock: string): { content: string; mode: 'replaced' | 'appended' | 'sidecar-needed' } {
-  const startIdx = existing.indexOf(KNIT_MARKER_START);
-  const endIdx = existing.indexOf(KNIT_MARKER_END);
+  // Try current markers first, then legacy.
+  const markerPairs: Array<[string, string]> = [
+    [KNIT_MARKER_START, KNIT_MARKER_END],
+    [LEGACY_ENGRAM_MARKER_START, LEGACY_ENGRAM_MARKER_END],
+  ];
 
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    // Has both markers — replace block, preserve surrounding content
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + KNIT_MARKER_END.length);
-    return { content: before + newBlock.trimEnd() + after, mode: 'replaced' };
+  for (const [startMarker, endMarker] of markerPairs) {
+    const startIdx = existing.indexOf(startMarker);
+    const endIdx = existing.indexOf(endMarker);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      // Has both markers — replace block, preserve surrounding content.
+      // Block is rewritten with the CURRENT (knit) markers regardless of which
+      // legacy marker matched; this is how the file converges over time.
+      const before = existing.slice(0, startIdx);
+      const after = existing.slice(endIdx + endMarker.length);
+      return { content: before + newBlock.trimEnd() + after, mode: 'replaced' };
+    }
   }
 
   // Existing file but no markers — user-curated. Caller writes a sidecar instead.

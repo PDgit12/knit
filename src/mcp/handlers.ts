@@ -4,7 +4,7 @@
  * and returns a JSON string response.
  */
 
-import { writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
@@ -219,7 +219,19 @@ function saveEnabledFeatures(rootPath: string, enabled: Set<EnableableFeature>):
     enabled: [...enabled].sort(),
     updatedAt: new Date().toISOString(),
   };
-  writeFileSync(path, JSON.stringify(payload, null, 2), 'utf-8');
+  // Atomic write: stage to a sibling temp file, then rename onto the target.
+  // POSIX rename is atomic within a filesystem, so a mid-write crash cannot
+  // leave features.json in a half-written state — readers either see the
+  // prior committed payload or the new one, never a torn write.
+  const tmpPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+    renameSync(tmpPath, path);
+  } catch (err) {
+    // Best-effort cleanup if the temp file landed but the rename failed.
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 /** Build the ProjectShape signal for this project. Used by tier-gating in

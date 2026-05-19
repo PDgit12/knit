@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
+import { getToolDefinitions, getActiveToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
+import type { ProjectShape } from '../src/mcp/features.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase } from '../src/engine/types.js';
 
@@ -434,5 +435,102 @@ describe('handleToolCall', () => {
     // count is 1 for both, but the cap parameter is honored by the handler.
     expect(slim.intelligence.top_learnings.length).toBeLessThanOrEqual(3);
     expect(full.intelligence.top_learnings.length).toBeGreaterThanOrEqual(slim.intelligence.top_learnings.length);
+  });
+
+  it('knit_load_session — include="patterns,metrics" (comma-list) surfaces both', () => {
+    // Audit gap: previous tests only used single-include or "all". Verify
+    // the comma-list parser handles multiple opt-ins.
+    const result = JSON.parse(handleToolCall('knit_load_session', { include: 'patterns,metrics' }, brain));
+    expect(result.intelligence.patterns).toBeDefined();
+    expect(result.project.metrics).toBeDefined();
+    // Sections NOT requested stay omitted.
+    expect(result.project.teams).toBeUndefined();
+    expect(result.project.recent_sessions).toBeUndefined();
+  });
+
+  it('knit_load_session — unknown include names are silently ignored, valid ones honored', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', { include: 'metrics,nonsense,frobnicate' }, brain));
+    expect(result.project.metrics).toBeDefined();
+    // The garbage names don't crash; the response just omits sections we
+    // can't construct from them.
+    expect(result.project.teams).toBeUndefined();
+    expect(result.intelligence.patterns).toBeUndefined();
+  });
+});
+
+// ── v0.7 step 4 — getActiveToolDefinitions direct unit coverage ─────
+//
+// Audit gap: the filter was only tested transitively through handleListFeatures.
+// These tests pin the filter behavior at the call site that drives the
+// MCP tools/list response, so a regression in isToolActive would surface here
+// even if the handler logic happened to compensate.
+
+const emptyShape: ProjectShape = {
+  hasAnalyzableCode: false,
+  domainCount: 0,
+  hasInstalledSubagents: false,
+  sessionCount: 0,
+  enabledFeatures: new Set(),
+};
+
+describe('getActiveToolDefinitions — filters by ProjectShape', () => {
+  it('no shape arg → returns the full registry (back-compat)', () => {
+    const tools = getActiveToolDefinitions();
+    expect(tools.length).toBe(38);
+  });
+
+  it('empty shape → drops all 10 Tier-2 + 2 Tier-3 tools', () => {
+    const tools = getActiveToolDefinitions(emptyShape);
+    expect(tools.length).toBe(26);
+    const names = new Set(tools.map((t) => t.name));
+    // Team tools hidden:
+    expect(names.has('knit_spawn_team_worktree')).toBe(false);
+    expect(names.has('knit_finalize_team_worktree')).toBe(false);
+    // Subagents hidden:
+    expect(names.has('knit_install_agent')).toBe(false);
+    // Admin hidden:
+    expect(names.has('knit_prune_sessions')).toBe(false);
+    expect(names.has('knit_setup_project')).toBe(false);
+    // Tier 1 still visible:
+    expect(names.has('knit_load_session')).toBe(true);
+    expect(names.has('knit_classify_task')).toBe(true);
+    expect(names.has('knit_list_features')).toBe(true);
+    expect(names.has('knit_enable_feature')).toBe(true);
+  });
+
+  it('domainCount ≥ 3 → all 9 team tools appear', () => {
+    const tools = getActiveToolDefinitions({ ...emptyShape, domainCount: 3 });
+    const names = new Set(tools.map((t) => t.name));
+    expect(names.has('knit_spawn_team_worktree')).toBe(true);
+    expect(names.has('knit_finalize_team_worktree')).toBe(true);
+    expect(names.has('knit_list_team_worktrees')).toBe(true);
+    expect(names.has('knit_define_team')).toBe(true);
+    expect(names.has('knit_get_teams')).toBe(true);
+    expect(names.has('knit_get_team_prompt')).toBe(true);
+    expect(names.has('knit_start_team_review')).toBe(true);
+    expect(names.has('knit_post_team_findings')).toBe(true);
+    expect(names.has('knit_get_board_summary')).toBe(true);
+  });
+
+  it('enabledFeatures.has("admin") → Tier-3 admin tools appear', () => {
+    const tools = getActiveToolDefinitions({
+      ...emptyShape,
+      enabledFeatures: new Set(['admin']),
+    });
+    const names = new Set(tools.map((t) => t.name));
+    expect(names.has('knit_prune_sessions')).toBe(true);
+    expect(names.has('knit_setup_project')).toBe(true);
+  });
+
+  it('knit_list_features and knit_enable_feature are ALWAYS in the filtered list (invariant)', () => {
+    // Recoverability invariant: if these were ever hidden, a user who
+    // disabled "admin" by accident would have no path back. Pin it here so
+    // a refactor that moves them to a lower tier breaks loud.
+    for (const shape of [emptyShape, { ...emptyShape, domainCount: 5, enabledFeatures: new Set<'teams'|'subagents'|'admin'>(['teams','subagents','admin']) }]) {
+      const names = new Set(getActiveToolDefinitions(shape).map((t) => t.name));
+      expect(names.has('knit_list_features')).toBe(true);
+      expect(names.has('knit_enable_feature')).toBe(true);
+      expect(names.has('knit_disable_feature')).toBe(true);
+    }
   });
 });

@@ -2,6 +2,149 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-05-19
+
+**The "connective tissue" release.** Knit becomes the universal MCP layer
+for any project shape: tier-gated tool surface, dynamic per-project
+protocol injection at session start, ~60% per-turn token reduction
+across the board. No breaking changes for v0.6.5 users — every new
+behavior is additive or opt-in, with back-compat for legacy markers
+and persistence files.
+
+**Important upgrade note:** after upgrading, **restart Claude Code**
+(or your MCP client) so the running MCP server picks up the new
+`instructions` field and tier-gated `tools/list`. The new server
+instructions only flow into the system prompt at handshake time —
+the cached MCP process from before the upgrade keeps the v0.6.5
+behavior until restart.
+
+### Added
+
+- **MCP server-level `instructions` field.** The Server constructor now
+  emits a ~2KB universal-baseline protocol string that every MCP client
+  (Claude Code, Cursor, Codex) injects into the session system prompt
+  BEFORE tool descriptions are read. Closes the "agent doesn't know
+  Knit's flow at session start" gap that CLAUDE.md alone could never
+  close — CLAUDE.md is harness-wrapped with "may or may not be
+  relevant" caveats; instructions surface unconditionally. New file
+  `src/mcp/instructions.ts` exports `KNIT_INSTRUCTIONS`; both
+  `src/mcp/server.ts` and `src/cli.ts` runMCP-mode wire it in.
+
+- **Inquiry tier in the classifier.** `knit_classify_task` now detects
+  read-only "what / where / audit / explain / status / how" intent in
+  the task description and returns `tier: 'inquiry'` with empty phases
+  and `auto_plan_mode: false` — Inquiry-class tasks (e.g., "audit the
+  codebase") no longer hijack plan mode the way they did pre-v0.7.
+  Action directives ("fix this", "implement X") override even if an
+  inquiry word appears, so write-bearing commands stay correctly
+  routed. The workflow protocol always documented an Inquiry tier;
+  the classifier implementation just shipped late.
+
+- **Tier-gated tool registry — 38 tools, three tiers.**
+  - **Tier 1 (26 tools, always active):** memory + retrieval (8),
+    knowledge graph (5), workflow + classification (4), false positives
+    + reflection (3), Protocol Guard config (2), diagnostics + meta (4).
+  - **Tier 2 (10 tools, auto-exposed when project shape matches):**
+    team worktrees (9) auto-active when ≥3 domains detected OR
+    `knit_enable_feature("teams")`; subagents (1) auto-active when
+    `.claude/agents/` exists OR `knit_enable_feature("subagents")`.
+  - **Tier 3 (2 tools, strictly opt-in):** `knit_prune_sessions` and
+    `knit_setup_project`, both reachable via `knit_enable_feature("admin")`.
+  `tools/list` MCP responses are now filtered per project shape — the
+  agent never sees tools it can't usefully call. Solo-domain projects
+  drop 9 team-worktree tools from their decision space.
+
+- **`knit_list_features`** — the discoverability escape hatch. Always
+  Tier 1. Returns `{ active, available, totals, by_category,
+  project_shape }`. The `available` entries carry the rationale and
+  `enable_via` hint so the agent can tell the user how to switch a
+  hidden tool on.
+
+- **`knit_enable_feature` / `knit_disable_feature`** — flip Tier-2/3
+  flags on/off. Both Tier 1 (must always be reachable — otherwise a
+  user who disables "admin" by accident could lock themselves out of
+  the recovery path). Persisted to `~/.knit/projects/<hash>/features.json`
+  via atomic temp-then-rename write so a mid-write crash can't corrupt
+  the flag state. Unknown feature names in a persisted file are
+  silently dropped, not crashed on.
+
+- **Response payload caps.**
+  - `knit_load_session` is now lazy by default. The core response
+    (session_context, top 3 learnings, top 5 false positives, knowledge
+    counts) is always returned. Optional sections — patterns, teams,
+    metrics, recent_sessions, full_learnings, full_knowledge — gate
+    behind `include=<comma-list>`. `include=all` opts into everything.
+  - `knit_classify_task` minimal-mode by default. Returns `{ tier,
+    affected_domains, phases, auto_plan_mode, instruction }`. The
+    diagnostic fields (`reasoning`, `cross_domain_ripple`, `files_count`)
+    move behind `verbose=true` for ad-hoc debugging.
+
+### Changed
+
+- **CLAUDE.md generator trimmed ~88%** on a typical project (16.7KB →
+  ~2KB). The previously-injected system-reminder override paragraph,
+  verbose Protocol Guard prose, and Phase Status placeholder are gone
+  — covered by server instructions or pure ceremony. Project Map caps
+  high-fanout 15→5, untested 10→3. Tier vocabulary collapsed from a
+  prose-heavy section to a 4-row table. Workflow pointer collapsed
+  from a 10-phase code block to a one-liner. Project-specific value
+  (header, session-start pointer, project map, domain architecture,
+  build gates, false positives if curated) is fully preserved.
+
+- **Tool descriptions** in `src/mcp/tools.ts` compressed across the
+  board. Pre: average ~150 chars per tool. Post: average ~52 chars.
+  Action-verb-first one-liners. Behavior markers ("Call first on
+  every task.", "Opt-in.") retained because they affect agent
+  routing; elaborations and examples cut.
+
+### Fixed
+
+- **`spliceKnitBlock` now recognizes the legacy v0.5.x markers**
+  (`<!-- engram:start --> ... <!-- engram:end -->`) in addition to the
+  current `<!-- knit:start --> ... <!-- knit:end -->`. Pre-fix, users
+  upgrading from v0.5.x would have ended up with a 16KB orphan block
+  stranded in CLAUDE.md while Knit wrote a separate `.claude/KNIT.md`
+  sidecar — confusing and wasteful. The legacy block now gets cleanly
+  replaced; the file converges to the current markers over time.
+
+### Token-budget table (per-session fixed cost)
+
+| Surface | v0.6.5 | v0.7.0 | Cut |
+|---|---|---|---|
+| CLAUDE.md per-turn | ~16.7 KB | ~2 KB | 88% |
+| Tool registry (typical project) | ~6-8 KB | ~3-4 KB | ~50% |
+| `knit_classify_task` response | ~500 tok | ~150 tok | 70% |
+| `knit_load_session` response (default) | ~3-5 KB | ~1.5 KB | ~60% |
+| Server `instructions` | 0 | ~500 tok | (new context) |
+
+Net per-session fixed cost roughly halves on a typical project.
+
+### Deferred to v0.7.1 (close-successor)
+
+- BM25 + import-graph retrieval (vectorless RAG) — replaces substring
+  search across `knit_search_*`. Designed in `V0.7-PLAN.md` step 9.
+- Session-diversified retrieval — trivial follow-on once BM25 lands.
+- Integration scanner (`integrations.json`) — detects gstack /
+  CodeTour / custom CLAUDE.md frameworks and tailors instructions
+  per-project.
+- Token budget guardrail in `knit_brain_status`.
+- Knowledge-graph entity extraction.
+- 4-tier memory consolidation.
+- `/plugin install` packaging.
+- Secret-redaction pattern expansion based on real-user reports.
+
+### Tests
+
+312 → 366. New coverage for: Inquiry-tier detection, `KNIT_INSTRUCTIONS`
+budget + content invariants, tool registry shape + gating rules,
+`computeFeatureListing`, `isToolActive`, `getActiveToolDefinitions`
+filtering (including the Tier-1 recoverability invariant), feature-flag
+persistence round-trip, malformed `features.json` graceful fallback,
+unknown feature-name skip, atomic-write artifact check, multi-include
+parsing on `knit_load_session`, minimal/verbose modes on
+`knit_classify_task`, legacy `<!-- engram:start -->` marker migration
+in `spliceKnitBlock`.
+
 ## [0.6.5] — 2026-05-18
 
 **Polish pass before public link.** Final sweep through user-visible

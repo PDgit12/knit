@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -116,5 +116,64 @@ describe('knit_enable_feature persistence', () => {
     const resp = JSON.parse(handleEnableFeature({ feature: 'typos' }, brain));
     expect(resp.status).toBe('error');
     expect(resp.error).toMatch(/Invalid feature/);
+  });
+
+  it('gracefully ignores unknown feature names persisted to features.json', async () => {
+    // Audit gap: malformed features.json with unknown flags should not crash;
+    // unknown names should be silently dropped and known ones preserved.
+    const { detectProjectShape, handleListFeatures } = await import('../src/mcp/handlers.js');
+    const { featuresConfigPath, projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+    // Pre-seed features.json with one valid + two invalid flags.
+    writeFileSync(
+      featuresConfigPath(projectRoot),
+      JSON.stringify({ enabled: ['teams', 'typos', 'frobnicate'], updatedAt: '2026-05-19T00:00:00Z' }),
+      'utf-8',
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const brain = { rootPath: projectRoot, knowledge: { summary: { totalFiles: 0 } }, config: { domains: [] } } as any;
+    const shape = detectProjectShape(brain);
+    expect([...shape.enabledFeatures]).toEqual(['teams']);
+
+    // handleListFeatures should report only the valid flag.
+    const list = JSON.parse(handleListFeatures({}, brain));
+    expect(list.project_shape.enabled_features).toEqual(['teams']);
+  });
+
+  it('gracefully handles malformed features.json (broken JSON)', async () => {
+    const { detectProjectShape } = await import('../src/mcp/handlers.js');
+    const { featuresConfigPath, projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+    writeFileSync(featuresConfigPath(projectRoot), '{ this is not valid json', 'utf-8');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const brain = { rootPath: projectRoot, knowledge: { summary: { totalFiles: 0 } }, config: { domains: [] } } as any;
+    // detectProjectShape must NOT throw even with corrupt features.json.
+    expect(() => detectProjectShape(brain)).not.toThrow();
+    expect([...detectProjectShape(brain).enabledFeatures]).toEqual([]);
+  });
+
+  it('atomic write: features.json is never left in a partial state across enable calls', async () => {
+    // Verifies the temp-then-rename pattern actually drops the .tmp- staging
+    // file once renameSync completes. A regression to direct writeFileSync
+    // wouldn't fail this — but a regression that forgets to rename WOULD
+    // leave a stray .tmp file behind, which this checks.
+    const { handleEnableFeature } = await import('../src/mcp/handlers.js');
+    const { featuresConfigPath, projectDataDir } = await import('../src/engine/paths.js');
+    const { readdirSync } = await import('node:fs');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const brain = { rootPath: projectRoot, knowledge: { summary: { totalFiles: 0 } }, config: { domains: [] } } as any;
+
+    handleEnableFeature({ feature: 'teams' }, brain);
+    handleEnableFeature({ feature: 'subagents' }, brain);
+    handleEnableFeature({ feature: 'admin' }, brain);
+
+    expect(existsSync(featuresConfigPath(projectRoot))).toBe(true);
+    // No stray .tmp- staging files
+    const dir = projectDataDir(projectRoot);
+    const stragglers = readdirSync(dir).filter((f) => f.includes('.tmp-'));
+    expect(stragglers).toEqual([]);
   });
 });

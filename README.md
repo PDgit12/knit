@@ -26,6 +26,29 @@ Knit makes Claude Code do the right thing automatically because it can't predict
 
 It's a **single product**, not three. Every design choice has to win on memory + tokens + workflow together.
 
+## What's new in v0.7.0
+
+- **Universal protocol injection.** Knit sets the MCP server-level `instructions` field, so every MCP client (Claude Code, Cursor, Codex) sees Knit's flow at session start — *before* tool descriptions. Session 1 follows the protocol instead of stumbling onto it.
+- **Tier-gated tool surface.** 38 tools split into three tiers: Tier 1 (26 universal — memory, knowledge graph, workflow, classification, false-positive suppression, reflection, Protocol Guard config, diagnostics) is always exposed. Tier 2 (team worktrees, subagent installer) auto-activates when the project shape matches (≥3 detected domains, `.claude/agents/` exists) or via explicit opt-in. Tier 3 (admin/setup) is opt-in only. Solo-domain projects no longer see 9 team-worktree tools cluttering their decision space.
+- **`knit_list_features`** is the discoverability escape hatch — always available, always tells you what's hidden and exactly how to enable it (`knit_enable_feature({feature: "teams" | "subagents" | "admin"})`). Persisted to `~/.knit/projects/<hash>/features.json` so the choice survives sessions.
+- **Inquiry tier in the classifier.** Read-only "what / where / audit / explain" tasks now route to `tier: "inquiry"` with no plan mode and no phases — fixes a long-standing over-routing bug where audit-style questions hijacked Complex.
+- **CLAUDE.md cut ~88%** (16.7 KB → ~2 KB on typical projects). The per-turn context tax dropped sharply; all project-specific content (header, project map, domain architecture, build gates, false positives) stays intact.
+- **Lazy / minimal response modes.** `knit_load_session` returns the lean core by default; opt into more via `include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all`. `knit_classify_task` returns the minimal shape by default; pass `verbose=true` for the diagnostic fields.
+- **Legacy CLAUDE.md migration.** Users upgrading from v0.5.x with `<!-- engram:start -->/<!-- engram:end -->` markers are auto-migrated — the legacy block is replaced cleanly with the new lean block instead of leaving an orphan.
+
+### Per-session token-budget table
+
+| Surface | v0.6.5 | v0.7.0 | Cut |
+|---|---|---|---|
+| CLAUDE.md per-turn | ~16.7 KB | ~2 KB | 88% |
+| Tool registry (typical project) | ~6–8 KB | ~3–4 KB | ~50% |
+| `knit_classify_task` response | ~500 tok | ~150 tok | 70% |
+| `knit_load_session` response | ~3–5 KB | ~1.5 KB | ~60% |
+
+### Upgrade note
+
+After running `npx knit-mcp@latest setup` (or just updating the version pin), **restart Claude Code**. The MCP server's `instructions` field and tier-gated `tools/list` only flow into the system prompt at handshake — the cached process from before the upgrade keeps the v0.6.5 behavior until restart.
+
 ## Setup (one time)
 
 ```bash

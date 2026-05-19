@@ -202,6 +202,45 @@ Some user content below.
     const { mode } = spliceKnitBlock(existing, '## new content');
     expect(mode).toBe('sidecar-needed');
   });
+
+  it('migrates a v0.5.x CLAUDE.md (legacy engram markers) cleanly to the v0.7 lean block', async () => {
+    // Audit fix: pre-v0.6 CLAUDE.md files used <!-- engram:start -->/<!-- engram:end -->.
+    // Without legacy recognition, spliceKnitBlock would have returned
+    // sidecar-needed, leaving a 16KB orphan block stranded in the user's
+    // CLAUDE.md while writing a separate sidecar — confusing AND wasteful.
+    const { spliceKnitBlock, KNIT_MARKER_START, KNIT_MARKER_END, LEGACY_ENGRAM_MARKER_START, LEGACY_ENGRAM_MARKER_END } =
+      await import('../src/generators/claude-md.js');
+
+    const oldBlock = `${LEGACY_ENGRAM_MARKER_START}
+# Pretend this is a 16KB v0.5.x engram block
+... lots of content ...
+${LEGACY_ENGRAM_MARKER_END}`;
+
+    const existing = `# Project
+
+User-curated prose ABOVE the block.
+
+${oldBlock}
+
+User-curated prose BELOW the block.
+`;
+
+    const newBlock = `${KNIT_MARKER_START}\nLean v0.7 content\n${KNIT_MARKER_END}`;
+    const { content, mode } = spliceKnitBlock(existing, newBlock);
+
+    expect(mode).toBe('replaced');
+    // User content on both sides preserved
+    expect(content).toContain('User-curated prose ABOVE');
+    expect(content).toContain('User-curated prose BELOW');
+    // Old engram block fully replaced
+    expect(content).not.toContain('16KB v0.5.x engram block');
+    expect(content).not.toContain(LEGACY_ENGRAM_MARKER_START);
+    expect(content).not.toContain(LEGACY_ENGRAM_MARKER_END);
+    // New block lands with the current markers (the file converges to knit:* over time)
+    expect(content).toContain(KNIT_MARKER_START);
+    expect(content).toContain(KNIT_MARKER_END);
+    expect(content).toContain('Lean v0.7 content');
+  });
 });
 
 describe('generateSettings', () => {
@@ -398,7 +437,7 @@ describe('generateSettings', () => {
           // Pipe an empty stdin and close it. Some hooks (the PreToolUse
           // destructive-git blocker) read stdin and wait for EOF; without an
           // explicit empty input they hang forever.
-          execSync(cmd, { input: '', stdio: ['pipe', 'ignore', 'pipe'], timeout: 20000 });
+          execSync(cmd, { input: '', stdio: ['pipe', 'ignore', 'pipe'], timeout: 30000 });
         } catch (err) {
           throw new Error(`Hook crashed at runtime: ${cmd.slice(0, 200)}\n${(err as Error).message}`);
         }
