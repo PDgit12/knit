@@ -303,4 +303,56 @@ describe('handleToolCall', () => {
     }, brain));
     expect(result.tier).toBe('standard');
   });
+
+  // ── Inquiry tier (v0.7) ─────────────────────────────────────────
+  //
+  // Read-only "audit / explain / what" tasks must short-circuit to tier:inquiry
+  // with empty phases and auto_plan_mode:false — the v0.6.3 ship-readiness
+  // session over-routed an audit into plan mode because this branch didn't exist.
+
+  it('knit_classify_task — inquiry for "what should be fixed" (audit-style)', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
+      description: 'what should I fix before shipping? do a full audit end-to-end',
+    }, brain));
+    expect(result.tier).toBe('inquiry');
+    expect(result.phases).toEqual([]);
+    expect(result.auto_plan_mode).toBe(false);
+    expect(result.instruction).toMatch(/Read-only/);
+  });
+
+  it('knit_classify_task — inquiry for explain/describe verb', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts',
+      description: 'explain how this module handles auth',
+    }, brain));
+    expect(result.tier).toBe('inquiry');
+  });
+
+  it('knit_classify_task — inquiry for where/which question', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'unknown',
+      description: 'where is the rate limiter defined?',
+    }, brain));
+    expect(result.tier).toBe('inquiry');
+  });
+
+  it('knit_classify_task — inquiry does NOT hijack explicit action commands', () => {
+    // "fix the auth bug" is a directive even though it contains an inquiry-ish word.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts',
+      description: 'fix the auth bug in this file',
+    }, brain));
+    expect(result.tier).not.toBe('inquiry');
+  });
+
+  it('knit_classify_task — inquiry survives multi-file scope (read-only audits)', () => {
+    // 4 files normally promotes to complex; inquiry must override.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
+      description: 'audit the entire codebase for security issues',
+    }, brain));
+    expect(result.tier).toBe('inquiry');
+    expect(result.auto_plan_mode).toBe(false);
+  });
 });

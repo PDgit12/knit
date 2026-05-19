@@ -145,12 +145,13 @@ async function runMCP() {
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
   const { getBrain, detectProjectRoot, refreshBrain } = await import('./mcp/cache.js');
   const { getToolDefinitions, handleToolCall } = await import('./mcp/tools.js');
+  const { KNIT_INSTRUCTIONS } = await import('./mcp/instructions.js');
 
   const ROOT_PATH = detectProjectRoot();
 
   const server = new Server(
     { name: 'knit-brain', version: VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: KNIT_INSTRUCTIONS },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({

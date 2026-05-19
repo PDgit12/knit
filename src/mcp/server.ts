@@ -23,13 +23,14 @@ import {
 import { getBrain, detectProjectRoot, refreshBrain } from './cache.js';
 import { getToolDefinitions, handleToolCall } from './tools.js';
 import { VERSION } from '../version.js';
+import { KNIT_INSTRUCTIONS } from './instructions.js';
 
 // Cache project root at startup — doesn't change during a session
 const ROOT_PATH = detectProjectRoot();
 
 const server = new Server(
   { name: 'knit-brain', version: VERSION },
-  { capabilities: { tools: {} } },
+  { capabilities: { tools: {} }, instructions: KNIT_INSTRUCTIONS },
 );
 
 // List available tools

@@ -188,6 +188,29 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
 }
 
 
+/** Detects read-only "audit / explain / what / where / status" intent from the
+ *  task description. Returns true when the user is asking, not commanding.
+ *  Action verbs ("fix this", "implement X", "refactor Y") override even if an
+ *  inquiry word appears, because "fix it" is a command despite containing
+ *  no question word. Conservative on purpose — when in doubt, fall through
+ *  to the write-bearing tiers so Protocol Guard stays engaged. */
+function detectsInquiryIntent(description: string): boolean {
+  if (!description) return false;
+
+  // Question-word or inquiry-verb leads at the start of the description.
+  const inquiryStart = /^\s*(what|where|how|why|when|which|who|can|could|should|does|do|is|are|will|would|tell\s+me|show\s+me|find|list|status\s+of|audit|explain|investigate|analyze|review|describe|summari[sz]e|inspect)\b/i;
+  // Inquiry verbs anywhere in the description (caught even if the user starts mid-sentence).
+  const inquiryVerb = /\b(audit|explain|investigate|analy[sz]e|review|examine|describe|summari[sz]e|enumerate|inspect)\b/i;
+  // Action commands that override inquiry signals. "fix this/that/it/the…" is a
+  // directive, not a question. We require the action verb to be followed by an
+  // object so "what can be fixed" (passive voice, no object after "fix") stays
+  // classified as inquiry.
+  const actionDirective = /\b(fix|implement|build|add|refactor|ship|deploy|write|create|update|modify|change|edit|migrate|rename|delete|remove|install|setup|configure|merge|publish|release|patch)\s+(this|that|it|the|a|an|all|every|my|our|your)\b/i;
+
+  if (actionDirective.test(description)) return false;
+  return inquiryStart.test(description) || inquiryVerb.test(description);
+}
+
 export function handleClassifyTask(params: Record<string, string>, brain: BrainCache): string {
   const rawFiles = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
   const files = rawFiles.filter((f) => f !== 'unknown');
@@ -200,6 +223,33 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     if (importers.length >= 3) crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
   }
 
+  // Inquiry tier — read-only "what / audit / explain" tasks. Detected before
+  // file/domain counting because audit-style questions can touch many files
+  // without requiring any write. This stops the v0.6.3-style over-routing
+  // where "what should I fix?" got auto-promoted to Complex + plan mode.
+  if (detectsInquiryIntent(params.description || '')) {
+    try {
+      writeClassificationMarker(brain.rootPath, {
+        turnId: `${Date.now()}-${process.pid}`,
+        classifiedAt: new Date().toISOString(),
+        tier: 'inquiry',
+        files,
+      });
+    } catch {
+      // Best-effort: never let marker IO break classification.
+    }
+    return JSON.stringify({
+      tier: 'inquiry',
+      affected_domains: [...domains],
+      phases: [],
+      files_count: files.length,
+      cross_domain_ripple: crossDomainRipple,
+      auto_plan_mode: false,
+      instruction: 'Read-only task. Answer directly — no plan mode, no LEARN unless something durable surfaced. If scope grows into writes, re-classify with knit_classify_task.',
+      reasoning: `Inquiry: read-only intent detected${files.length > 0 ? `, ${files.length} file(s) referenced for context` : ''}`,
+    });
+  }
+
   const isTypes = files.some((f) => f.includes('types') || f.includes('schema'));
   const isAuth = files.some((f) => f.includes('auth') || f.includes('security'));
 
@@ -209,7 +259,7 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     || description.includes('new project') || description.includes('system')
     || description.length > 100; // long descriptions = complex tasks
 
-  const tier = isNewProject
+  const tier: TaskTier = isNewProject
     ? (descriptionIsComplex ? 'complex' : 'standard')
     : (domains.size >= 3 || isTypes || isAuth || files.length > 3)
       ? 'complex' : (domains.size >= 2 || files.length > 1) ? 'standard' : 'trivial';
@@ -232,7 +282,7 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     writeClassificationMarker(brain.rootPath, {
       turnId: `${Date.now()}-${process.pid}`,
       classifiedAt: new Date().toISOString(),
-      tier: tier as TaskTier,
+      tier,
       files,
     });
   } catch {

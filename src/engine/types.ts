@@ -62,8 +62,12 @@ export interface LearningEntry {
   tags: string[];
 }
 
-/** Tier classification */
-export type TaskTier = 'trivial' | 'standard' | 'complex';
+/** Tier classification.
+ *  - inquiry: read-only "what / where / explain / audit" tasks. No phases, no
+ *    plan mode. The workflow protocol documents this tier; v0.7 implements it
+ *    in the classifier so audit-style questions stop over-routing into Complex.
+ *  - trivial / standard / complex: write-bearing tasks routed by domain/file count. */
+export type TaskTier = 'inquiry' | 'trivial' | 'standard' | 'complex';
 
 /** Task classification result */
 export interface TaskClassification {
