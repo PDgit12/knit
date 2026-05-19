@@ -2,6 +2,107 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.2] — 2026-05-19
+
+**Token discipline becomes measurable, updates become visible, and Knit
+learns who else is on the host.** Three small but compounding pieces:
+a budget guardrail in `knit_brain_status`, an in-band update
+notification, and an integration scanner that detects other workflow
+frameworks (Ruflo, gstack, CodeTour) for v0.8's per-project instruction
+tailoring.
+
+### Added
+
+- **Token-budget guardrail** in `knit_brain_status`. Four per-session
+  surfaces (`claude_md`, `tool_registry`, `instructions`,
+  `per_session_overhead`) report actual vs. target bytes with
+  `healthy / warn / over-budget` verdicts. Budgets calibrated to v0.7
+  reality: 6.5KB CLAUDE.md, 8.5KB tool registry, 2.5KB instructions,
+  17.5KB total. Verdict flips immediately on drift — no more vibes
+  reviews. A `compounding` sub-block shows session count + learnings
+  hit rate so the value side of the ledger sits next to the cost.
+  Back-compat: the flat `token_accounting` shape from pre-v0.7.2 is
+  preserved for callers that hard-coded those field names.
+
+- **In-band update notification** via `knit_brain_status`. New module
+  `src/mcp/update-check.ts` fires a fire-and-forget HTTP GET to
+  `https://registry.npmjs.org/-/package/knit-mcp/dist-tags` at brain
+  load (best-effort, 2-second timeout, 1-hour TTL, errors silently
+  swallowed). `knit_brain_status` reads the cached value
+  synchronously and adds an `update_available` field iff the registry
+  `latest` is strictly newer than the installed `VERSION`. Includes
+  a `changelog` URL and explicit "Restart Claude Code; if pinned,
+  switch to `@latest`" upgrade hint. Air-gapped CI and offline users
+  see nothing — never a failure.
+
+- **Integration scanner** — new `src/engine/integration-scanner.ts`.
+  Detects existing workflow frameworks installed alongside Knit:
+  - **Ruflo / claude-flow** — via `~/.ruflo/`, `~/.claude-flow/`,
+    project `.claude-flow/`, MCP-server registration, npm dependency
+  - **gstack** — via `~/.gstack/`, `~/.claude/skills/gstack*`,
+    project `.gstack/`
+  - **CodeTour** — via `.tours/*.tour` files
+  - **Conductor** — via `~/.conductor/`
+  - **Other MCP servers** — all non-knit-brain entries in `~/.claude.json`
+  - **Custom workflow sections** in CLAUDE.md (`## Engineering Workflow`,
+    `## Methodology`, etc.) outside the knit-managed block
+  Persists to `~/.knit/projects/<hash>/integrations.json` via atomic
+  temp-then-rename write. Auto-runs at `autoInitialize`; manual
+  re-trigger via the new **`knit_scan_integrations`** tool (Tier 1).
+  `knit_brain_status` surfaces the latest scan result under a new
+  `integrations` field. **v0.7.2 surfaces; v0.8 will tailor the MCP
+  server-level `instructions` field per-project** to defer routing
+  decisions to detected frameworks where they overlap (memory +
+  classification stay Knit's domain).
+
+### Changed
+
+- **README** gains a **Quiet mode + Uninstall** section. After
+  weighing it against the Ruflo-inspired lite-install path, we chose
+  documentation over a forked install flow. Quiet mode is one MCP
+  call (`knit_set_protocol_strictness({level: "off"})`); uninstall is
+  3 steps (~30 seconds). No new code path to maintain, no doc surface
+  doubling, no support burden of "lite or full?" diagnostics.
+
+### Tool count
+
+`TOOL_REGISTRY` is now 39 entries — Tier 1 = 27 (added
+`knit_scan_integrations`), Tier 2 = 10, Tier 3 = 2. `tools/list`
+filter logic, `knit_list_features` discovery, and the registry
+recoverability invariant for Tier-1 control tools all pinned by
+updated tests.
+
+### Tests — 374 → 413 (+39 over v0.7.1)
+
+- `tests/token-budget.test.ts` (NEW, 7 tests) — budget surface
+  invariants, verdicts at boundary conditions, back-compat shape.
+- `tests/update-check.test.ts` (NEW, 14 tests) — semver comparator
+  edge cases, sync read of cached value, brain-status integration
+  with the `update_available` field.
+- `tests/integration-scanner.test.ts` (NEW, 14 tests) — detection
+  per framework, custom-workflow-section parsing that strips knit
+  + legacy engram markers, atomic persistence round-trip,
+  malformed JSON graceful fallback, `knit_scan_integrations`
+  handler smoke test.
+- Updated tool-count assertions across `features.test.ts` and
+  `mcp-tools.test.ts` to reflect the 38→39 transition.
+
+### Network discipline
+
+The update check is the only network call Knit makes during normal
+operation (subagent fetch is the other, fired once per agent then
+cached forever). Per session, the update check is at most one HTTP
+GET of ~200 bytes — far less than the token cost of the upgrade
+prompt it surfaces.
+
+### What's still ahead in v0.8
+
+- BM25 + import-graph vectorless retrieval (replaces substring search
+  across `knit_search_*`).
+- Per-project instruction tailoring driven by `integrations.json`.
+- Compounding memory benchmarks comparing session N+1 cost vs. session N.
+- Honest "Knit vs Ruflo" docs section.
+
 ## [0.7.1] — 2026-05-19
 
 **Hot-reload for tier-gated tools.** `knit_enable_feature` and

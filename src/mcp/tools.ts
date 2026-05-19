@@ -24,6 +24,7 @@ import {
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
+  handleScanIntegrations,
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
@@ -337,6 +338,11 @@ export function getToolDefinitions(): ToolDef[] {
         required: ['feature'],
       },
     },
+    {
+      name: 'knit_scan_integrations',
+      description: 'Re-scan host for existing workflow frameworks (Ruflo, gstack, CodeTour). Runs implicitly at autoInit; this is the manual re-trigger.',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ];
 }
 
@@ -400,6 +406,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_list_features: handleListFeatures,
   knit_enable_feature: handleEnableFeature,
   knit_disable_feature: handleDisableFeature,
+  knit_scan_integrations: handleScanIntegrations,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

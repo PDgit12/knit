@@ -128,6 +128,13 @@ export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');
 }
 
+/** ~/.knit/projects/<hash>/integrations.json — detected user workflow frameworks
+ *  (Ruflo, gstack, CodeTour, custom CLAUDE.md sections, other MCP servers).
+ *  Populated by the integration scanner; surfaced by knit_brain_status. */
+export function integrationsConfigPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'integrations.json');
+}
+
 /** ~/.knit/projects/<hash>/learnings/ */
 export function learningsDir(rootPath: string): string {
   return join(projectDataDir(rootPath), 'learnings');

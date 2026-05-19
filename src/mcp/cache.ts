@@ -9,6 +9,7 @@ import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { prewarmLatestVersion } from './update-check.js';
+import { scanIntegrations, persistScanResult } from '../engine/integration-scanner.js';
 import { pruneSessionsByAge } from '../engine/sessions.js';
 import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings, HOOKS_VERSION } from '../generators/settings.js';
@@ -200,6 +201,19 @@ function autoInitialize(rootPath: string): void {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       process.stderr.write(`[knit] session prune background error: ${msg}\n`);
+    }
+  });
+
+  // v0.7.2 — run the integration scanner once on autoInit so the result lands
+  // in ~/.knit/projects/<hash>/integrations.json by the time the agent calls
+  // knit_brain_status. Best-effort: failures are non-fatal.
+  Promise.resolve().then(() => {
+    try {
+      const result = scanIntegrations(rootPath);
+      persistScanResult(rootPath, result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`[knit] integration scan background error: ${msg}\n`);
     }
   });
 

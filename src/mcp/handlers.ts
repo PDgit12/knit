@@ -35,6 +35,7 @@ import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
 import { VERSION } from '../version.js';
+import { scanIntegrations, persistScanResult, loadScanResult } from '../engine/integration-scanner.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -317,6 +318,21 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
         },
       };
     })(),
+    ...(() => {
+      // Surface detected integrations (Ruflo, gstack, CodeTour, etc.) — best-effort
+      // read from ~/.knit/projects/<hash>/integrations.json. Null if no scan
+      // has run yet. v0.7.2 surfaces; v0.8 will tailor server instructions
+      // per-project based on what's detected.
+      const integrations = loadScanResult(brain.rootPath);
+      if (!integrations) return {};
+      return {
+        integrations: {
+          scanned_at: integrations.scannedAt,
+          detected: integrations.detected,
+          summary: integrations.summary,
+        },
+      };
+    })(),
     instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
   });
 }
@@ -422,6 +438,30 @@ export function handleEnableFeature(params: Record<string, string>, brain: Brain
       ? 'Already enabled. Call knit_list_features to see the active tool list.'
       : 'Tools list updated for this session. The newly-enabled tools should be available immediately — call knit_list_features to confirm.',
   });
+}
+
+/** knit_scan_integrations — explicit re-scan of the host for existing
+ *  workflow frameworks (Ruflo, gstack, CodeTour, other MCP servers, custom
+ *  CLAUDE.md sections). Persists to ~/.knit/projects/<hash>/integrations.json
+ *  and returns the structured result. Also runs implicitly at autoInitialize
+ *  so users typically don't need to call this — it's the manual re-trigger. */
+export function handleScanIntegrations(_params: Record<string, string>, brain: BrainCache): string {
+  try {
+    const result = scanIntegrations(brain.rootPath, { knitVersion: VERSION });
+    persistScanResult(brain.rootPath, result);
+    return JSON.stringify({
+      status: 'scanned',
+      ...result,
+      instruction: result.detected.ruflo.present || result.detected.gstack.present || result.detected.codetour.present || result.detected.conductor.present
+        ? 'Existing frameworks detected. v0.7.2 surfaces them under knit_brain_status; v0.8 will tailor server instructions to defer to them where appropriate.'
+        : 'No existing workflow frameworks detected. Knit operates in full-protocol mode.',
+    });
+  } catch (err) {
+    return JSON.stringify({
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /** knit_disable_feature — flip off a previously-enabled feature flag. */

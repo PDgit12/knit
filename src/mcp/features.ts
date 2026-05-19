@@ -69,11 +69,12 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_set_protocol_strictness', tier: 1, category: 'protocol-config', rationale: 'Universal — every install ships Protocol Guard' },
   { tool: 'knit_get_protocol_strictness', tier: 1, category: 'protocol-config', rationale: 'Universal' },
 
-  // ── Tier 1 — Diagnostics + meta (4) ─────────────────────────────
+  // ── Tier 1 — Diagnostics + meta (5) ─────────────────────────────
   { tool: 'knit_brain_status', tier: 1, category: 'diagnostics', rationale: 'Health + token-accounting; universal' },
   { tool: 'knit_list_features', tier: 1, category: 'diagnostics', rationale: 'The discoverability escape hatch itself' },
   { tool: 'knit_enable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip on a Tier-2/3 feature flag — must always be reachable so hidden tools are recoverable' },
   { tool: 'knit_disable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip off a previously-enabled feature flag' },
+  { tool: 'knit_scan_integrations', tier: 1, category: 'diagnostics', rationale: 'Re-detect existing user workflow frameworks (Ruflo, gstack, CodeTour, custom CLAUDE.md) so Knit can integrate rather than overlap' },
 
   // ── Tier 2 — Team worktrees (9) ─────────────────────────────────
   { tool: 'knit_spawn_team_worktree', tier: 2, category: 'teams', rationale: 'Multi-domain parallel write orchestration', enable_via: 'knit_enable_feature("teams") or auto-exposed when ≥3 domains detected' },
