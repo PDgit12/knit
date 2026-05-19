@@ -32,6 +32,7 @@ import {
 } from './features.js';
 import { featuresConfigPath } from '../engine/paths.js';
 import { notifyToolsListChanged } from './notifier.js';
+import { KNIT_INSTRUCTIONS } from './instructions.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -156,20 +157,122 @@ export function handleGetFalsePositives(_params: Record<string, string>, brain: 
   });
 }
 
+/** v0.7 token-budget targets — the discipline made measurable. These are the
+ *  per-surface ceilings declared in V0.7-PLAN.md. knit_brain_status compares
+ *  the live numbers against these so drift becomes visible, not vibes-based.
+ *
+ *  Targets are calibrated to what v0.7 actually delivers on a typical project,
+ *  with modest headroom. Drift past the target → "warn"; past 25% → "over-budget".
+ *  These numbers are the ship promise: if they regress, the guardrail catches it. */
+const TOKEN_BUDGETS = {
+  /** Generated CLAUDE.md block. v0.7 trim landed at ~2KB on typical projects;
+   *  6.5KB target allows for projects with many domains / large project map. */
+  claude_md_bytes: 6500,
+  /** Tier-gated tools/list response. v0.7 typical: 26 active × ~280 bytes ≈ 7.3KB.
+   *  8.5KB target allows Tier-2 team tools to come online on ≥3-domain projects
+   *  without crossing into warn. Full 38-tool exposure (everything enabled)
+   *  sits in warn range, surfacing the bloat without blocking it. */
+  tool_registry_bytes: 8500,
+  /** MCP server `instructions` field — sent at handshake. v0.7 ships at ~2KB. */
+  instructions_bytes: 2500,
+  /** Sum of the three above — the per-session fixed cost Knit imposes.
+   *  v0.7 typical: ~12KB; 17.5KB target covers the union with slack. */
+  per_session_overhead_bytes: 17500,
+} as const;
+
+function verdict(actual: number, target: number): 'healthy' | 'warn' | 'over-budget' {
+  if (actual <= target) return 'healthy';
+  if (actual <= target * 1.25) return 'warn';
+  return 'over-budget';
+}
+
+/** Rough char-to-token ratio. Real tokenization is BPE and varies by content
+ *  (~3.5–4.5 chars/token for English+code). 4 is the conventional shorthand. */
+const CHARS_PER_TOKEN = 4;
+
 export function handleBrainStatus(_params: Record<string, string>, brain: BrainCache): string {
   const summary = getKBSummary(brain.knowledgeBase);
 
-  // Token-accounting: is engram paying for itself?
-  // CLAUDE.md is the per-session context tax engram imposes.
-  // Hit rate is what engram pays back (re-investigations prevented).
+  // CLAUDE.md byte cost — the per-turn context tax.
   const claudeMdBytes = (() => {
     try { return statSync(join(brain.rootPath, 'CLAUDE.md')).size; }
     catch { return 0; }
   })();
+
+  // Tool-registry byte cost — derived from the project shape so it reflects
+  // what tools/list actually returns under tier-gating. Approximation rather
+  // than serializing the full ToolDef array to avoid a circular import on
+  // tools.ts (which depends on handlers.ts via detectProjectShape). The
+  // ~280-byte-per-tool figure is the empirical post-v0.7-trim average from
+  // measuring the actual dist output; close enough for a budget verdict.
+  const shape = detectProjectShape(brain);
+  const listing = computeFeatureListing(shape);
+  const activeToolCount = listing.totals.active;
+  const totalToolCount = listing.totals.total;
+  const AVG_TOOL_DEF_BYTES = 280;
+  const toolRegistryBytes = activeToolCount * AVG_TOOL_DEF_BYTES;
+
+  // MCP server instructions — same string the Server constructor surfaces at handshake.
+  const instructionsBytes = KNIT_INSTRUCTIONS.length;
+
+  const perSessionOverheadBytes = claudeMdBytes + toolRegistryBytes + instructionsBytes;
+
   const totalSessions = sessionCount(brain.rootPath);
   const hitRate = summary.totalEntries > 0
     ? Math.round((summary.accessedEntries / summary.totalEntries) * 100)
     : 0;
+
+  const budgets = {
+    claude_md: {
+      bytes: claudeMdBytes,
+      kb: Math.round(claudeMdBytes / 1024 * 10) / 10,
+      target_bytes: TOKEN_BUDGETS.claude_md_bytes,
+      verdict: verdict(claudeMdBytes, TOKEN_BUDGETS.claude_md_bytes),
+    },
+    tool_registry: {
+      active_tool_count: activeToolCount,
+      total_tool_count: totalToolCount,
+      bytes: toolRegistryBytes,
+      target_bytes: TOKEN_BUDGETS.tool_registry_bytes,
+      verdict: verdict(toolRegistryBytes, TOKEN_BUDGETS.tool_registry_bytes),
+    },
+    instructions: {
+      bytes: instructionsBytes,
+      target_bytes: TOKEN_BUDGETS.instructions_bytes,
+      verdict: verdict(instructionsBytes, TOKEN_BUDGETS.instructions_bytes),
+    },
+    per_session_overhead: {
+      bytes: perSessionOverheadBytes,
+      kb: Math.round(perSessionOverheadBytes / 1024 * 10) / 10,
+      tokens_estimate: Math.round(perSessionOverheadBytes / CHARS_PER_TOKEN),
+      target_bytes: TOKEN_BUDGETS.per_session_overhead_bytes,
+      verdict: verdict(perSessionOverheadBytes, TOKEN_BUDGETS.per_session_overhead_bytes),
+    },
+  };
+
+  // Overall verdict — worst-of-four. "warn" if any single surface is warning,
+  // "over-budget" if any is over.
+  const verdicts = [budgets.claude_md.verdict, budgets.tool_registry.verdict, budgets.instructions.verdict, budgets.per_session_overhead.verdict];
+  const overall: 'healthy' | 'warn' | 'over-budget' =
+    verdicts.includes('over-budget') ? 'over-budget'
+    : verdicts.includes('warn') ? 'warn'
+    : 'healthy';
+
+  // Compounding-memory signal — the value side of the ledger. The higher the
+  // hit rate and the more sessions accumulated, the more Knit is paying back
+  // the per-session overhead by preventing re-investigations.
+  const compounding = {
+    session_count: totalSessions,
+    total_learnings: summary.totalEntries,
+    learnings_hit_rate_pct: hitRate,
+    note: totalSessions === 0
+      ? 'Fresh brain — no sessions yet. Compounding kicks in around session 3.'
+      : hitRate >= 30
+        ? 'Strong compounding — learnings are getting reused across sessions.'
+        : hitRate < 20 && summary.totalEntries > 10
+          ? 'Low hit rate — many learnings unused. Consider pruning stale entries.'
+          : 'Compounding building up.',
+  };
 
   return JSON.stringify({
     ...summary,
@@ -179,16 +282,22 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
       import_edges: Object.keys(brain.knowledge.importGraph).length,
       exports_mapped: Object.keys(brain.knowledge.exports).length,
     },
+    // Back-compat: the flat token_accounting shape from pre-v0.7.2 is kept so
+    // anything that hard-coded those field names still works.
     token_accounting: {
       claude_md_bytes: claudeMdBytes,
-      claude_md_kb: Math.round(claudeMdBytes / 1024 * 10) / 10,
+      claude_md_kb: budgets.claude_md.kb,
       session_count: totalSessions,
       learnings_hit_rate_pct: hitRate,
-      note: claudeMdBytes > 30000
-        ? 'CLAUDE.md is large — consider trimming. Tax exceeds typical savings.'
-        : hitRate < 20 && summary.totalEntries > 10
-          ? 'Low hit rate — many learnings unused. Consider pruning stale entries.'
-          : 'Healthy.',
+      note: budgets.per_session_overhead.verdict === 'over-budget'
+        ? 'Per-session overhead exceeds budget — see token_budget for the offending surface.'
+        : compounding.note,
+    },
+    // v0.7.2 — structured per-surface budget with target ceilings + verdicts.
+    token_budget: {
+      budgets,
+      overall_verdict: overall,
+      compounding,
     },
     cache_age_ms: Date.now() - brain.loadedAt,
     instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
@@ -241,7 +350,7 @@ function saveEnabledFeatures(rootPath: string, enabled: Set<EnableableFeature>):
 export function detectProjectShape(brain: BrainCache): ProjectShape {
   return {
     hasAnalyzableCode: brain.knowledge.summary.totalFiles >= 10,
-    domainCount: brain.config.domains?.length ?? 0,
+    domainCount: brain.config?.domains?.length ?? 0,
     hasInstalledSubagents: existsSync(projectAgentsDir(brain.rootPath)),
     sessionCount: sessionCount(brain.rootPath),
     enabledFeatures: loadEnabledFeatures(brain.rootPath),

@@ -59,6 +59,27 @@ Adds the Knit MCP server to your Claude Code config (`~/.claude.json`). No per-p
 
 **Supported shells:** macOS, Linux, WSL, Git Bash, and Windows PowerShell. The generated hooks use POSIX-style single-quoted `node -e '…'` payloads. Windows `cmd.exe` does not treat single quotes as delimiters and is not supported as the hook-runner shell — on Windows, use PowerShell (default in modern Windows Terminal) or Git Bash. If you hit a hook error on Windows, file an issue with the shell you're using.
 
+### Quiet mode (no hook enforcement)
+
+Knit ships Protocol Guard in `warn` mode by default — hooks print reminders, they never block. If you want it fully silent (no PreToolUse classification gate, no reminder messages), run this once inside Claude Code:
+
+> `knit_set_protocol_strictness({ level: "off" })`
+
+The other hooks (LEARN compliance, KB metrics, final build verification) stay as observability nudges — they print, they don't gate. To remove them too, see Uninstall below.
+
+### Uninstall
+
+```bash
+rm -rf ~/.knit                                 # all per-project + global memory
+```
+
+Then:
+1. Remove `"knit-brain"` from `mcpServers` in `~/.claude.json`
+2. Delete the `<!-- knit:start --> ... <!-- knit:end -->` block from each project's `CLAUDE.md`
+3. Remove `_knitOwned` entries from each project's `.claude/settings.local.json` (or delete the file if Knit was the only thing in it)
+
+Total time: ~30 seconds per project. Knit doesn't write anywhere else on your machine.
+
 ## How data is stored
 
 Knit data is centralized — not in every repo's working tree:
