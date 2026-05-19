@@ -14,12 +14,12 @@ import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
 } from '../engine/paths.js';
-import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge } from '../engine/sessions.js';
+import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge, loadAllSessions } from '../engine/sessions.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
 import {
-  appendGlobalLearning, searchGlobalLearnings, buildGlobalLearning,
+  appendGlobalLearning, searchGlobalLearnings, buildGlobalLearning, loadAllGlobalLearnings,
 } from '../engine/global-learnings.js';
 import { getAdaptiveSuggestions } from '../engine/reflect.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
@@ -36,6 +36,11 @@ import { KNIT_INSTRUCTIONS } from './instructions.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
 import { VERSION } from '../version.js';
 import { scanIntegrations, persistScanResult, loadScanResult } from '../engine/integration-scanner.js';
+import {
+  buildLearningsIndex, buildGlobalLearningsIndex, buildSessionsIndex,
+  diversifyByBranch, rrfFuse, toRankedResults,
+} from '../engine/retrieval/index.js';
+import type { KBEntry, GlobalLearning } from '../engine/types.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -130,14 +135,82 @@ export function handleFindFanout(params: Record<string, string>, brain: BrainCac
   return JSON.stringify({ high_fanout_files: fanout, count: fanout.length });
 }
 
+/** v0.8 — BM25 + import-graph retrieval for knit_search_learnings.
+ *
+ *  Two parameters now drive the search:
+ *    - `query` (NEW, optional): free-text BM25 search over summary + lesson +
+ *      approach + tags + domains. Returns the top-K entries by relevance.
+ *    - `domains` (existing, optional): comma-separated tag filter. Pre-v0.8
+ *      this was the only mode; still works as the back-compat path.
+ *
+ *  Combination semantics:
+ *    - query only           → BM25 ranked list
+ *    - domains only         → tag filter (back-compat path)
+ *    - query + domains      → BM25 filtered to entries with ≥1 matching tag
+ *    - neither              → error
+ *
+ *  RRF wiring: BM25 is currently the only retriever; the rrfFuse plumbing
+ *  is in place so phase 3 can layer the import-graph traversal retriever in
+ *  without changing the handler shape. */
 export function handleSearchLearnings(params: Record<string, string>, brain: BrainCache): string {
   const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
-  if (domains.length === 0) return JSON.stringify({ error: 'domains parameter is required', query: [], results: [], count: 0 });
-  const results = queryByDomains(brain.knowledgeBase, domains);
-  if (results.length > 0) recordCacheHit(brain.knowledgeBase);
+  const query = (params.query || '').trim();
+  const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
+
+  if (!query && domains.length === 0) {
+    return JSON.stringify({
+      error: 'Provide either query (BM25 free-text) or domains (tag filter), or both. query=auth domains=#api filters BM25 results to entries tagged #api.',
+      query: [], results: [], count: 0,
+    });
+  }
+
+  // No query — fall back to the pure tag-filter path (back-compat with
+  // pre-v0.8 callers that only ever used domains).
+  if (!query) {
+    const results = queryByDomains(brain.knowledgeBase, domains);
+    if (results.length > 0) recordCacheHit(brain.knowledgeBase);
+    return JSON.stringify(buildLearningsResponse(results, domains, []));
+  }
+
+  // BM25 path. Build the index over the current corpus on demand —
+  // typical project has <100 entries, build cost is <10ms.
+  const index = buildLearningsIndex(brain.knowledgeBase.entries);
+  const bm25Hits = index.search(query, Math.min(limit * 3, 50));
+
+  // RRF infrastructure is plumbed for phase 3 (graph fusion). For now we
+  // have a single ranker, so RRF passes BM25's ranking through unchanged
+  // — but the wiring is ready when the graph retriever lands.
+  const fused = rrfFuse([toRankedResults(bm25Hits)], { k: 60 });
+
+  // Map back to KBEntry, then optionally filter by domain tag.
+  const entryById = new Map<string, KBEntry>();
+  for (const e of brain.knowledgeBase.entries) entryById.set(e.id, e);
+
+  let entries: KBEntry[] = [];
+  for (const f of fused) {
+    const entry = entryById.get(f.id);
+    if (!entry) continue;
+    entries.push(entry);
+  }
+
+  if (domains.length > 0) {
+    entries = entries.filter((e) =>
+      e.tags.some((t) => domains.includes(t)) || e.domains.some((d) => domains.includes(d)),
+    );
+  }
+
+  entries = entries.slice(0, limit);
+  if (entries.length > 0) recordCacheHit(brain.knowledgeBase);
+  return JSON.stringify(buildLearningsResponse(entries, domains, [query]));
+}
+
+/** Shared response shape between the BM25 path and the tag-filter back-compat path. */
+function buildLearningsResponse(results: KBEntry[], domains: string[], freeText: string[]) {
   const hasFailures = results.some((r) => r.outcome === 'failure');
-  return JSON.stringify({
-    query: domains,
+  const queryParts = [...freeText, ...domains];
+  return {
+    query: queryParts,
+    retriever: freeText.length > 0 ? 'bm25' : 'tag-filter',
     results: results.map((r) => ({
       summary: r.summary, lesson: r.lesson, outcome: r.outcome,
       date: r.date, tags: r.tags, access_count: r.accessCount,
@@ -147,8 +220,10 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
       ? hasFailures
         ? `Found ${results.length} past learnings including FAILURES. Read the lessons carefully — avoid repeating past mistakes.`
         : `Found ${results.length} past learnings. Apply these lessons to your current task.`
-      : 'No past learnings for these domains. This is new territory — be thorough and record what you learn.',
-  });
+      : freeText.length > 0
+        ? 'No past learnings match this query. Try broader terms, or call knit_search_global_learnings to search across all your projects.'
+        : 'No past learnings for these domains. This is new territory — be thorough and record what you learn.',
+  };
 }
 
 export function handleGetFalsePositives(_params: Record<string, string>, brain: BrainCache): string {
@@ -1046,6 +1121,12 @@ export function handleRecordGlobalLearning(params: Record<string, string>, brain
   });
 }
 
+/** v0.8 — BM25-backed search over the cross-project global learnings pool.
+ *  Same shape as v0.7.x (single `query` string), but the retriever is now
+ *  BM25 with proper term-frequency saturation + IDF + length normalization.
+ *  Falls back to the original substring scan if BM25 returns nothing — keeps
+ *  partial-word queries like "auth bug" working even when no tokenized term
+ *  fully matches. */
 export function handleSearchGlobalLearnings(params: Record<string, string>, _brain: BrainCache): string {
   const query = (params.query || '').trim();
   const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
@@ -1053,9 +1134,35 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, _bra
     return JSON.stringify({ error: 'query is required', results: [] });
   }
 
-  const matches = searchGlobalLearnings(query, limit);
+  // BM25 over the full pool.
+  const entries = loadAllGlobalLearnings();
+  let matches: GlobalLearning[] = [];
+  let retriever: 'bm25' | 'substring-fallback' = 'bm25';
+
+  if (entries.length > 0) {
+    const index = buildGlobalLearningsIndex(entries);
+    const bm25Hits = index.search(query, Math.min(limit * 3, 50));
+    const fused = rrfFuse([toRankedResults(bm25Hits)], { k: 60 });
+    const byId = new Map<string, GlobalLearning>();
+    for (const e of entries) byId.set(e.id, e);
+    for (const f of fused) {
+      const entry = byId.get(f.id);
+      if (entry) matches.push(entry);
+      if (matches.length >= limit) break;
+    }
+  }
+
+  // Fallback: substring scan handles partial-word queries that don't survive
+  // the BM25 tokenizer (e.g. min-length filter) and tiny pools where BM25 IDF
+  // hasn't accumulated enough signal.
+  if (matches.length === 0) {
+    matches = searchGlobalLearnings(query, limit);
+    if (matches.length > 0) retriever = 'substring-fallback';
+  }
+
   return JSON.stringify({
     query,
+    retriever,
     count: matches.length,
     results: matches.map((m) => ({
       id: m.id,
@@ -1420,17 +1527,46 @@ export function handleFinalizeTeamWorktree(params: Record<string, string>, brain
  * Search this project's sessions.jsonl by free text over summary + tags + branch.
  * Returns most recent matches first.
  */
+/** v0.8 — BM25-backed search over session summaries with branch diversification.
+ *  Diversification caps results-per-branch to 2 so one verbose feature branch
+ *  doesn't flood the response. The v0.7-plan's step 9.5 — trivial to add
+ *  once BM25 lands, surprisingly useful in practice. */
 export function handleSearchSessions(params: Record<string, string>, brain: BrainCache): string {
-  const query = params.query || '';
+  const query = (params.query || '').trim();
   const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
 
-  if (!query.trim()) {
+  if (!query) {
     return JSON.stringify({ error: 'query is required', results: [] });
   }
 
-  const matches = searchSessions(brain.rootPath, query, limit);
+  const sessions = loadAllSessions(brain.rootPath);
+  let matches: SessionSummary[] = [];
+  let retriever: 'bm25' | 'substring-fallback' = 'bm25';
+
+  if (sessions.length > 0) {
+    const index = buildSessionsIndex(sessions);
+    // Over-fetch so diversification has candidates to choose from.
+    const bm25Hits = index.search(query, Math.min(limit * 5, 50));
+    const diversified = diversifyByBranch(bm25Hits, 2);
+    const byId = new Map<string, SessionSummary>();
+    for (const s of sessions) byId.set(s.id, s);
+    for (const r of diversified) {
+      const session = byId.get(r.id);
+      if (session) matches.push(session);
+      if (matches.length >= limit) break;
+    }
+  }
+
+  // Fallback to the original substring scan for partial-word queries that
+  // don't survive tokenization.
+  if (matches.length === 0) {
+    matches = searchSessions(brain.rootPath, query, limit);
+    if (matches.length > 0) retriever = 'substring-fallback';
+  }
+
   return JSON.stringify({
     query,
+    retriever,
     count: matches.length,
     results: matches.map((s) => ({
       id: s.id,

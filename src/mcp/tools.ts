@@ -71,8 +71,15 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_search_learnings',
-      description: 'Search learnings by domain tag.',
-      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domain tags.' } }, required: ['domains'] },
+      description: 'BM25 free-text + tag filter. Pass query="text" for BM25, domains="#tag" for tag filter, or both to combine.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'BM25 free-text query over summary/lesson/approach/tags.' },
+          domains: { type: 'string', description: 'Comma-separated tag filter; combines with query when both passed.' },
+          limit: { type: 'string', description: 'Max results (default 10, max 50).' },
+        },
+      },
     },
     {
       name: 'knit_get_false_positives',

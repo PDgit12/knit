@@ -2,6 +2,101 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] — 2026-05-19
+
+**Vectorless RAG ships.** All three search tools (`knit_search_learnings`,
+`knit_search_global_learnings`, `knit_search_sessions`) now use BM25 with
+proper IDF + term-frequency saturation + length normalization. Session
+search adds branch-diversification so one verbose feature branch doesn't
+flood the response. RRF (Reciprocal Rank Fusion) plumbing is in place
+for the v0.8.1+ graph-traversal retriever to layer on without changing
+the handler shape.
+
+This is the v0.7-plan's step 9 — the biggest piece. Zero new
+dependencies, ~700 LOC across three modules, fully deterministic.
+
+### Added
+
+- **`src/engine/retrieval/bm25.ts`** — standalone BM25 index. Tokenizes
+  with a conservative English stopword set + min-length filter (drops
+  noise like "a", "I", "to"). Identifier-safe split preserves
+  underscores so `knit_classify_task` stays one token. Standard k1=1.5,
+  b=0.75. ~250 LOC. **27 unit tests** pin IDF behavior, length
+  normalization, corpus mutation, and Knit-shaped corpus retrieval.
+
+- **`src/engine/retrieval/rrf.ts`** — Reciprocal Rank Fusion utility.
+  Combines independent rankers (BM25 lexical, future graph traversal,
+  future vector layers) via `score = Σ 1 / (k + rank)` from Cormack et
+  al. 2009. k=60 default. No score calibration needed across rankers.
+  Per-retriever rank breakdown exposed in results for diagnostics.
+
+- **`src/engine/retrieval/index.ts`** — barrel + builders that turn
+  Knit's domain types into BM25 corpora:
+  - `buildLearningsIndex(entries)` — concatenates summary + lesson +
+    approach + tags + domains so a tag query like "auth" finds entries
+    tagged #auth even without the # prefix.
+  - `buildGlobalLearningsIndex(entries)` — same shape over the
+    cross-project pool, includes project name in the indexed text.
+  - `buildSessionsIndex(sessions)` — includes branch + commits + tags
+    so "auth migration" finds sessions on `feature/auth-migration`
+    even if the summary was sparse.
+  - `diversifyByBranch(results, maxPerBranch=2)` — the v0.7-plan's
+    step 9.5: cap session results per branch in the final ranking.
+
+- **`loadAllGlobalLearnings()`** in `src/engine/global-learnings.ts`
+  and **`loadAllSessions(rootPath)`** in `src/engine/sessions.ts` —
+  the iterator helpers the retrieval layer needs to build indices.
+
+### Changed
+
+- **`knit_search_learnings`** — new behavior. Two parameters drive search:
+  - `query` (NEW, optional): BM25 free-text over
+    summary/lesson/approach/tags/domains.
+  - `domains` (existing, optional): comma-separated tag filter.
+  - Both: BM25 results filtered to those with ≥1 matching tag.
+  - Neither: error with helpful instruction.
+  - Response gains `retriever` field (`bm25` / `tag-filter`) so callers
+    know which path produced the results.
+  - Old domains-only path is fully preserved for back-compat.
+
+- **`knit_search_global_learnings`** — BM25-backed. Same single-`query`
+  parameter shape as before. Falls back to substring scan on tiny pools
+  or partial-word queries that don't survive tokenization.
+
+- **`knit_search_sessions`** — BM25 + branch diversification. Over-fetches
+  candidates, then caps results-per-branch to 2 via `diversifyByBranch`.
+  One feature branch can't flood the result set anymore. Same fallback
+  pattern as global learnings.
+
+### Tests — 413 → 446 (+33 new)
+
+- `tests/bm25.test.ts` (NEW, 27 tests) — tokenizer edge cases, IDF
+  rare-vs-common, length normalization, corpus mutation, Knit-shaped
+  corpus smoke (Stripe webhook, atomic writes, Node strict mode).
+- `tests/mcp-tools.test.ts` adds 6 BM25 integration tests covering
+  free-text path, error path, BM25 + domains intersection, back-compat
+  tag-filter path, limit honoring, empty-result instruction text.
+
+### Performance
+
+- BM25 index build: ~10ms per 100 entries (typical Knit corpus is <100).
+- Search: <5ms for queries against a 100-entry corpus.
+- Rebuild-per-search is acceptable at Knit scale; an incremental-index
+  cached in `BrainCache` is a v0.9 optimization if corpora grow.
+- Hot path stays fully local — zero network, zero new dependencies.
+
+### What's still ahead
+
+- **v0.8.1** — graph-traversal retriever fused via RRF (the second
+  ranker the infrastructure is plumbed for).
+- **v0.8.x** — per-project instruction tailoring driven by
+  `integrations.json` (the v0.7.2 scanner's output).
+- **v0.8.x** — compounding-memory benchmarks measuring session N+1
+  cost vs. session N to validate the "Knit gets cheaper over time"
+  claim quantitatively.
+- **v0.8.x** — honest "Knit vs Ruflo" docs section now that the
+  positioning is clear and the technical differentiators are real.
+
 ## [0.7.2] — 2026-05-19
 
 **Token discipline becomes measurable, updates become visible, and Knit

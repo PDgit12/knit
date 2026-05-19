@@ -68,6 +68,19 @@ export function globalLearningCount(): number {
   return readAllLines().length;
 }
 
+/** Return ALL global learnings. Used by the BM25 retrieval layer to build
+ *  an index over the full pool. For pools larger than a few thousand entries
+ *  this should grow into a streaming/iterator API; we're below that threshold. */
+export function loadAllGlobalLearnings(): GlobalLearning[] {
+  const lines = readAllLines();
+  const out: GlobalLearning[] = [];
+  for (const line of lines) {
+    const entry = parseLine(line);
+    if (entry) out.push(entry);
+  }
+  return out;
+}
+
 /** Build a GlobalLearning record from an agent-supplied payload + the source project root. */
 export function buildGlobalLearning(
   sourceProjectRoot: string,

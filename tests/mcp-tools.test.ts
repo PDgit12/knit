@@ -216,6 +216,56 @@ describe('handleToolCall', () => {
     expect(result.count).toBe(0);
   });
 
+  // ── v0.8 phase 2 — BM25 retrieval ──────────────────────────────
+  //
+  // The handler accepts a free-text `query` parameter (BM25 over
+  // summary/lesson/approach/tags/domains). When given, takes precedence
+  // over the old tag-filter path. `domains` still works alone for back-compat
+  // and combines with `query` to filter BM25 hits.
+
+  it('knit_search_learnings — BM25 free-text query finds entries by lesson content', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { query: 'tokens' }, brain));
+    // "Always validate tokens" is in entry 1's lesson; "tokens" should match it.
+    expect(result.retriever).toBe('bm25');
+    expect(result.count).toBeGreaterThanOrEqual(1);
+    expect(result.results.some((r: { summary: string }) => r.summary === 'Fixed auth bug')).toBe(true);
+  });
+
+  it('knit_search_learnings — error when neither query nor domains given', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', {}, brain));
+    expect(result.error).toMatch(/Provide either query/);
+    expect(result.count).toBe(0);
+  });
+
+  it('knit_search_learnings — BM25 + domains filters intersect', () => {
+    // BM25 over "validate" should find entry 1 (lesson mentions "validate tokens").
+    // Adding domains=#api keeps it (it has tag #api). Adding domains=#engine drops it
+    // (it doesn't have #engine; only entry 2 does, and entry 2 lesson doesn't match "validate").
+    const withMatch = JSON.parse(handleToolCall('knit_search_learnings', { query: 'validate', domains: '#api' }, brain));
+    expect(withMatch.count).toBeGreaterThanOrEqual(1);
+
+    const withFilterOut = JSON.parse(handleToolCall('knit_search_learnings', { query: 'validate', domains: '#engine' }, brain));
+    expect(withFilterOut.count).toBe(0);
+  });
+
+  it('knit_search_learnings — back-compat: domains-only path still works (retriever=tag-filter)', () => {
+    // Existing test above uses 'api' (no #) — queryByDomains strips/normalizes internally.
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { domains: 'api' }, brain));
+    expect(result.retriever).toBe('tag-filter');
+    expect(result.count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('knit_search_learnings — BM25 honors the limit parameter', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { query: 'auth', limit: '1' }, brain));
+    expect(result.count).toBeLessThanOrEqual(1);
+  });
+
+  it('knit_search_learnings — empty BM25 result returns helpful instruction', () => {
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { query: 'xyzzy_no_match' }, brain));
+    expect(result.count).toBe(0);
+    expect(result.instruction).toMatch(/No past learnings match this query/);
+  });
+
   it('knit_get_false_positives — returns FP entries', () => {
     const result = JSON.parse(handleToolCall('knit_get_false_positives', {}, brain));
     expect(result.count).toBe(1);

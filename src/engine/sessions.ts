@@ -66,6 +66,21 @@ export function sessionCount(rootPath: string): number {
   return readAllLines(rootPath).length;
 }
 
+/** Return all session entries. Used by the BM25 retrieval layer to build
+ *  an index over the full session log. For sessions.jsonl beyond a few
+ *  thousand entries, this should become a streaming/iterator API. Below
+ *  that scale, the array is fine — Knit projects in practice keep <500
+ *  sessions because pruneSessionsByAge runs at 90 days by default. */
+export function loadAllSessions(rootPath: string): SessionSummary[] {
+  const lines = readAllLines(rootPath);
+  const out: SessionSummary[] = [];
+  for (const line of lines) {
+    const entry = parseLine(line);
+    if (entry) out.push(entry);
+  }
+  return out;
+}
+
 /**
  * Prune session entries older than `maxAgeDays` from sessions.jsonl.
  *
