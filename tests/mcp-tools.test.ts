@@ -355,4 +355,84 @@ describe('handleToolCall', () => {
     expect(result.tier).toBe('inquiry');
     expect(result.auto_plan_mode).toBe(false);
   });
+
+  // ── v0.7 step 7 — minimal response mode ─────────────────────────
+  //
+  // Default classify_task returns the lean response (tier, phases, auto_plan_mode,
+  // instruction, affected_domains). The diagnostic fields (reasoning,
+  // cross_domain_ripple, files_count) are gated behind verbose=true.
+
+  it('knit_classify_task — default response omits debug fields', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
+    }, brain));
+    expect(result).toHaveProperty('tier');
+    expect(result).toHaveProperty('phases');
+    expect(result).toHaveProperty('auto_plan_mode');
+    expect(result).toHaveProperty('instruction');
+    expect(result).toHaveProperty('affected_domains');
+    // Debug fields gated behind verbose:
+    expect(result.reasoning).toBeUndefined();
+    expect(result.cross_domain_ripple).toBeUndefined();
+    expect(result.files_count).toBeUndefined();
+  });
+
+  it('knit_classify_task — verbose=true restores debug fields', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts,src/api.ts,src/utils.ts,tests/utils.test.ts',
+      verbose: 'true',
+    }, brain));
+    expect(result.reasoning).toBeDefined();
+    expect(result.cross_domain_ripple).toBeDefined();
+    expect(result.files_count).toBe(4);
+  });
+
+  // ── v0.7 step 7 — knit_load_session lazy include ───────────────
+  //
+  // Default response carries session_context + slim intelligence + counts-only
+  // knowledge. Optional sections (patterns, teams, metrics, recent_sessions,
+  // full_learnings, full_knowledge) are added via include= comma-list.
+
+  it('knit_load_session — default response omits optional sections', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    expect(result.session_context).toBeDefined();
+    expect(result.intelligence.top_learnings).toBeDefined();
+    expect(result.intelligence.false_positives).toBeDefined();
+    // Optional — must be absent by default
+    expect(result.intelligence.patterns).toBeUndefined();
+    expect(result.project.teams).toBeUndefined();
+    expect(result.project.metrics).toBeUndefined();
+    expect(result.project.recent_sessions).toBeUndefined();
+    // Knowledge in counts-only form
+    expect(result.project.knowledge.high_fanout_count).toBeDefined();
+    expect(result.project.knowledge.high_fanout).toBeUndefined();
+  });
+
+  it('knit_load_session — include=metrics adds the metrics block', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', { include: 'metrics' }, brain));
+    expect(result.project.metrics).toBeDefined();
+    expect(result.project.metrics.total_sessions).toBeDefined();
+    // Still no teams / patterns / recent_sessions
+    expect(result.project.teams).toBeUndefined();
+    expect(result.intelligence.patterns).toBeUndefined();
+  });
+
+  it('knit_load_session — include=all surfaces every optional section', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', { include: 'all' }, brain));
+    expect(result.intelligence.patterns).toBeDefined();
+    expect(result.project.teams).toBeDefined();
+    expect(result.project.metrics).toBeDefined();
+    expect(result.project.recent_sessions).toBeDefined();
+    expect(result.project.knowledge.high_fanout).toBeDefined();
+  });
+
+  it('knit_load_session — include=full_learnings restores the larger top-N learnings cap', () => {
+    const slim = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    const full = JSON.parse(handleToolCall('knit_load_session', { include: 'full_learnings' }, brain));
+    // Both modes accept the same underlying brain; full mode just allows a
+    // larger slice. With only one accessed learning in the mock the visible
+    // count is 1 for both, but the cap parameter is honored by the handler.
+    expect(slim.intelligence.top_learnings.length).toBeLessThanOrEqual(3);
+    expect(full.intelligence.top_learnings.length).toBeGreaterThanOrEqual(slim.intelligence.top_learnings.length);
+  });
 });

@@ -403,10 +403,24 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     // Best-effort: never let marker IO break classification.
   }
 
-  return JSON.stringify({
-    tier, affected_domains: [...domains], phases, files_count: files.length,
-    cross_domain_ripple: crossDomainRipple, auto_plan_mode: tier === 'complex',
+  // Minimal-mode response by default; verbose=true (or "1") restores the
+  // diagnostic fields (reasoning, cross_domain_ripple, files_count) for
+  // debugging without paying their token cost on every routine call.
+  const verbose = params.verbose === 'true' || params.verbose === '1';
+  const base = {
+    tier,
+    affected_domains: [...domains],
+    phases,
+    auto_plan_mode: tier === 'complex',
     instruction,
+  };
+  if (!verbose) {
+    return JSON.stringify(base);
+  }
+  return JSON.stringify({
+    ...base,
+    files_count: files.length,
+    cross_domain_ripple: crossDomainRipple,
     reasoning: tier === 'complex'
       ? `Complex: ${domains.size} domains affected${isTypes ? ', touches shared types' : ''}${isAuth ? ', security-sensitive' : ''}`
       : tier === 'standard' ? `Standard: ${domains.size} domain(s), ${files.length} file(s)` : `Trivial: 1 domain, simple change`,
@@ -868,12 +882,27 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, _bra
 }
 
 
-export function handleLoadSession(_params: Record<string, string>, brain: BrainCache): string {
-  
+/** Parse the optional `include` parameter on knit_load_session.
+ *  Comma-separated list of optional sections to add to the default lean
+ *  response. Unknown names are ignored. Supported: patterns, teams, metrics,
+ *  recent_sessions, full_learnings, full_knowledge. */
+function parseLoadSessionInclude(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+export function handleLoadSession(params: Record<string, string>, brain: BrainCache): string {
+  const include = parseLoadSessionInclude(params.include);
+  const wantAll = include.has('all');
 
   const root = brain.rootPath;
 
-  // 1. Last session info
+  // 1. Last session info — always; the agent uses this to verify continuity
   const sessionsFile = sessionsLogPath(root);
   let lastSession = null;
   if (existsSync(sessionsFile)) {
@@ -881,93 +910,123 @@ export function handleLoadSession(_params: Record<string, string>, brain: BrainC
     const sessions = content.split(/^## Session/m).slice(1);
     if (sessions.length > 0) {
       const last = sessions[sessions.length - 1].trim();
-      lastSession = last.slice(0, 300); // truncate
+      // Default truncation: 200 chars (was 300). Full session in `include=recent_sessions`.
+      lastSession = last.slice(0, 200);
     }
   }
 
-  // 2. Handoff (in-progress work from last session)
+  // 2. Handoff — always. This is the load-bearing field. Truncated to 1.5KB
+  //    (was 2KB); the full handoff lives on disk and the agent can read it
+  //    explicitly with the Read tool if needed.
   const handoffPath = join(root, 'handoff.md');
   let handoff = null;
   if (existsSync(handoffPath)) {
-    handoff = readFileSync(handoffPath, 'utf-8').slice(0, 2000);
+    handoff = readFileSync(handoffPath, 'utf-8').slice(0, 1500);
   }
 
-  // 3. Top learnings (most accessed — the ones that actually matter)
+  // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5.
+  const learningsLimit = wantAll || include.has('full_learnings') ? 5 : 3;
   const topLearnings = brain.knowledgeBase.entries
     .filter((e) => e.accessCount > 0)
     .sort((a, b) => b.accessCount - a.accessCount)
-    .slice(0, 5)
+    .slice(0, learningsLimit)
     .map((e) => ({ summary: e.summary, lesson: e.lesson, tags: e.tags, accessed: e.accessCount }));
 
-  // 4. False positives (agents need these to not re-report)
+  // 4. False positives — cap at 5 by default; full list in include=full_learnings.
+  const fpsLimit = wantAll || include.has('full_learnings') ? 50 : 5;
   const fps = brain.knowledgeBase.entries
     .filter((e) => e.tags.includes('#false-positive'))
+    .slice(0, fpsLimit)
     .map((e) => ({ summary: e.summary, lesson: e.lesson }));
 
-  // 5. Custom teams
-  const teamsFile = teamsPath(root);
-  let teams: string[] = [];
-  if (existsSync(teamsFile)) {
-    try {
-      const t = JSON.parse(readFileSync(teamsFile, 'utf-8'));
-      teams = t.map((team: any) => team.name);
-    } catch { /* skip */ }
+  // 5. Project knowledge summary — counts always; arrays opt-in via
+  //    include=full_knowledge (otherwise fetch with knit_find_fanout / knit_query_tests).
+  const wantFullKnowledge = wantAll || include.has('full_knowledge');
+  const knowledge = wantFullKnowledge
+    ? {
+        files: brain.knowledge.summary.totalFiles,
+        imports: Object.keys(brain.knowledge.importGraph).length,
+        high_fanout: brain.knowledge.summary.highFanoutFiles,
+        untested: brain.knowledge.summary.untestedFiles.slice(0, 5),
+      }
+    : {
+        files: brain.knowledge.summary.totalFiles,
+        imports: Object.keys(brain.knowledge.importGraph).length,
+        high_fanout_count: brain.knowledge.summary.highFanoutFiles.length,
+        untested_count: brain.knowledge.summary.untestedFiles.length,
+      };
+
+  // 6. Optional opt-in sections — all skipped unless explicitly requested.
+  //    These were always-on pre-v0.7 and contributed most of the response bloat.
+  let teams: string[] | undefined;
+  if (wantAll || include.has('teams')) {
+    const teamsFile = teamsPath(root);
+    if (existsSync(teamsFile)) {
+      try {
+        const t = JSON.parse(readFileSync(teamsFile, 'utf-8'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        teams = (t as Array<{ name: string }>).map((team: any) => team.name);
+      } catch {
+        teams = [];
+      }
+    } else {
+      teams = [];
+    }
   }
 
-  // 6. Project knowledge summary
-  const knowledge = {
-    files: brain.knowledge.summary.totalFiles,
-    imports: Object.keys(brain.knowledge.importGraph).length,
-    high_fanout: brain.knowledge.summary.highFanoutFiles,
-    untested: brain.knowledge.summary.untestedFiles.slice(0, 5),
-  };
+  let metrics: { total_sessions: number; total_learnings: number; cache_hits: number } | undefined;
+  if (wantAll || include.has('metrics')) {
+    metrics = {
+      total_sessions: brain.knowledgeBase.metrics.totalSessions,
+      total_learnings: brain.knowledgeBase.entries.length,
+      cache_hits: brain.knowledgeBase.metrics.cacheHits,
+    };
+  }
 
-  // 7. Session metrics
-  const metrics = {
-    total_sessions: brain.knowledgeBase.metrics.totalSessions,
-    total_learnings: brain.knowledgeBase.entries.length,
-    cache_hits: brain.knowledgeBase.metrics.cacheHits,
-  };
+  let recentSessions: Array<{ date: string; branch: string | null; summary: string; tags: string[]; outcome: SessionOutcome | undefined }> | undefined;
+  if (wantAll || include.has('recent_sessions')) {
+    recentSessions = getRecentSessions(root, 3).map((s) => ({
+      date: s.date,
+      branch: s.branch ?? null,
+      summary: s.summary ?? '',
+      tags: s.tags ?? [],
+      outcome: s.outcome,
+    }));
+  }
 
-  // 7b. Recent session summaries — what made this session feel compounding
-  const recentSessions = getRecentSessions(root, 3).map((s) => ({
-    date: s.date,
-    branch: s.branch ?? null,
-    summary: s.summary ?? '',
-    tags: s.tags ?? [],
-    outcome: s.outcome,
-  }));
+  let patterns: Array<{ type: string; description: string; confidence: number }> | undefined;
+  if (wantAll || include.has('patterns')) {
+    patterns = reflect(brain.knowledgeBase)
+      .slice(0, 3)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((p: any) => ({ type: p.type, description: p.description, confidence: p.confidence }));
+  }
 
-  // 8. Patterns (from reflection engine)
-  const patterns = reflect(brain.knowledgeBase)
-    .slice(0, 3)
-    .map((p: any) => ({ type: p.type, description: p.description, confidence: p.confidence }));
-
-  return JSON.stringify({
+  const response: Record<string, unknown> = {
     session_context: {
       last_session: lastSession,
-      handoff: handoff,
+      handoff,
       has_unfinished_work: handoff !== null,
     },
     intelligence: {
       top_learnings: topLearnings,
       false_positives: fps,
-      patterns,
+      ...(patterns !== undefined ? { patterns } : {}),
     },
     project: {
       knowledge,
-      teams,
-      metrics,
-      recent_sessions: recentSessions,
+      ...(teams !== undefined ? { teams } : {}),
+      ...(metrics !== undefined ? { metrics } : {}),
+      ...(recentSessions !== undefined ? { recent_sessions: recentSessions } : {}),
     },
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : topLearnings.length > 0
-        ? `Session loaded. ${topLearnings.length} key learnings available. ${fps.length} false positives to suppress. Call knit_classify_task to begin.`
-        : recentSessions.length > 0
-          ? `Session loaded. ${recentSessions.length} recent sessions on file. Call knit_classify_task to begin.`
-          : 'Fresh brain — no past learnings yet. Call knit_classify_task to begin your first task.',
-  });
+        ? `Session loaded. ${topLearnings.length} key learnings, ${fps.length} false positives. Call knit_classify_task to begin. Use include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge for more.`
+        : 'Fresh brain — no past learnings yet. Call knit_classify_task to begin.',
+  };
+
+  return JSON.stringify(response);
 }
 
 

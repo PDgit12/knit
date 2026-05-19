@@ -88,7 +88,7 @@ export function getToolDefinitions(): ToolDef[] {
     {
       name: 'knit_classify_task',
       description: 'Call first on every task. Returns tier (inquiry/trivial/standard/complex), phases, auto_plan_mode.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' } }, required: ['files_to_touch'] },
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' } , verbose: { type: 'string', description: '"true" to include reasoning + cross_domain_ripple + files_count (debug fields).' } }, required: ['files_to_touch'] },
     },
     {
       name: 'knit_build_context',
@@ -160,8 +160,8 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Session memory ───────────────────────────────────────────
     {
       name: 'knit_load_session',
-      description: 'Call at session start. Returns last sessions, handoff, learnings, false positives, teams.',
-      inputSchema: { type: 'object', properties: {} },
+      description: 'Call at session start. Returns handoff, top learnings, false positives by default. Opt in to more via include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all.',
+      inputSchema: { type: 'object', properties: { include: { type: 'string', description: 'Comma-separated optional sections.' } } },
     },
     {
       name: 'knit_save_session_summary',
