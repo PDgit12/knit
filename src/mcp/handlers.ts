@@ -39,6 +39,7 @@ import { scanIntegrations, persistScanResult, loadScanResult } from '../engine/i
 import {
   buildLearningsIndex, buildGlobalLearningsIndex, buildSessionsIndex,
   diversifyByBranch, rrfFuse, toRankedResults,
+  computeNeighborhood, rankLearningsByGraph,
 } from '../engine/retrieval/index.js';
 import type { KBEntry, GlobalLearning } from '../engine/types.js';
 import {
@@ -177,10 +178,27 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   const index = buildLearningsIndex(brain.knowledgeBase.entries);
   const bm25Hits = index.search(query, Math.min(limit * 3, 50));
 
-  // RRF infrastructure is plumbed for phase 3 (graph fusion). For now we
-  // have a single ranker, so RRF passes BM25's ranking through unchanged
-  // — but the wiring is ready when the graph retriever lands.
-  const fused = rrfFuse([toRankedResults(bm25Hits)], { k: 60 });
+  // Graph-traversal retriever (v0.8.1). When the agent passes `files`
+  // it's editing, walk the import graph one hop and rank learnings that
+  // mention graph-neighbor files. This catches the case where lexical
+  // search misses ("When session.ts changes, re-run integration tests"
+  // doesn't match "validate tokens" but IS relevant when editing auth.ts).
+  const affectedFiles = (params.files || '').split(',').map((f) => f.trim()).filter(Boolean);
+  let graphHits: ReturnType<typeof rankLearningsByGraph> = [];
+  if (affectedFiles.length > 0) {
+    const neighborhood = computeNeighborhood(
+      affectedFiles,
+      brain.knowledge.importGraph ?? {},
+      brain.reverseDeps ?? {},
+    );
+    graphHits = rankLearningsByGraph(brain.knowledgeBase.entries, neighborhood);
+  }
+
+  // RRF fuses BM25 (lexical) with graph-traversal (structural) without
+  // needing comparable scores. k=60 from Cormack et al. 2009.
+  const rankings = [toRankedResults(bm25Hits)];
+  if (graphHits.length > 0) rankings.push(toRankedResults(graphHits));
+  const fused = rrfFuse(rankings, { k: 60 });
 
   // Map back to KBEntry, then optionally filter by domain tag.
   const entryById = new Map<string, KBEntry>();
@@ -201,16 +219,22 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
 
   entries = entries.slice(0, limit);
   if (entries.length > 0) recordCacheHit(brain.knowledgeBase);
-  return JSON.stringify(buildLearningsResponse(entries, domains, [query]));
+  const retrieverLabel: 'bm25' | 'bm25+graph' = graphHits.length > 0 ? 'bm25+graph' : 'bm25';
+  return JSON.stringify(buildLearningsResponse(entries, domains, [query], retrieverLabel));
 }
 
 /** Shared response shape between the BM25 path and the tag-filter back-compat path. */
-function buildLearningsResponse(results: KBEntry[], domains: string[], freeText: string[]) {
+function buildLearningsResponse(
+  results: KBEntry[],
+  domains: string[],
+  freeText: string[],
+  retrieverOverride?: 'bm25' | 'bm25+graph',
+) {
   const hasFailures = results.some((r) => r.outcome === 'failure');
   const queryParts = [...freeText, ...domains];
   return {
     query: queryParts,
-    retriever: freeText.length > 0 ? 'bm25' : 'tag-filter',
+    retriever: retrieverOverride ?? (freeText.length > 0 ? 'bm25' : 'tag-filter'),
     results: results.map((r) => ({
       summary: r.summary, lesson: r.lesson, outcome: r.outcome,
       date: r.date, tags: r.tags, access_count: r.accessCount,
@@ -512,6 +536,79 @@ export function handleEnableFeature(params: Record<string, string>, brain: Brain
     instruction: wasAlreadyOn
       ? 'Already enabled. Call knit_list_features to see the active tool list.'
       : 'Tools list updated for this session. The newly-enabled tools should be available immediately — call knit_list_features to confirm.',
+  });
+}
+
+/** v0.8.1 — knit_compounding_metrics.
+ *
+ *  Quantifies the "Knit gets cheaper over time" claim. Returns:
+ *    - sessions_recorded: total session count
+ *    - learnings_recorded: total learnings in this project's KB
+ *    - learnings_per_session: rate of new lessons captured
+ *    - cache_hits: how many times prior learnings were reused (recordCacheHit)
+ *    - reuse_ratio_pct: cache_hits / sessions_recorded — how often a session
+ *      benefits from prior work. Higher = stronger compounding.
+ *    - access_density_pct: fraction of total learnings that have been
+ *      accessed at least once. Low = many learnings are dead weight; agent
+ *      should prune. High = the index is paying for its cost.
+ *    - estimated_tokens_saved: rough estimate of context tokens NOT spent
+ *      because a prior learning was surfaced and skipped re-investigation.
+ *      Conservative ~5000 tokens per cache hit (typical research-phase cost).
+ *
+ *  Companion to knit_brain_status's `token_budget` surface: budget tells you
+ *  the per-session COST; compounding_metrics tells you the cumulative PAYOFF. */
+export function handleCompoundingMetrics(_params: Record<string, string>, brain: BrainCache): string {
+  const kb = brain.knowledgeBase;
+  const totalSessions = sessionCount(brain.rootPath);
+  const totalLearnings = kb.entries.length;
+  const accessedLearnings = kb.entries.filter((e) => e.accessCount > 0).length;
+  const totalAccesses = kb.entries.reduce((sum, e) => sum + e.accessCount, 0);
+  const cacheHits = kb.metrics.cacheHits ?? 0;
+
+  const learningsPerSession = totalSessions > 0
+    ? Math.round((totalLearnings / totalSessions) * 100) / 100
+    : 0;
+  const reuseRatioPct = totalSessions > 0
+    ? Math.min(100, Math.round((cacheHits / totalSessions) * 100))
+    : 0;
+  const accessDensityPct = totalLearnings > 0
+    ? Math.round((accessedLearnings / totalLearnings) * 100)
+    : 0;
+
+  // Estimated tokens saved: each cache hit prevented one round of
+  // re-investigation. Conservative ~5000 tokens per hit covering the
+  // research-phase context the agent didn't have to rebuild. Real
+  // savings vary; this is a directional indicator, not an accounting figure.
+  const TOKENS_PER_CACHE_HIT_ESTIMATE = 5000;
+  const estimatedTokensSaved = cacheHits * TOKENS_PER_CACHE_HIT_ESTIMATE;
+
+  // Verdict — same scale as token_budget verdicts so callers can render
+  // them uniformly.
+  let verdict: 'cold' | 'warming' | 'compounding' | 'strong';
+  if (totalSessions < 3) verdict = 'cold';
+  else if (reuseRatioPct < 20) verdict = 'warming';
+  else if (reuseRatioPct < 50) verdict = 'compounding';
+  else verdict = 'strong';
+
+  return JSON.stringify({
+    sessions_recorded: totalSessions,
+    learnings_recorded: totalLearnings,
+    learnings_per_session: learningsPerSession,
+    accessed_learnings: accessedLearnings,
+    total_accesses: totalAccesses,
+    cache_hits: cacheHits,
+    reuse_ratio_pct: reuseRatioPct,
+    access_density_pct: accessDensityPct,
+    estimated_tokens_saved: estimatedTokensSaved,
+    verdict,
+    note: verdict === 'cold'
+      ? 'Fresh project. Compounding signal kicks in around session 3 once the KB has a few entries.'
+      : verdict === 'warming'
+        ? 'KB building up but reuse is low. Either learnings are too project-specific to recur, or the agent isn\'t calling knit_search_learnings before re-investigating.'
+        : verdict === 'compounding'
+          ? 'Healthy reuse. Knit is preventing re-investigation often enough to pay back the per-session overhead.'
+          : 'Strong compounding — the KB is doing real work. Token budget cost is dominated by the savings on prevented re-investigations.',
+    instruction: 'Pair with knit_brain_status\'s token_budget surface to see cost-vs-payoff side by side.',
   });
 }
 

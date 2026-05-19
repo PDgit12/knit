@@ -75,6 +75,7 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_enable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip on a Tier-2/3 feature flag — must always be reachable so hidden tools are recoverable' },
   { tool: 'knit_disable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip off a previously-enabled feature flag' },
   { tool: 'knit_scan_integrations', tier: 1, category: 'diagnostics', rationale: 'Re-detect existing user workflow frameworks (Ruflo, gstack, CodeTour, custom CLAUDE.md) so Knit can integrate rather than overlap' },
+  { tool: 'knit_compounding_metrics', tier: 1, category: 'diagnostics', rationale: 'Quantifies "Knit gets cheaper over time" — sessions, learnings, reuse ratio, estimated tokens saved. Companion to knit_brain_status budget surface.' },
 
   // ── Tier 2 — Team worktrees (9) ─────────────────────────────────
   { tool: 'knit_spawn_team_worktree', tier: 2, category: 'teams', rationale: 'Multi-domain parallel write orchestration', enable_via: 'knit_enable_feature("teams") or auto-exposed when ≥3 domains detected' },

@@ -24,7 +24,7 @@ import {
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
-  handleScanIntegrations,
+  handleScanIntegrations, handleCompoundingMetrics,
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
@@ -71,12 +71,13 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_search_learnings',
-      description: 'BM25 free-text + tag filter. Pass query="text" for BM25, domains="#tag" for tag filter, or both to combine.',
+      description: 'BM25 + import-graph hybrid. Pass query="text" for BM25, domains="#tag" filter, files="src/a.ts,src/b.ts" for graph boost on learnings about neighbors. All combinable.',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'BM25 free-text query over summary/lesson/approach/tags.' },
           domains: { type: 'string', description: 'Comma-separated tag filter; combines with query when both passed.' },
+          files: { type: 'string', description: 'Comma-separated files the agent is editing — enables import-graph traversal boost.' },
           limit: { type: 'string', description: 'Max results (default 10, max 50).' },
         },
       },
@@ -350,6 +351,11 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Re-scan host for existing workflow frameworks (Ruflo, gstack, CodeTour). Runs implicitly at autoInit; this is the manual re-trigger.',
       inputSchema: { type: 'object', properties: {} },
     },
+    {
+      name: 'knit_compounding_metrics',
+      description: 'Sessions / learnings / reuse-ratio / estimated tokens saved. Quantifies how much memory is paying back per-session overhead.',
+      inputSchema: { type: 'object', properties: {} },
+    },
   ];
 }
 
@@ -414,6 +420,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_enable_feature: handleEnableFeature,
   knit_disable_feature: handleDisableFeature,
   knit_scan_integrations: handleScanIntegrations,
+  knit_compounding_metrics: handleCompoundingMetrics,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

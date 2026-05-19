@@ -15,6 +15,8 @@ export { BM25Index, defaultTokenize } from './bm25.js';
 export type { BM25Document, BM25SearchResult, BM25Options } from './bm25.js';
 export { rrfFuse, toRankedResults } from './rrf.js';
 export type { RankedResult, FusedResult, RRFOptions } from './rrf.js';
+export { computeNeighborhood, rankLearningsByGraph } from './graph-traversal.js';
+export type { GraphNeighborhood, GraphRetrievalResult } from './graph-traversal.js';
 
 /** Build a BM25 index over knowledgebase entries. The id is the entry's
  *  stable id; the text concatenates summary + lesson + tags (so a tag

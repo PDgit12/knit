@@ -23,11 +23,19 @@ import {
 import { getBrain, detectProjectRoot, refreshBrain } from './cache.js';
 import { getActiveToolDefinitionsForBrain, handleToolCall } from './tools.js';
 import { VERSION } from '../version.js';
-import { KNIT_INSTRUCTIONS } from './instructions.js';
+import { buildInstructions } from './instructions.js';
 import { registerToolsListChangedNotifier } from './notifier.js';
+import { loadScanResult } from '../engine/integration-scanner.js';
 
 // Cache project root at startup — doesn't change during a session
 const ROOT_PATH = detectProjectRoot();
+
+// v0.8.1 — tailor the MCP `instructions` field per-project based on the
+// integration scanner's most recent result. Falls through to the universal
+// baseline when no scan has run yet (cold first start). The scan refreshes
+// at the next autoInitialize, so subsequent sessions pick up the tailored
+// version.
+const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH));
 
 const server = new Server(
   { name: 'knit-brain', version: VERSION },
@@ -36,7 +44,7 @@ const server = new Server(
     // notifications/tools/list_changed (we do, when knit_enable_feature
     // or knit_disable_feature changes the visible tool surface).
     capabilities: { tools: { listChanged: true } },
-    instructions: KNIT_INSTRUCTIONS,
+    instructions: PER_PROJECT_INSTRUCTIONS,
   },
 );
 
