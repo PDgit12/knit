@@ -24,7 +24,8 @@ import {
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
-  handleScanIntegrations, handleCompoundingMetrics,
+  handleScanIntegrations, handleCompoundingMetrics, handleVerifyClaim,
+  handleGetLearning,
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
@@ -356,6 +357,16 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'Sessions / learnings / reuse-ratio / estimated tokens saved. Quantifies how much memory is paying back per-session overhead.',
       inputSchema: { type: 'object', properties: {} },
     },
+    {
+      name: 'knit_verify_claim',
+      description: 'Fact-check one claim against the knowledge graph. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: verified | contradicted | unparseable.',
+      inputSchema: { type: 'object', properties: { claim: { type: 'string', description: 'One claim about the codebase to verify.' } }, required: ['claim'] },
+    },
+    {
+      name: 'knit_get_learning',
+      description: 'Fetch one full learning by id. Pair with knit_search_learnings (default returns headlines) for hierarchical retrieval — expand only what you need.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Learning id from a prior knit_search_learnings result.' } }, required: ['id'] },
+    },
   ];
 }
 
@@ -421,6 +432,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_disable_feature: handleDisableFeature,
   knit_scan_integrations: handleScanIntegrations,
   knit_compounding_metrics: handleCompoundingMetrics,
+  knit_verify_claim: handleVerifyClaim,
+  knit_get_learning: handleGetLearning,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

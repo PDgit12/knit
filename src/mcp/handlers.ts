@@ -539,6 +539,152 @@ export function handleEnableFeature(params: Record<string, string>, brain: Brain
   });
 }
 
+/** v0.9 — knit_verify_claim.
+ *
+ *  Single-call fact-check against the knowledge graph. The agent passes a
+ *  claim string ("src/auth.ts imports src/types.ts"); the verifier parses
+ *  the structure, looks up the relevant graph table, and returns a verdict.
+ *
+ *  Supported claim patterns:
+ *    - "A imports B" / "A depends on B" → check importGraph[A] includes B
+ *    - "A is imported by B" / "B uses A" → check reverseDeps[A] includes B
+ *    - "X exports Y" / "Y is exported from X" → check exports[X] has Y
+ *    - "A is tested by B" / "B tests A" → check testMap.tested[A] includes B
+ *    - "X exists" / "X is in the codebase" → check X is in files
+ *
+ *  Verdict shapes:
+ *    - "verified" — claim matches the graph
+ *    - "contradicted" — claim is structurally parseable but the graph
+ *      disagrees (the named edge does not exist)
+ *    - "unparseable" — claim doesn't match any known pattern; agent should
+ *      reformulate or use a more specific query tool
+ *
+ *  This is the on-demand companion to the v0.7 query tools. Those answer
+ *  "what does X import?"; this one answers "is A's claim that X imports Y
+ *  actually true?". */
+export function handleVerifyClaim(params: Record<string, string>, brain: BrainCache): string {
+  const claim = (params.claim || '').trim();
+  if (!claim) {
+    return JSON.stringify({ verdict: 'unparseable', error: 'claim parameter is required' });
+  }
+  const result = parseAndVerifyClaim(claim, brain);
+  return JSON.stringify({ claim, ...result });
+}
+
+interface VerifierResult {
+  verdict: 'verified' | 'contradicted' | 'unparseable';
+  parsed?: { type: string; subject: string; object?: string };
+  evidence?: string;
+  instruction: string;
+}
+
+function parseAndVerifyClaim(claim: string, brain: BrainCache): VerifierResult {
+  const kn = brain.knowledge;
+
+  // Pattern: "A imports B" / "A depends on B" / "A includes B"
+  const importMatch = claim.match(/['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))['"`]?\s+(?:imports|depends on|requires|uses)\s+['"`]?([\w./_-]+(?:\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))?)['"`]?/i);
+  if (importMatch) {
+    const from = importMatch[1];
+    const to = importMatch[2];
+    const imports = kn.importGraph[from];
+    if (!imports) {
+      return {
+        verdict: 'contradicted',
+        parsed: { type: 'import', subject: from, object: to },
+        evidence: `No entry for ${from} in importGraph — either the file doesn't exist or has no imports indexed.`,
+        instruction: `Run knit_query_imports({file_path: "${from}"}) to inspect, or knit_brain_status to verify index freshness.`,
+      };
+    }
+    const found = imports.some((dep) => dep === to || dep.endsWith(`/${to}`) || dep === to.replace(/\.(?:ts|tsx|js|jsx)$/, ''));
+    return {
+      verdict: found ? 'verified' : 'contradicted',
+      parsed: { type: 'import', subject: from, object: to },
+      evidence: found
+        ? `importGraph[${from}] contains ${to}.`
+        : `importGraph[${from}] = [${imports.slice(0, 5).join(', ')}${imports.length > 5 ? ', ...' : ''}]. ${to} not present.`,
+      instruction: found
+        ? 'Verified. Safe to assert.'
+        : `Contradicted. The codebase does not have ${from} → ${to}. Re-check via knit_query_dependents.`,
+    };
+  }
+
+  // Pattern: "X exports Y" / "Y is exported from X"
+  const exportMatch =
+    claim.match(/['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx))['"`]?\s+exports\s+['"`]?(\w+)['"`]?/i) ||
+    claim.match(/['"`]?(\w+)['"`]?\s+is\s+exported\s+from\s+['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx))['"`]?/i);
+  if (exportMatch) {
+    // Determine which group is the file vs the symbol based on extension.
+    const a = exportMatch[1];
+    const b = exportMatch[2];
+    const file = /\.(ts|tsx|js|jsx)$/.test(a) ? a : b;
+    const symbol = file === a ? b : a;
+    const exports = kn.exports[file];
+    if (!exports) {
+      return {
+        verdict: 'contradicted',
+        parsed: { type: 'export', subject: file, object: symbol },
+        evidence: `No export entry for ${file}. File may not exist or has no exports indexed.`,
+        instruction: `Run knit_query_exports({file_path: "${file}"}) to inspect.`,
+      };
+    }
+    const found = exports.some((e) => e.name === symbol);
+    return {
+      verdict: found ? 'verified' : 'contradicted',
+      parsed: { type: 'export', subject: file, object: symbol },
+      evidence: found
+        ? `exports[${file}] contains ${symbol}.`
+        : `exports[${file}] = [${exports.slice(0, 5).map((e) => e.name).join(', ')}${exports.length > 5 ? ', ...' : ''}]. ${symbol} not present.`,
+      instruction: found ? 'Verified.' : 'Contradicted. Symbol not exported from that file.',
+    };
+  }
+
+  // Pattern: "A is tested by B" / "B tests A"
+  const testMatch =
+    claim.match(/['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx))['"`]?\s+is\s+tested\s+by\s+['"`]?([\w./_-]+)['"`]?/i) ||
+    claim.match(/['"`]?([\w./_-]+)['"`]?\s+tests\s+['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx))['"`]?/i);
+  if (testMatch) {
+    const a = testMatch[1];
+    const b = testMatch[2];
+    // testMap.tested maps src file → test file(s); we want src as the key.
+    const src = /test|spec/i.test(a) ? b : a;
+    const testFile = src === a ? b : a;
+    const tests = kn.testMap?.tested?.[src];
+    if (!tests || tests.length === 0) {
+      return {
+        verdict: 'contradicted',
+        parsed: { type: 'test', subject: src, object: testFile },
+        evidence: `${src} has no test mapping in the index.`,
+        instruction: `Run knit_query_tests({file_path: "${src}"}) to inspect.`,
+      };
+    }
+    const found = tests.some((t) => t === testFile || t.endsWith(`/${testFile}`));
+    return {
+      verdict: found ? 'verified' : 'contradicted',
+      parsed: { type: 'test', subject: src, object: testFile },
+      evidence: found ? `${src} is tested by ${testFile}.` : `Test mapping: ${tests.join(', ')}. ${testFile} not in the set.`,
+      instruction: found ? 'Verified.' : 'Contradicted.',
+    };
+  }
+
+  // Pattern: "X exists" / "X is in the codebase"
+  const existsMatch = claim.match(/['"`]?([\w./_-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs))['"`]?\s+(?:exists|is in the codebase|is part of the project)/i);
+  if (existsMatch) {
+    const path = existsMatch[1];
+    const found = kn.importGraph[path] !== undefined || kn.exports[path] !== undefined;
+    return {
+      verdict: found ? 'verified' : 'contradicted',
+      parsed: { type: 'exists', subject: path },
+      evidence: found ? `${path} is present in the knowledge index.` : `${path} not found in knowledge index.`,
+      instruction: found ? 'Verified.' : 'Contradicted. The file may be excluded from indexing, or hallucinated.',
+    };
+  }
+
+  return {
+    verdict: 'unparseable',
+    instruction: 'Claim shape not recognized. Supported patterns: "A imports B", "A is imported by B", "X exports Y", "Y is exported from X", "A is tested by B", "X exists". For arbitrary lookups, call knit_query_imports / _exports / _dependents / _tests directly.',
+  };
+}
+
 /** v0.8.1 — knit_compounding_metrics.
  *
  *  Quantifies the "Knit gets cheaper over time" claim. Returns:
@@ -766,6 +912,33 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     // Best-effort: never let marker IO break classification.
   }
 
+  // v0.9 — pre-emptive learnings injection. When the task warrants RESEARCH
+  // (standard or complex), auto-run BM25 over the description + affected
+  // domains and embed the top 3 hits in the response. Closes the discipline
+  // gap where agents skip knit_search_learnings before re-investigating.
+  // Trivial-tier and inquiry-tier tasks skip this — they don't need it and
+  // the extra payload would be pure overhead.
+  let preEmptiveLearnings: Array<{ summary: string; lesson: string; tags: string[] }> | undefined;
+  if (tier === 'standard' || tier === 'complex') {
+    try {
+      const description = (params.description || '').trim();
+      const queryText = description || [...domains].join(' ');
+      if (queryText) {
+        const index = buildLearningsIndex(brain.knowledgeBase.entries);
+        const hits = index.search(queryText, 3);
+        if (hits.length > 0) {
+          preEmptiveLearnings = hits.map((h) => {
+            const entry = (h.document.metadata as { entry: KBEntry }).entry;
+            return { summary: entry.summary, lesson: entry.lesson, tags: entry.tags };
+          });
+          recordCacheHit(brain.knowledgeBase);
+        }
+      }
+    } catch {
+      // Best-effort: never let pre-emptive search break classification.
+    }
+  }
+
   // Minimal-mode response by default; verbose=true (or "1") restores the
   // diagnostic fields (reasoning, cross_domain_ripple, files_count) for
   // debugging without paying their token cost on every routine call.
@@ -776,6 +949,12 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     phases,
     auto_plan_mode: tier === 'complex',
     instruction,
+    ...(preEmptiveLearnings && preEmptiveLearnings.length > 0
+      ? {
+          pre_emptive_learnings: preEmptiveLearnings,
+          pre_emptive_note: 'Prior learnings auto-surfaced. Apply these before re-investigating from scratch. To get more, call knit_search_learnings with the same query.',
+        }
+      : {}),
   };
   if (!verbose) {
     return JSON.stringify(base);
@@ -833,13 +1012,117 @@ export function handleBuildContext(params: Record<string, string>, brain: BrainC
   for (const l of learnings) knownPitfalls.push(`${l.summary}: ${l.lesson}`);
   const fps = getFalsePositives(brain.knowledgeBase);
 
+  // v0.9 #8 — suggested_reads. For the agent that already passed
+  // files_to_touch, compute a curated list of additional files worth
+  // reading first. Two signals:
+  //   1. Graph: 1-hop neighbors of files_to_touch (importers + imports)
+  //   2. Memory: files mentioned in past learnings about these domains
+  // Caps at 8 entries so the response stays light. Each entry has a `reason`
+  // string so the agent can decide whether to actually open it.
+  const suggestedReads = computeSuggestedReads(files, brain, learnings);
+
   return JSON.stringify({
     domain_context: {
       affected_domains: [...affectedDomains], files_to_touch: files,
       cross_domain_ripple: ripple, known_pitfalls: knownPitfalls,
       false_positives: fps.map((fp) => `${fp.summary}: ${fp.lesson}`),
+      ...(suggestedReads.length > 0 ? { suggested_reads: suggestedReads } : {}),
     },
     instruction: 'Pass this entire object to every agent prompt in EXECUTE, OPTIMIZE, and REVIEW phases.',
+  });
+}
+
+interface SuggestedRead {
+  path: string;
+  reason: string;
+  /** "graph-importer" | "graph-import" | "memory-mention" — debug. */
+  via: string;
+}
+
+function computeSuggestedReads(
+  filesToTouch: string[],
+  brain: BrainCache,
+  learnings: KBEntry[],
+): SuggestedRead[] {
+  if (filesToTouch.length === 0) return [];
+  const seen = new Set<string>(filesToTouch);
+  const out: SuggestedRead[] = [];
+
+  // 1. Graph: who imports the files-to-touch (consumers — break things if changed)
+  for (const file of filesToTouch) {
+    for (const importer of brain.reverseDeps[file] ?? []) {
+      if (seen.has(importer)) continue;
+      seen.add(importer);
+      out.push({
+        path: importer,
+        reason: `Depends on ${file} — change-blast-radius candidate.`,
+        via: 'graph-importer',
+      });
+      if (out.length >= 8) return out;
+    }
+  }
+
+  // 2. Graph: what the files-to-touch import (likely needed for the work)
+  for (const file of filesToTouch) {
+    for (const dep of brain.knowledge.importGraph?.[file] ?? []) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      out.push({
+        path: dep,
+        reason: `${file} imports it — read alongside the edit target.`,
+        via: 'graph-import',
+      });
+      if (out.length >= 8) return out;
+    }
+  }
+
+  // 3. Memory: files referenced by past learnings in these domains. Catches
+  // "this domain has known gotchas in file X" cases.
+  for (const learning of learnings) {
+    const haystack = [learning.summary, learning.lesson, learning.approach ?? ''].join(' ');
+    // Pull anything that looks like a relative source path.
+    const matches = haystack.match(/\b[\w./_-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)\b/g) ?? [];
+    for (const m of matches) {
+      if (seen.has(m)) continue;
+      // Only suggest if it's actually in the knowledge index.
+      if (!brain.knowledge.importGraph?.[m] && !brain.knowledge.exports?.[m]) continue;
+      seen.add(m);
+      out.push({
+        path: m,
+        reason: `Past learning "${learning.summary}" mentions this file.`,
+        via: 'memory-mention',
+      });
+      if (out.length >= 8) return out;
+    }
+  }
+
+  return out;
+}
+
+/** v0.9 #6 — Hierarchical retrieval companion. knit_load_session returns
+ *  truncated summaries; this returns the full entry for a single id. Lets
+ *  the agent expand only the learning that turned out to be relevant,
+ *  instead of paying for full bodies upfront. */
+export function handleGetLearning(params: Record<string, string>, brain: BrainCache): string {
+  const id = (params.id || '').trim();
+  if (!id) return JSON.stringify({ error: 'id parameter is required' });
+  const entry = brain.knowledgeBase.entries.find((e) => e.id === id);
+  if (!entry) {
+    return JSON.stringify({
+      error: `No learning with id="${id}". List active ones via knit_search_learnings (default returns id + summary).`,
+    });
+  }
+  recordCacheHit(brain.knowledgeBase);
+  return JSON.stringify({
+    id: entry.id,
+    date: entry.date,
+    summary: entry.summary,
+    domains: entry.domains,
+    approach: entry.approach,
+    outcome: entry.outcome,
+    lesson: entry.lesson,
+    tags: entry.tags,
+    access_count: entry.accessCount,
   });
 }
 

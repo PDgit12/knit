@@ -7,10 +7,10 @@ describe('KNIT_INSTRUCTIONS', () => {
     expect(KNIT_INSTRUCTIONS.length).toBeGreaterThan(100);
   });
 
-  it('stays under the v0.7 token budget (~500 tokens, conservatively bytes)', () => {
-    // Rough heuristic: ≤2500 bytes ≈ ≤500 tokens at the GPT-ish 1:5 ratio.
-    // Exceeding this means we're losing the token-discipline justification.
-    expect(KNIT_INSTRUCTIONS.length).toBeLessThan(2500);
+  it('stays under the v0.9 token budget (~750 tokens, conservatively bytes)', () => {
+    // v0.9 added the citation rule (~70 tokens) to the base. Budget widened
+    // from 2500 bytes → 3000 bytes to reflect the new ceiling.
+    expect(KNIT_INSTRUCTIONS.length).toBeLessThan(3000);
   });
 
   it('tells the agent to call knit_load_session at session start', () => {

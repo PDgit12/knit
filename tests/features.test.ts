@@ -24,8 +24,8 @@ const allEnabled: ProjectShape = {
 };
 
 describe('TOOL_REGISTRY', () => {
-  it('declares 40 tools (39 from v0.7.2 + knit_compounding_metrics in v0.8.1)', () => {
-    expect(TOOL_REGISTRY.length).toBe(40);
+  it('declares 42 tools (40 from v0.8.1 + knit_verify_claim + knit_get_learning in v0.9)', () => {
+    expect(TOOL_REGISTRY.length).toBe(42);
   });
 
   it('every tool has a unique name', () => {
@@ -45,9 +45,9 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
-  it('Tier 1 contains exactly 28 universal tools (27 from v0.7.2 + knit_compounding_metrics in v0.8.1)', () => {
+  it('Tier 1 contains exactly 30 universal tools (28 from v0.8.1 + knit_verify_claim + knit_get_learning in v0.9)', () => {
     const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
-    expect(tier1.length).toBe(28);
+    expect(tier1.length).toBe(30);
   });
 
   it('Tier 2 contains exactly 10 conditional tools', () => {
@@ -70,7 +70,8 @@ describe('TOOL_REGISTRY', () => {
 
   it('knowledge graph tools are in Tier 1 (Knit\'s core differentiator)', () => {
     const kg = TOOL_REGISTRY.filter((t) => t.category === 'knowledge-graph');
-    expect(kg.length).toBe(5);
+    // 5 query tools from v0.7 + knit_verify_claim added in v0.9 = 6
+    expect(kg.length).toBe(6);
     for (const t of kg) {
       expect(t.tier).toBe(1);
     }
@@ -129,16 +130,16 @@ describe('isToolActive — gating rules', () => {
 });
 
 describe('computeFeatureListing', () => {
-  it('empty project shape exposes only Tier 1 (28 tools after v0.8.1)', () => {
+  it('empty project shape exposes only Tier 1 (30 tools after v0.9)', () => {
     const listing = computeFeatureListing(emptyShape);
-    expect(listing.active.length).toBe(28);
+    expect(listing.active.length).toBe(30);
     expect(listing.available.length).toBe(12);
-    expect(listing.totals).toEqual({ active: 28, available: 12, total: 40 });
+    expect(listing.totals).toEqual({ active: 30, available: 12, total: 42 });
   });
 
-  it('fully-enabled project shape exposes everything (40)', () => {
+  it('fully-enabled project shape exposes everything (42)', () => {
     const listing = computeFeatureListing(allEnabled);
-    expect(listing.active.length).toBe(40);
+    expect(listing.active.length).toBe(42);
     expect(listing.available.length).toBe(0);
   });
 

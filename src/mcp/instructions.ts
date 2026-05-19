@@ -47,7 +47,9 @@ The protocol enforces a 4-tier classifier:
 - Standard: bug fix or single-domain feature — RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN.
 - Complex: cross-domain, types/auth-touching, high-fanout, or any task spanning more than one commit — full 6 phases with auto plan mode on RESEARCH.
 
-Knit provides inputs; you make the calls. When in doubt, under-classify — easier to escalate mid-task than to downgrade.`;
+Knit provides inputs; you make the calls. When in doubt, under-classify — easier to escalate mid-task than to downgrade.
+
+Citation rule: when you state a fact about this codebase ("file X imports Y", "function Z is defined in W", "tests for A live in B"), cite the Knit tool result that verified it — e.g. "(per knit_query_imports)". If you can't cite a tool result, mark the claim as 'unverified' explicitly. This makes hallucinations visible at the claim level instead of letting them ship as confident-sounding prose. The verifier exists; use it.`;
 
 /** Back-compat: the static const that v0.7.0–v0.8.0 callers imported. Tests
  *  for budget cap and content invariants continue to assert against this. */
