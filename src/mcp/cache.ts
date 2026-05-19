@@ -8,6 +8,7 @@ import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../eng
 import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
+import { prewarmLatestVersion } from './update-check.js';
 import { pruneSessionsByAge } from '../engine/sessions.js';
 import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings, HOOKS_VERSION } from '../generators/settings.js';
@@ -87,6 +88,12 @@ export function getBrain(rootPath: string): BrainCache {
   if (cache && cache.rootPath === rootPath) {
     return cache;
   }
+
+  // Fire-and-forget the npm update check at brain load. Best-effort: by the
+  // time the agent calls knit_brain_status, the cached value is likely
+  // populated. On cold first call the value is null and no update_available
+  // field appears; next status call sees it. Never blocks brain load.
+  void prewarmLatestVersion();
 
   let autoInitialized = false;
   const haveCentralized = existsSync(knowledgePath(rootPath));

@@ -33,6 +33,8 @@ import {
 import { featuresConfigPath } from '../engine/paths.js';
 import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
+import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
+import { VERSION } from '../version.js';
 import {
   buildDefaultTeams, generateTeamPrompt, loadCustomTeams, saveCustomTeams,
   startTeamBoard, getTeamBoard, markTeamWorking, postTeamFindings,
@@ -300,6 +302,21 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
       compounding,
     },
     cache_age_ms: Date.now() - brain.loadedAt,
+    ...(() => {
+      // Update notification — best-effort. Surfaces only when the cached
+      // npm dist-tag `latest` is strictly newer than the installed VERSION.
+      // Pre-warm happens at brain load; this read is sync.
+      const latest = getCachedLatestVersion();
+      if (!latest || !isNewerVersion(latest, VERSION)) return {};
+      return {
+        update_available: {
+          current: VERSION,
+          latest,
+          upgrade: 'Restart Claude Code to spawn a fresh MCP — npx will auto-fetch the new version. If your ~/.claude.json pins a specific version, change it to "knit-mcp@latest".',
+          changelog: 'https://github.com/PDgit12/knit/blob/main/CHANGELOG.md',
+        },
+      };
+    })(),
     instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
   });
 }
