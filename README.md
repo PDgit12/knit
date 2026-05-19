@@ -26,19 +26,45 @@ Knit makes Claude Code do the right thing automatically because it can't predict
 
 It's a **single product**, not three. Every design choice has to win on memory + tokens + workflow together.
 
-## What's new in v0.7.0
+## What's new in v0.9.0
 
-- **Universal protocol injection.** Knit sets the MCP server-level `instructions` field, so every MCP client (Claude Code, Cursor, Codex) sees Knit's flow at session start — *before* tool descriptions. Session 1 follows the protocol instead of stumbling onto it.
-- **Tier-gated tool surface.** 38 tools split into three tiers: Tier 1 (26 universal — memory, knowledge graph, workflow, classification, false-positive suppression, reflection, Protocol Guard config, diagnostics) is always exposed. Tier 2 (team worktrees, subagent installer) auto-activates when the project shape matches (≥3 detected domains, `.claude/agents/` exists) or via explicit opt-in. Tier 3 (admin/setup) is opt-in only. Solo-domain projects no longer see 9 team-worktree tools cluttering their decision space.
-- **`knit_list_features`** is the discoverability escape hatch — always available, always tells you what's hidden and exactly how to enable it (`knit_enable_feature({feature: "teams" | "subagents" | "admin"})`). Persisted to `~/.knit/projects/<hash>/features.json` so the choice survives sessions.
-- **Inquiry tier in the classifier.** Read-only "what / where / audit / explain" tasks now route to `tier: "inquiry"` with no plan mode and no phases — fixes a long-standing over-routing bug where audit-style questions hijacked Complex.
-- **CLAUDE.md cut ~88%** (16.7 KB → ~2 KB on typical projects). The per-turn context tax dropped sharply; all project-specific content (header, project map, domain architecture, build gates, false positives) stays intact.
-- **Lazy / minimal response modes.** `knit_load_session` returns the lean core by default; opt into more via `include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all`. `knit_classify_task` returns the minimal shape by default; pass `verbose=true` for the diagnostic fields.
-- **Legacy CLAUDE.md migration.** Users upgrading from v0.5.x with `<!-- engram:start -->/<!-- engram:end -->` markers are auto-migrated — the legacy block is replaced cleanly with the new lean block instead of leaving an orphan.
+v0.9 closes the *enforcement* story — every honest limit from the v0.8 architecture got a structural fix:
+
+- **Citation rule in the MCP `instructions` field.** Every session's system prompt now tells the agent: *"when you state a fact about this codebase, cite the Knit tool result that verified it — e.g. (per knit_query_imports). If you can't cite, say 'unverified' explicitly."* Makes hallucinations visible at the claim level instead of letting them ship as confident-sounding prose.
+- **`knit_verify_claim` tool.** Single-call fact-check against the knowledge graph. Parses patterns ("A imports B", "X exports Y", "A is tested by B", "X exists") and returns verdict `verified | contradicted | unparseable` with evidence. The companion to `knit_query_*` — those answer *what?*; this answers *is the agent's claim about it true?*
+- **Auto-search inside `knit_classify_task`.** For `standard` and `complex` tier, classify_task now runs BM25 over (description + affected domains) automatically and embeds top-3 hits as `pre_emptive_learnings` in the response. Closes the "agent skipped knit_search_learnings before re-investigating" gap with zero extra calls.
+- **`suggested_reads` from `knit_build_context`.** Returns a curated list of files worth reading before editing — via three signals: graph-importers (blast radius), graph-imports (likely needed), and memory-mentions (files referenced by past learnings in these domains). Each entry carries `{ path, reason, via }`.
+- **`knit_get_learning` — hierarchical retrieval.** Search returns headlines (summary + tags); the agent expands a specific learning by id only when needed. Token-savings on the upfront list, pay-per-detail.
+- **`knit_consolidate_learnings`.** Tag-Jaccard clustering of similar learnings; proposes a single pattern entry per cluster. Dry-run by default; `commit=true` persists with originals tagged `#consolidated` (preserved but deprioritized in retrieval). Keeps the working set lean as the KB grows.
+- **Hook-level enforcement (HOOKS_VERSION 6 → 7).**
+  - **PreToolUse search-gate.** For `standard`/`complex` tasks, blocks Edit/Write (in `block` mode) or warns (in default `warn`) when `knit_search_learnings` hasn't fired in the current turn.
+  - **PreToolUse content inspection.** Reads proposed Edit/Write content, parses local imports, warns on relative paths that don't resolve on disk — catches hallucinated imports before they land.
+  - **PostToolUse import validation.** After the file lands, re-parses imports and warns about unresolved relative paths — catches anything that slipped past the pre-check (e.g. MultiEdit combinations).
+  - **Stop-hook budget watch.** Cheap CLAUDE.md size check at session end; warns if it crosses the 12.5KB over-budget threshold. Drift becomes visible even when the agent doesn't call `knit_brain_status`.
+
+## What's new in v0.8
+
+- **Vectorless RAG.** All three search tools (`knit_search_learnings`, `knit_search_global_learnings`, `knit_search_sessions`) now run BM25 with proper IDF + term-frequency saturation + length normalization, fused via Reciprocal Rank Fusion (k=60). Session search adds branch-diversification so one verbose feature branch can't flood the response. Zero new dependencies. Fully deterministic — same query → same results, every time.
+- **Graph-traversal retriever.** Layered into RRF alongside BM25. Pass `files=src/a.ts,src/b.ts` to `knit_search_learnings` to enable a graph-neighborhood boost: 1-hop import/importer files, weighted into the final ranking. Surfaces learnings that lexical search misses (e.g. *"when session.ts changes, re-run integration tests"* when you're editing `auth.ts`).
+- **Per-project instruction tailoring.** The MCP `instructions` field is now computed per-project from the integration scanner's results — if Ruflo / gstack / CodeTour / Conductor / custom CLAUDE.md sections are detected, short framework-specific addenda tell the agent to defer routing decisions to them. Memory + classification stay Knit's domain.
+- **`knit_compounding_metrics`.** Quantifies "Knit gets cheaper over time" — sessions, learnings, cache hits, reuse-ratio %, access-density %, estimated tokens saved. Verdict ladder: `cold | warming | compounding | strong`. Pairs with `knit_brain_status` token_budget surface — budget tells you the per-session COST, compounding tells you the cumulative PAYOFF.
+- **Integration scanner.** Detects existing workflow frameworks installed alongside Knit and persists the result to `~/.knit/projects/<hash>/integrations.json`. Surfaced by `knit_brain_status`. Drives the per-project instruction tailoring above.
+
+## What's new in v0.7
+
+- **Universal protocol injection.** Knit sets the MCP server-level `instructions` field, so every MCP client sees Knit's flow at session start — *before* tool descriptions.
+- **Tier-gated tool surface.** Tools split into three tiers: Tier 1 (always exposed — memory, knowledge graph, workflow, etc.), Tier 2 (auto-exposed when the project shape matches), Tier 3 (admin, opt-in). Solo-domain projects no longer see 9 team-worktree tools cluttering their decision space.
+- **`knit_list_features` + `knit_enable_feature` / `knit_disable_feature`.** Discoverability escape hatch — always shows what's hidden and how to enable it. Persisted to `~/.knit/projects/<hash>/features.json` so the choice survives sessions. v0.7.1 added `notifications/tools/list_changed` so enable/disable updates the agent's tool list without a Claude Code restart.
+- **Inquiry tier in the classifier.** Read-only "what / where / audit / explain" tasks now route to `tier: "inquiry"` with no plan mode and no phases — fixes the over-routing bug where audit-style questions hijacked Complex.
+- **CLAUDE.md cut ~88%** (16.7 KB → ~2 KB on typical projects).
+- **Lazy / minimal response modes.** `knit_load_session` returns the lean core by default; opt into more via `include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all`. `knit_classify_task` returns the minimal shape by default; pass `verbose=true` for diagnostic fields.
+- **Token-budget guardrail in `knit_brain_status`.** Per-surface verdicts (`healthy | warn | over-budget`) make the v0.7 trim measurable.
+- **In-band update notification.** `knit_brain_status` surfaces an `update_available` field when the cached npm `latest` is newer than the installed VERSION.
+- **Legacy CLAUDE.md migration.** Users upgrading from v0.5.x with `<!-- engram:start -->/<!-- engram:end -->` markers are auto-migrated cleanly.
 
 ### Per-session token-budget table
 
-| Surface | v0.6.5 | v0.7.0 | Cut |
+| Surface | v0.6.5 | v0.9.0 | Cut |
 |---|---|---|---|
 | CLAUDE.md per-turn | ~16.7 KB | ~2 KB | 88% |
 | Tool registry (typical project) | ~6–8 KB | ~3–4 KB | ~50% |
@@ -47,7 +73,7 @@ It's a **single product**, not three. Every design choice has to win on memory +
 
 ### Upgrade note
 
-After running `npx knit-mcp@latest setup` (or just updating the version pin), **restart Claude Code**. The MCP server's `instructions` field and tier-gated `tools/list` only flow into the system prompt at handshake — the cached process from before the upgrade keeps the v0.6.5 behavior until restart.
+After running `npx knit-mcp@latest setup` (or just updating the version pin), **restart Claude Code**. The MCP server's `instructions` field and tier-gated `tools/list` only flow into the system prompt at handshake — the cached process from before the upgrade keeps the older behavior until restart. The HOOKS_VERSION bump (6 → 7 in v0.9.0) means installed hooks auto-regenerate on the next brain load — no manual `knit refresh` needed.
 
 ## Setup (one time)
 
@@ -129,81 +155,96 @@ Plus `overview`, `tier`, `phases`. Call with no `phase` to list all sections.
 
 **Effect:** v0.1's CLAUDE.md was ~700 lines / ~20 KB per session, every session. v0.2's is ~100 lines / ~2.7 KB. Protocol depth pulled only when needed.
 
-## 35 MCP Tools
+## 43 MCP Tools
 
-### Query the brain (read-only, cached, ~5ms)
-
-| Tool | What it does |
-|------|--------------|
-| `knit_query_imports` | Reverse dependencies for a file. Use before edits. |
-| `knit_query_dependents` | What a file imports. |
-| `knit_query_exports` | What a file exposes. |
-| `knit_query_tests` | Test coverage for a file, or list all untested. |
-| `knit_find_fanout` | High-fanout files — the contracts. |
-| `knit_search_learnings` | Past lessons by domain tag. |
-| `knit_get_false_positives` | Confirmed non-issues to suppress in review. |
-| `knit_brain_status` | Brain health + **token accounting**. |
-| `knit_search_sessions` | Search past sessions by free text over summary+tags+branch. |
-| `knit_load_session` | Call at session start — returns last sessions, handoff, learnings, false positives, teams, project knowledge in one round trip. |
-
-### Update the brain (write — quality-gated)
+### Knowledge graph (Tier 1, ~5ms)
 
 | Tool | What it does |
 |------|--------------|
-| `knit_classify_task` | First call on every task. Returns tier, phases, affected domains. |
-| `knit_build_context` | Domain context for the current task. |
-| `knit_record_learning` | Save a non-obvious insight. Quality check first. |
-| `knit_record_false_positive` | Mark a finding as a confirmed non-issue. |
-| `knit_save_session_summary` | Opt-in narrative summary of what this session did. |
-| `knit_save_handoff` | Save state when context degrades. |
-| `knit_setup_project` | Describe a non-code project (legal, marketing, research). |
-| `knit_prune_sessions` | Prune sessions.jsonl by age — keep recent N or drop entries older than N days. |
-| `knit_install_agent` | Install a single VoltAgent subagent (e.g. `typescript-pro`) into `.claude/agents/`. |
+| `knit_query_imports` | Reverse dependencies — who imports this file. |
+| `knit_query_dependents` | Forward dependencies — what this file imports. |
+| `knit_query_exports` | Functions / classes / interfaces / types this file exposes. |
+| `knit_query_tests` | Test coverage for a file, or list all untested with `filter=untested`. |
+| `knit_find_fanout` | High-fanout files — the contracts to change carefully. |
+| `knit_verify_claim` | **v0.9.** Fact-check one claim against the graph — "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: `verified | contradicted | unparseable`. |
 
-### Protocol Guard (v0.5.0+)
-
-Runtime enforcement of the knit protocol via PreToolUse and SessionStart hooks. Default strictness: `warn`.
+### Memory + retrieval (Tier 1)
 
 | Tool | What it does |
 |------|--------------|
-| `knit_set_protocol_strictness` | Set strictness: `off` (no checks), `warn` (reminder), `block` (hard-fail Edit/Write without prior `knit_classify_task`). |
-| `knit_get_protocol_strictness` | Read current strictness level for this project. |
+| `knit_load_session` | Call at session start — returns handoff, top learnings, false positives, project knowledge. Lazy by default; opt into `include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all`. |
+| `knit_search_learnings` | **v0.8+.** BM25 + import-graph hybrid. Pass `query=text` for BM25, `domains=#tag` for tag filter, `files=src/a.ts` for graph-neighborhood boost. Fused via RRF (k=60). |
+| `knit_search_sessions` | BM25 over session summaries + branch + commits + tags. Branch-diversified (max 2 per branch) so one feature branch can't flood. |
+| `knit_search_global_learnings` | BM25 across the cross-project pool at `~/.knit/global/learnings.jsonl`. |
+| `knit_get_learning` | **v0.9.** Fetch one full learning by id. Pair with `knit_search_learnings` (headlines) for hierarchical retrieval — pay per detail. |
+| `knit_record_learning` | Save a non-obvious insight. Quality check first; secret patterns redacted before persistence. |
+| `knit_record_global_learning` | Opt-in: cross-project pool when the insight generalizes beyond this project. |
+| `knit_record_false_positive` | Mark a finding as confirmed non-issue so future reviewers don't re-flag it. |
+| `knit_get_false_positives` | List confirmed non-issues to suppress in review prompts. |
+| `knit_save_session_summary` | Opt-in narrative — record only when this session accomplished something a future session would search for. |
+| `knit_save_handoff` | Save state when context degrades. `failed_attempts` is the load-bearing field. |
+| `knit_consolidate_learnings` | **v0.9.** Cluster similar learnings via tag-Jaccard, propose a single pattern entry per cluster. Dry-run by default. |
 
-### Workflow on demand
+### Workflow + classification (Tier 1)
 
 | Tool | What it does |
 |------|--------------|
-| `knit_get_workflow` | Fetch protocol depth for one phase. |
+| `knit_classify_task` | First call on every task. Returns tier (inquiry / trivial / standard / complex), phases, `auto_plan_mode`. **v0.9.** For standard/complex, auto-runs BM25 over the description + affected domains and embeds top-3 hits as `pre_emptive_learnings`. |
+| `knit_build_context` | Domain context for the current task. **v0.9.** Includes `suggested_reads` — files worth opening (graph-importers, graph-imports, memory-mentions). |
+| `knit_get_workflow` | Fetch protocol depth for one phase on demand. Sections: overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools. |
+| `knit_get_suggestions` | Adaptive warnings from past patterns in given domains. "Based on history, watch out for X." |
+| `knit_reflect` | Detect patterns across recorded learnings (per-project + global pool). Useful with ≥3 entries. |
+| `knit_setup_project` | Describe a non-code project (legal, marketing, research) to bootstrap domain teams. |
+| `knit_prune_sessions` | Prune `sessions.jsonl` by age (default 90 days). Atomic rewrite. |
 
-### Parallel team worktrees
+### Protocol Guard (Tier 1)
+
+Runtime enforcement of the Knit protocol via PreToolUse and SessionStart hooks. Default strictness: `warn`.
 
 | Tool | What it does |
 |------|--------------|
-| `knit_spawn_team_worktree` | Create a git worktree for a team. |
+| `knit_set_protocol_strictness` | Set strictness: `off` (no checks), `warn` (reminder, default), `block` (hard-fail Edit/Write without prior `knit_classify_task` AND `knit_search_learnings`). |
+| `knit_get_protocol_strictness` | Read current strictness level. |
+
+### Discoverability + diagnostics (Tier 1)
+
+| Tool | What it does |
+|------|--------------|
+| `knit_brain_status` | Brain health + **token-budget** verdicts per surface (CLAUDE.md, tool registry, instructions, total) + `update_available` notification when the npm `latest` is newer + integrations summary. |
+| `knit_list_features` | Returns `{ active, available, totals, by_category, project_shape }` — surfaces hidden tools and tells you how to enable them. The escape hatch. |
+| `knit_enable_feature` | Flip on a Tier-2/3 feature (`teams`, `subagents`, `admin`). Persisted to `~/.knit/projects/<hash>/features.json`. Emits `notifications/tools/list_changed` so new tools appear without a Claude Code restart. |
+| `knit_disable_feature` | Symmetric to enable_feature. |
+| `knit_scan_integrations` | Re-detect existing workflow frameworks (Ruflo, gstack, CodeTour, Conductor, other MCP servers, custom CLAUDE.md sections). Runs implicitly at autoInit. |
+| `knit_compounding_metrics` | Quantifies "Knit gets cheaper over time" — sessions, learnings, cache hits, reuse-ratio %, access-density %, estimated tokens saved. Verdict: `cold | warming | compounding | strong`. |
+
+### Parallel team worktrees (Tier 2 — auto-active when ≥3 domains detected, or opt-in via `knit_enable_feature("teams")`)
+
+| Tool | What it does |
+|------|--------------|
+| `knit_spawn_team_worktree` | Create a git worktree for a team so they can write in parallel without colliding. |
 | `knit_list_team_worktrees` | List active team worktrees. |
-| `knit_finalize_team_worktree` | Merge or discard a team's worktree. |
-
-### Team review board
-
-| Tool | What it does |
-|------|--------------|
+| `knit_finalize_team_worktree` | Merge or discard a team's worktree; surfaces conflicts without destroying it. |
 | `knit_get_teams` | List auto-detected or custom teams. |
 | `knit_define_team` | Create a custom team. |
-| `knit_start_team_review` | Start a parallel review with shared findings. |
+| `knit_start_team_review` | Start a parallel review with a shared findings board. |
 | `knit_get_team_prompt` | Per-team prompt including other teams' findings. |
 | `knit_post_team_findings` | Post findings to the shared board. |
 | `knit_get_board_summary` | Cross-team summary, severity-gated. |
 
-### Cross-project learnings (Model C, opt-in)
+### Subagents (Tier 2 — auto-active when `.claude/agents/` exists, or opt-in)
 
 | Tool | What it does |
 |------|--------------|
-| `knit_record_global_learning` | Opt-in: save an insight to `~/.knit/global/learnings.jsonl` when it generalizes beyond this project. |
-| `knit_search_global_learnings` | Free-text search across **all** of your projects' shared learnings. |
-| `knit_reflect` | Detect patterns across recorded learnings. Useful with ≥3 entries (which Model C makes easy to reach). |
-| `knit_get_suggestions` | Adaptive suggestions for the current task based on past patterns in given domains. |
+| `knit_install_agent` | Install a single VoltAgent subagent (e.g. `typescript-pro`) into `.claude/agents/knit-<name>.md`, personalized with project context. |
 
-Per-project `knit_record_learning` stays primary. The global pool is for the lessons that travel between projects — "Stripe signature rules", "GitHub API pagination quirks", "Redis cluster failover behavior" — the kind of thing future-you will be glad you wrote down once, somewhere.
+### Admin (Tier 3 — opt-in only via `knit_enable_feature("admin")`)
+
+| Tool | What it does |
+|------|--------------|
+| `knit_setup_project` | Bootstrap domain teams for a non-code project. One-time. |
+| (`knit_prune_sessions` is also exposed in Tier 1 by default since auto-prune handles it; not Tier 3.) |
+
+The cross-project pool (`knit_search_global_learnings` + `knit_record_global_learning`) holds the lessons that travel between projects — "Stripe signature rules", "GitHub API pagination quirks", "Redis cluster failover behavior" — the kind of thing future-you will be glad you wrote down once, somewhere.
 
 ## Subagents — VoltAgent + project personalization
 
@@ -269,18 +310,34 @@ Compatible with Claude Code's `EnterWorktree({path})` — knit's worktrees regis
 
 `knit_brain_status` answers the only question that matters: is knit saving more than it costs?
 
+**v0.9 structured token-budget surface:**
+
 ```json
 {
-  "token_accounting": {
-    "claude_md_kb": 2.7,
-    "session_count": 12,
-    "learnings_hit_rate_pct": 67,
-    "note": "Healthy."
+  "token_budget": {
+    "budgets": {
+      "claude_md":            { "bytes": 2048,  "target_bytes": 6500,  "verdict": "healthy" },
+      "tool_registry":        { "bytes": 8400,  "target_bytes": 8500,  "verdict": "healthy", "active_tool_count": 31, "total_tool_count": 43 },
+      "instructions":         { "bytes": 2200,  "target_bytes": 2500,  "verdict": "healthy" },
+      "per_session_overhead": { "bytes": 12648, "target_bytes": 17500, "verdict": "healthy" }
+    },
+    "overall_verdict": "healthy",
+    "compounding": {
+      "session_count": 12,
+      "total_learnings": 18,
+      "learnings_hit_rate_pct": 67,
+      "note": "Strong compounding — learnings are getting reused across sessions."
+    }
+  },
+  "update_available": {
+    "current": "0.8.0",
+    "latest":  "0.9.0",
+    "upgrade": "Restart Claude Code to spawn a fresh MCP — npx will auto-fetch the new version."
   }
 }
 ```
 
-Warnings surface when CLAUDE.md > 30 KB (knit is too heavy) or hit rate < 20 % on >10 learnings (most learnings unused — prune).
+Each surface (CLAUDE.md, tool registry, instructions, total) gets `healthy / warn / over-budget` against the v0.9 ship promise — drift becomes a regression test, not a vibes claim. Pair with `knit_compounding_metrics` for the value side of the ledger (sessions, hit rate, estimated tokens saved by skipped re-investigations).
 
 ## CLI
 
@@ -294,31 +351,42 @@ Example `knit status` output:
 
 ```
 Knowledge Index
-  Files:        47 indexed (12,340 lines)
-  Imports:      23 edges mapped
-  Untested:     8 files
+  Files:        54 indexed (11,495 lines)
+  Imports:      46 edges mapped
+  Untested:     5 files
 
 Knowledge Base
-  Learnings:      12 total
-  Accessed:        8 (67% hit rate)
+  Learnings:      18 total
+  Accessed:       12 (67% hit rate)
   False positives: 3
 
-Token accounting
-  CLAUDE.md:       2.7 KB
-  Sessions logged: 14
-  Hit rate:        67% → Healthy
+Token budget (v0.9)
+  CLAUDE.md:           2.0 KB  → healthy
+  Tool registry:       8.4 KB  → healthy (31 active / 43 total)
+  Instructions:        2.2 KB  → healthy
+  Per-session total:   12.6 KB → healthy
+
+Compounding
+  Sessions logged:     14
+  Reuse ratio:         67%  → strong
+  Tokens saved (est.): 65,000
 ```
 
 ## How it's different
 
-|  | gstack (skills) | ECC (agents) | Knit |
-|--|---|---|---|
-| Setup | Install skills per-project | Manual `.claude/` setup | One command. Done forever. |
-| Memory | jsonl files in-tree | Memory directory | `~/.knit/projects/<hash>/` — centralized, project-keyed, searchable sessions |
-| Token cost | Skills loaded into context | Rules loaded into context | Workflow fetched on-demand. CLAUDE.md is ~2.7 KB. |
-| Parallel work | None | None | Team-scoped git worktrees |
-| Self-measurement | None | None | `knit_brain_status.token_accounting` |
-| Non-code projects | No | No | Description-driven domains via `knit_setup_project` |
+|  | gstack (skills) | ECC (agents) | Ruflo (orchestration) | Knit |
+|--|---|---|---|---|
+| Bet | Slash-command flows | Agent rules | 100+ agents in swarms | One disciplined agent, compounding memory |
+| Setup | Install skills per-project | Manual `.claude/` setup | `npx ruflo init` (heavy) | `npx knit-mcp setup` (light) |
+| Memory | jsonl files in-tree | Memory directory | Vector DB (ruvector) + 4-tier consolidation | `~/.knit/projects/<hash>/` — local, searchable, **vectorless BM25 + graph fusion** |
+| Token cost | Skills loaded into context | Rules loaded into context | 314 tools advertised | ~2 KB CLAUDE.md, tier-gated registry, lazy responses, **token-budget guardrail** |
+| Parallel work | None | None | Multi-agent swarms + federation | Team-scoped git worktrees |
+| Cloud dependency | None | None | Cognitum.One (cloud backbone) | None — fully local |
+| Self-measurement | None | None | Cost-tracker plugin | `knit_brain_status.token_budget` + `knit_compounding_metrics` |
+| Anti-hallucination | None | None | None advertised | `knit_verify_claim` + citation rule + pre/post import validation hooks |
+| Non-code projects | No | No | Limited | Description-driven domains via `knit_setup_project` |
+
+**The bet:** Ruflo for agent quantity (swarms, federation, plugins). Knit for agent quality (memory, classification, token discipline, hallucination defense). Different markets. The integration scanner detects Ruflo when installed and tailors instructions to defer routing to it — Knit operates as the memory + classification substrate underneath.
 
 ## Migration from v0.1
 
@@ -338,7 +406,7 @@ git clone https://github.com/PDgit12/knit.git
 cd knit
 npm install
 npm run dev       # Run CLI locally
-npm run test      # 295 tests
+npm run test      # 492 tests
 npm run typecheck # TypeScript strict mode
 npm run build     # Compile CLI + MCP server
 ```
@@ -348,7 +416,7 @@ npm run build     # Compile CLI + MCP server
 ```
 knit (npm package)
 ├── dist/cli.js                 # CLI: setup, status, refresh
-└── dist/mcp/server.js          # MCP server: 27 tools, auto-init
+└── dist/mcp/server.js          # MCP server: 43 tools (tier-gated), auto-init
 
 per-project, in ~/.knit/projects/<hash>/
 ├── knowledge.json              # import graph + exports + test map
@@ -363,7 +431,7 @@ per-project, in <project>/
 └── .claude/settings.local.json # per-machine hooks, knit-managed (gitignored by convention)
 ```
 
-Zero external dependencies for the knowledge brain. 295 tests. Strict-mode TypeScript.
+Zero external dependencies for the knowledge brain. **492 tests.** Strict-mode TypeScript.
 
 ## License
 
