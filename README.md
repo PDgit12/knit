@@ -474,7 +474,7 @@ per-project, in <project>/
 
 ## 📄 License
 
-[MIT](./LICENSE) © 2026 — built with care for the Claude Code community.
+[MIT](./LICENSE) © 2026 
 
 <p align="center">
   <sub>If knit saved you tokens, <a href="https://github.com/PDgit12/knit">give it a ⭐</a>.</sub>
