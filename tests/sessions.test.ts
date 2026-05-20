@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -9,7 +9,7 @@ import {
   sessionCount,
   pruneSessionsByAge,
 } from '../src/engine/sessions.js';
-import { sessionsJsonlPath } from '../src/engine/paths.js';
+import { sessionsJsonlPath, projectDataDir } from '../src/engine/paths.js';
 import type { SessionSummary } from '../src/engine/types.js';
 
 const PROJECT = '/tmp/sessions-test-project';
@@ -256,6 +256,27 @@ describe('sessions', () => {
       // Missing id
       writeFileSync(path, JSON.stringify({ date: '2026-05-17', summary: 'no id' }) + '\n', 'utf-8');
       expect(searchSessions(PROJECT, 'no id')).toEqual([]);
+    });
+  });
+
+  describe('appendSession error handling (C2)', () => {
+    it('rethrows fs failures rather than swallowing them silently', () => {
+      // Force a real fs failure: plant a regular file at the exact path
+      // where the project's data directory would live. mkdirSync({recursive:
+      // true}) will then fail with ENOTDIR because an intermediate path
+      // segment is a file, not a directory.
+      const blockedRoot = join(knitHome, '__c2-blocked__');
+      const dataDir = projectDataDir(blockedRoot);
+      mkdirSync(dirname(dataDir), { recursive: true });
+      writeFileSync(dataDir, '', 'utf-8'); // file where the dir should be
+
+      const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      try {
+        expect(() => appendSession(blockedRoot, makeEntry({ id: 'x', summary: 'fail' })))
+          .toThrow();
+      } finally {
+        stderrSpy.mockRestore();
+      }
     });
   });
 });

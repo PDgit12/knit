@@ -45,4 +45,35 @@ describe('redactSecrets', () => {
   it('handles empty / null-ish input safely', () => {
     expect(redactSecrets('')).toBe('');
   });
+
+  // ── M4: added patterns (Stripe live/test, Google API, JWT) ─────
+  // Fixtures use string concatenation so GitHub's push-protection secret
+  // scanner doesn't flag them as live Stripe keys (they aren't — the body
+  // is ABCDEFG… placeholder). Runtime behavior is identical.
+  const stripeLive = 'sk_' + 'live_' + 'ABCDEFGHIJ1234567890abcd';
+  const stripeTest = 'sk_' + 'test_' + 'ABCDEFGHIJ1234567890abcd';
+
+  it('redacts Stripe live keys (sk_live_…)', () => {
+    const out = redactSecrets(`charged via ${stripeLive} ok`);
+    expect(out).toContain('[REDACTED:stripe-key]');
+    expect(out).not.toContain(stripeLive);
+  });
+
+  it('redacts Stripe test keys (sk_test_…)', () => {
+    const out = redactSecrets(`test mode ${stripeTest} here`);
+    expect(out).toContain('[REDACTED:stripe-key]');
+  });
+
+  it('redacts Google API keys (AIzaSy…)', () => {
+    const out = redactSecrets('key=AIzaSyDABCDEFGHIJKLMNOPQRSTUVWXYZ1234567 ok');
+    expect(out).toContain('[REDACTED:google-api-key]');
+    expect(out).not.toContain('AIzaSyDABCDEFGHIJKLMNOPQRSTUVWXYZ1234567');
+  });
+
+  it('redacts JWTs (eyJ…header.payload.signature)', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const out = redactSecrets(`Authorization: Bearer ${jwt}`);
+    expect(out).toContain('[REDACTED:jwt]');
+    expect(out).not.toContain(jwt);
+  });
 });

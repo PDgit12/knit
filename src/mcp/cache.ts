@@ -4,7 +4,7 @@ import { join, basename, dirname } from 'node:path';
 import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../engine/types.js';
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
-import { loadKnowledgeBase, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
+import { loadKnowledgeBaseSafe, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings } from '../engine/learnings.js';
 import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
@@ -114,7 +114,8 @@ export function getBrain(rootPath: string): BrainCache {
   const reverseDeps = buildReverseDependencies(knowledge.importGraph);
 
   const projectName = detectProjectName(rootPath);
-  const knowledgeBase = loadKnowledgeBase(knowledgebasePath(rootPath), projectName);
+  const kbLoad = loadKnowledgeBaseSafe(knowledgebasePath(rootPath), projectName);
+  const knowledgeBase = kbLoad.kb;
 
   const config: KnitConfig = {
     name: projectName,
@@ -125,9 +126,13 @@ export function getBrain(rootPath: string): BrainCache {
     tokenOptimization: 'standard',
   };
 
-  // Save refreshed knowledge index to disk
+  // Save refreshed knowledge index to disk.
+  // CRITICAL: never re-save the knowledgebase when the load failed — we'd
+  // be overwriting the user's recoverable data with an empty shell.
   writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
-  saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
+  if (!kbLoad.loadFailed) {
+    saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
+  }
 
   // v0.5.1: silently upgrade hooks for projects initialized on older engram versions.
   // Skipped right after autoInitialize, which already wrote fresh hooks.
@@ -223,9 +228,12 @@ function autoInitialize(rootPath: string): void {
     writeFileSync(learningsPath, generateLearningsContent(config), 'utf-8');
   }
 
-  // Knowledgebase JSON (centralized) — import any seed learnings
+  // Knowledgebase JSON (centralized) — import any seed learnings.
+  // autoInitialize only runs on first-touch projects (no existing data),
+  // so the safe loader's "fresh" path is exercised; loadFailed cannot be
+  // true here unless someone planted a corrupt file before init.
   const kbPath = knowledgebasePath(rootPath);
-  const kb = loadKnowledgeBase(kbPath, projectName);
+  const kb = loadKnowledgeBaseSafe(kbPath, projectName).kb;
   const entries = readLearnings(learningsPath);
   importFromMarkdown(kb, entries);
   saveKnowledgeBase(kbPath, kb);

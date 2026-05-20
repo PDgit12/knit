@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getToolDefinitions, getActiveToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
@@ -505,6 +505,37 @@ describe('handleToolCall', () => {
     // can't construct from them.
     expect(result.project.teams).toBeUndefined();
     expect(result.intelligence.patterns).toBeUndefined();
+  });
+
+  // ── H4: redactSecrets on save_session_summary ────────────────────
+  it('knit_save_session_summary redacts secrets before persisting (H4)', async () => {
+    // sessionsJsonlPath resolves under $KNIT_HOME/projects/<hash>/sessions.jsonl,
+    // not the rootPath itself. Use a unique rootPath so we can locate the file.
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-h4-root-'));
+    const sandboxBrain: BrainCache = { ...brain, rootPath: tmpRoot };
+
+    // Fixture concatenated so GitHub push-protection scanners don't flag it
+    // as a real Stripe key. (Body is ABCDEFG… placeholder, no real charge.)
+    const fakeStripe = 'sk_' + 'live_' + 'ABCDEFGHIJ1234567890abcd';
+    const leakySummary = `shipped feature; api key ${fakeStripe} was rotated`;
+    const result = JSON.parse(handleToolCall(
+      'knit_save_session_summary',
+      { summary: leakySummary, outcome: 'shipped', tags: '#test' },
+      sandboxBrain,
+    ));
+
+    expect(result.status).toBe('saved');
+    // Returned summary is redacted.
+    expect(result.summary).not.toContain(fakeStripe);
+    expect(result.summary).toContain('[REDACTED:stripe-key]');
+
+    // Persisted file is redacted too.
+    const { sessionsJsonlPath } = await import('../src/engine/paths.js');
+    const persisted = readFileSync(sessionsJsonlPath(tmpRoot), 'utf-8');
+    expect(persisted).not.toContain(fakeStripe);
+    expect(persisted).toContain('[REDACTED:stripe-key]');
+
+    rmSync(tmpRoot, { recursive: true, force: true });
   });
 });
 

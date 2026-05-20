@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { KnowledgeBase, KBEntry, SessionRecord, LearningEntry } from './types.js';
+
+/**
+ * Result of a knowledge-base load. `loadFailed` is true when the file existed
+ * but could not be read or parsed — callers must NOT overwrite the on-disk
+ * file in that case (would silently destroy recoverable data).
+ */
+export interface LoadKnowledgeBaseResult {
+  kb: KnowledgeBase;
+  loadFailed: boolean;
+}
 
 /**
  * Creates a new empty knowledge base.
@@ -23,40 +33,82 @@ export function createKnowledgeBase(projectName: string): KnowledgeBase {
 
 /**
  * Loads knowledge base from disk, or creates a new one.
+ *
+ * Legacy entrypoint — preserves the original signature for callers that
+ * don't need to distinguish "fresh project" from "load failed". New callers
+ * should prefer `loadKnowledgeBaseSafe` which surfaces the `loadFailed` flag,
+ * because overwriting a corrupt KB with an empty shell is permanent data loss.
  */
 export function loadKnowledgeBase(filePath: string, projectName: string): KnowledgeBase {
+  return loadKnowledgeBaseSafe(filePath, projectName).kb;
+}
+
+/**
+ * Loads knowledge base and signals whether the load succeeded. When the file
+ * exists but is unreadable / over-size / malformed, returns
+ * `{ kb: <empty>, loadFailed: true }` so callers can refuse to re-save and
+ * thereby preserve the original on-disk file for manual recovery.
+ */
+export function loadKnowledgeBaseSafe(filePath: string, projectName: string): LoadKnowledgeBaseResult {
   if (!existsSync(filePath)) {
-    return createKnowledgeBase(projectName);
+    return { kb: createKnowledgeBase(projectName), loadFailed: false };
   }
 
   try {
     // Size guard — prevent OOM on corrupted/bloated files
     const stat = statSync(filePath);
     if (stat.size > 10 * 1024 * 1024) {
-      return createKnowledgeBase(projectName);
+      process.stderr.write(
+        `[knit] knowledgebase.json at ${filePath} exceeds 10MB — refusing to load. Original file preserved.\n`,
+      );
+      return { kb: createKnowledgeBase(projectName), loadFailed: true };
     }
 
     const raw = readFileSync(filePath, 'utf-8');
     const kb = JSON.parse(raw) as KnowledgeBase;
 
     // Structural validation — don't trust the cast
-    if (kb.version !== 1) return createKnowledgeBase(projectName);
-    if (!Array.isArray(kb.entries)) return createKnowledgeBase(projectName);
-    if (!kb.metrics || typeof kb.metrics.totalSessions !== 'number') return createKnowledgeBase(projectName);
+    if (kb.version !== 1 || !Array.isArray(kb.entries) ||
+        !kb.metrics || typeof kb.metrics.totalSessions !== 'number') {
+      process.stderr.write(
+        `[knit] knowledgebase.json at ${filePath} failed structural validation — refusing to overwrite. Original file preserved.\n`,
+      );
+      return { kb: createKnowledgeBase(projectName), loadFailed: true };
+    }
 
-    return kb;
-  } catch {
-    return createKnowledgeBase(projectName);
+    return { kb, loadFailed: false };
+  } catch (err) {
+    process.stderr.write(
+      `[knit] knowledgebase.json at ${filePath} could not be parsed (${(err as Error).message}) — refusing to overwrite. Original file preserved.\n`,
+    );
+    return { kb: createKnowledgeBase(projectName), loadFailed: true };
   }
 }
 
 /**
- * Saves knowledge base to disk.
+ * Saves knowledge base to disk atomically.
+ *
+ * Writes to a sibling `.tmp-<pid>-<ts>` file, then renames onto the target.
+ * POSIX rename is atomic within a filesystem, so a mid-write crash cannot
+ * leave knowledgebase.json half-written — readers either see the prior
+ * committed payload or the new one, never a torn write. This is the same
+ * pattern used by saveEnabledFeatures and pruneSessionsByAge.
+ *
+ * Without this, two concurrent Claude sessions on the same project race
+ * for last-writer-wins and the loser's recorded learnings vanish silently.
  */
 export function saveKnowledgeBase(filePath: string, kb: KnowledgeBase): void {
   const dir = dirname(filePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(filePath, JSON.stringify(kb, null, 2), 'utf-8');
+
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tmpPath, JSON.stringify(kb, null, 2), 'utf-8');
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+    throw err;
+  }
 }
 
 /**

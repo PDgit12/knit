@@ -5,13 +5,26 @@ import type { SessionSummary } from './types.js';
 
 /**
  * Append a session entry to ~/.knit/projects/<hash>/sessions.jsonl.
- * One JSON object per line. Append-only — no rewrites, no race conditions
- * across concurrent writers.
+ *
+ * One JSON object per line. Append-only at the OS level — POSIX guarantees
+ * atomicity for writes <= PIPE_BUF (4KB), which session entries always are.
+ *
+ * Failure modes (read-only FS, disk full, EACCES) are logged to stderr and
+ * the error is rethrown so the calling handler can surface a structured
+ * error to the MCP client. Without this guard a thrown error becomes an
+ * unhandled rejection and the user loses the session with zero diagnostic.
  */
 export function appendSession(rootPath: string, entry: SessionSummary): void {
   const path = sessionsJsonlPath(rootPath);
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch (err) {
+    process.stderr.write(
+      `[knit] session append failed at ${path}: ${(err as Error).message}\n`,
+    );
+    throw err;
+  }
 }
 
 /**

@@ -1875,11 +1875,16 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
     ? (outcomeRaw as SessionOutcome)
     : 'unknown';
 
+  // Sanitize before persistence — every sibling write handler (record_learning,
+  // record_false_positive, save_handoff) already redacts. Sessions skipped it
+  // until now; pasted tokens would persist plaintext and surface forever via
+  // knit_search_sessions, plus sync to the global pool when cross-project
+  // learnings are enabled.
   const entry: SessionSummary = {
     id: `${Date.now()}-agent`,
     date: new Date().toISOString().split('T')[0],
     timestamp: new Date().toISOString(),
-    summary: (params.summary || '').slice(0, 500),
+    summary: redactSecrets((params.summary || '').slice(0, 500)),
     tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
     outcome,
     filesTouched: params.files_touched
@@ -1890,7 +1895,14 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
       : undefined,
   };
 
-  appendSession(brain.rootPath, entry);
+  try {
+    appendSession(brain.rootPath, entry);
+  } catch (err) {
+    return JSON.stringify({
+      status: 'error',
+      error: `Failed to persist session summary: ${(err as Error).message}`,
+    });
+  }
 
   return JSON.stringify({
     status: 'saved',

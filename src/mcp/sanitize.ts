@@ -25,6 +25,12 @@ const PATTERNS: SecretPattern[] = [
   { name: 'slack-token', regex: /xox[abopr]-[A-Za-z0-9-]{20,}/g },
   { name: 'npm-token', regex: /npm_[A-Za-z0-9]{36,}/g },
   { name: 'pem-private-key', regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----/g },
+  // M4 additions — credential families the original set missed.
+  { name: 'stripe-key', regex: /sk_(?:live|test)_[A-Za-z0-9]{24,}/g },
+  { name: 'google-api-key', regex: /AIzaSy[A-Za-z0-9_-]{33}/g },
+  // JWT: header.payload.signature, base64url segments. Reasonably tight to
+  // avoid false-positives on arbitrary dotted strings.
+  { name: 'jwt', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
 ];
 
 export function redactSecrets(input: string): string {
