@@ -66,12 +66,42 @@ export interface LearningEntry {
  *  - inquiry: read-only "what / where / explain / audit" tasks. No phases, no
  *    plan mode. The workflow protocol documents this tier; v0.7 implements it
  *    in the classifier so audit-style questions stop over-routing into Complex.
- *  - trivial / standard / complex: write-bearing tasks routed by domain/file count. */
+ *  - trivial / standard / complex: write-bearing tasks routed by domain/file count.
+ *
+ *  v0.10 — `tier` is retained for back-compat; the real signals are
+ *  `RiskTier` × `ScopeTier`. `tier` is now a derived compound used only by
+ *  legacy callers and the Protocol Guard marker. */
 export type TaskTier = 'inquiry' | 'trivial' | 'standard' | 'complex';
+
+/** v0.10 — Risk dimension. Drives `auto_plan_mode`, not scope.
+ *  - low: purely additive plumbing; low-fanout single edits
+ *  - medium: modifies existing logic; touches multiple files
+ *  - high: types/schema/auth changes; deletes; breaking changes */
+export type RiskTier = 'low' | 'medium' | 'high';
+
+/** v0.10 — Scope dimension. Drives phase count, not plan-mode.
+ *  - trivial: 1 file in 1 domain
+ *  - standard: 2 domains or 2-3 files
+ *  - complex: 3+ domains or >3 files */
+export type ScopeTier = 'trivial' | 'standard' | 'complex';
+
+/** v0.10 — Change kind inferred from files + description.
+ *  - additive: all files are new (no existing path matches)
+ *  - modify: all files already exist
+ *  - delete: description indicates removal of existing code/files
+ *  - mixed: combination of the above */
+export type ChangeKind = 'additive' | 'modify' | 'delete' | 'mixed';
 
 /** Task classification result */
 export interface TaskClassification {
+  /** Legacy compound tier — derived from risk+scope for back-compat. */
   tier: TaskTier;
+  /** v0.10 — risk dimension (drives auto_plan_mode). */
+  riskTier: RiskTier;
+  /** v0.10 — scope dimension (drives phase count). */
+  scopeTier: ScopeTier;
+  /** v0.10 — change kind inferred from files. */
+  changeKind: ChangeKind;
   domains: string[];
   reasoning: string;
   phases: string[];
@@ -89,6 +119,12 @@ export interface ClassificationMarker {
   turnId: string;
   classifiedAt: string;
   tier: TaskTier;
+  /** v0.10 — risk dimension. Optional for back-compat with v0.9.x markers. */
+  riskTier?: RiskTier;
+  /** v0.10 — scope dimension. Optional for back-compat. */
+  scopeTier?: ScopeTier;
+  /** v0.10 — change kind. Optional for back-compat. */
+  changeKind?: ChangeKind;
   files: string[];
 }
 

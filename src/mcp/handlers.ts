@@ -50,7 +50,7 @@ import {
 import {
   isValidStrictness, readProtocolConfig, writeClassificationMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
-import type { TaskTier } from '../engine/types.js';
+import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
 
 export function detectDomainsFromFiles(files: string[]): Set<string> {
@@ -983,16 +983,121 @@ function detectsInquiryIntent(description: string): boolean {
   return inquiryStart.test(description) || inquiryVerb.test(description);
 }
 
+/** v0.10 — Infer change kind from file existence + description verbs.
+ *  Uses existsSync against `rootPath` per file. Safe-defaults to 'modify'
+ *  on any IO error so risk inference stays conservative. */
+function inferChangeKind(files: string[], description: string, rootPath: string): ChangeKind {
+  const lower = description.toLowerCase();
+  const deleteVerb = /\b(delete|remove|drop|rip\s+out|tear\s+down|deprecate|kill)\b/.test(lower);
+  const deleteObject = /\b(this|that|it|the|file|module|column|table|endpoint|route|method|function|class)\b/.test(lower);
+  const isDeleteHint = deleteVerb && deleteObject;
+  // Delete intent overrides file-presence inference: a "remove the legacy
+  // module" task is `delete` whether the file still exists on disk or is
+  // already gone (cleanup pass). Conservative — requires both verb AND
+  // object to trigger, so "add helper that removes whitespace" stays additive.
+  if (isDeleteHint) return 'delete';
+  if (files.length === 0) {
+    if (/\b(add|create|new|introduce|implement|build|generate|scaffold)\b/.test(lower)) return 'additive';
+    return 'modify';
+  }
+  let additive = 0;
+  let modify = 0;
+  for (const f of files) {
+    try {
+      if (existsSync(join(rootPath, f))) modify++;
+      else additive++;
+    } catch {
+      modify++;
+    }
+  }
+  if (additive > 0 && modify === 0) return 'additive';
+  if (modify > 0 && additive === 0) return 'modify';
+  return 'mixed';
+}
+
+/** v0.10 — Risk tier inference. Drives `auto_plan_mode`, not scope. */
+function inferRiskTier(
+  files: string[],
+  description: string,
+  changeKind: ChangeKind,
+  isTypes: boolean,
+  isAuth: boolean,
+  highFanoutCount: number,
+): RiskTier {
+  const lower = description.toLowerCase();
+  const breakingHints = /\b(migration|breaking|rewrite|schema\s+change|deprecate|backwards?[-\s]incompatible)\b/.test(lower);
+  if (isTypes || isAuth || breakingHints || changeKind === 'delete' || highFanoutCount >= 1) {
+    return 'high';
+  }
+  if ((changeKind === 'modify' || changeKind === 'mixed') && files.length >= 2) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+/** v0.10 — Scope tier inference. Drives phase count, not plan-mode. */
+function inferScopeTier(
+  files: string[],
+  domains: Set<string>,
+  isNewProject: boolean,
+  descriptionIsComplex: boolean,
+): ScopeTier {
+  if (isNewProject) {
+    return descriptionIsComplex ? 'complex' : 'standard';
+  }
+  if (domains.size >= 3 || files.length > 3) return 'complex';
+  if (domains.size >= 2 || files.length > 1) return 'standard';
+  return 'trivial';
+}
+
+/** v0.10 — Map risk × scope to legacy `tier` for back-compat. */
+function deriveLegacyTier(risk: RiskTier, scope: ScopeTier): TaskTier {
+  if (risk === 'high' || scope === 'complex') return 'complex';
+  if (risk === 'medium' || scope === 'standard') return 'standard';
+  return 'trivial';
+}
+
+/** v0.10 — Phases from scope + plan-mode flag. PLAN is prepended when a
+ *  medium/high-risk task lands on a non-complex scope (the case the v0.9
+ *  classifier missed). */
+function phasesForScope(scope: ScopeTier, autoPlanMode: boolean): string[] {
+  if (scope === 'complex') {
+    return ['RESEARCH', 'IDEATE', 'PLAN', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN'];
+  }
+  if (scope === 'standard') {
+    return autoPlanMode
+      ? ['RESEARCH', 'PLAN', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
+      : ['RESEARCH', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN'];
+  }
+  return autoPlanMode
+    ? ['PLAN', 'EXECUTE', 'VERIFY', 'LEARN']
+    : ['EXECUTE', 'VERIFY', 'LEARN'];
+}
+
+/** v0.10 — Apply context-budget downgrade. When the host agent has <30%
+ *  context remaining, scope drops one level and OPTIMIZE is skipped (callers
+ *  read the returned `degraded` flag to know to surface it). */
+function applyContextBudget(scope: ScopeTier, budgetRemaining: number): { scope: ScopeTier; degraded: boolean } {
+  if (budgetRemaining >= 30) return { scope, degraded: false };
+  if (scope === 'complex') return { scope: 'standard', degraded: true };
+  if (scope === 'standard') return { scope: 'trivial', degraded: true };
+  return { scope: 'trivial', degraded: true };
+}
+
 export function handleClassifyTask(params: Record<string, string>, brain: BrainCache): string {
   const rawFiles = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
   const files = rawFiles.filter((f) => f !== 'unknown');
   const description = (params.description || '').toLowerCase();
   const domains = detectDomainsFromFiles(files);
   const crossDomainRipple: string[] = [];
+  let highFanoutCount = 0;
 
   for (const file of files) {
     const importers = brain.reverseDeps[file] || [];
-    if (importers.length >= 3) crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
+    if (importers.length >= 3) {
+      crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
+      if (importers.length >= 10) highFanoutCount++;
+    }
   }
 
   // Inquiry tier — read-only "what / audit / explain" tasks. Detected before
@@ -1012,6 +1117,9 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     }
     return JSON.stringify({
       tier: 'inquiry',
+      risk_tier: 'low',
+      scope_tier: 'trivial',
+      change_kind: 'modify',
       affected_domains: [...domains],
       phases: [],
       files_count: files.length,
@@ -1029,24 +1137,36 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   const isNewProject = files.length === 0 || rawFiles.includes('unknown');
   const descriptionIsComplex = description.includes('architect') || description.includes('build from scratch')
     || description.includes('new project') || description.includes('system')
-    || description.length > 100; // long descriptions = complex tasks
+    || description.length > 100;
 
-  const tier: TaskTier = isNewProject
-    ? (descriptionIsComplex ? 'complex' : 'standard')
-    : (domains.size >= 3 || isTypes || isAuth || files.length > 3)
-      ? 'complex' : (domains.size >= 2 || files.length > 1) ? 'standard' : 'trivial';
+  // v0.10 — compute the three new dimensions before deriving back-compat tier.
+  const changeKind = inferChangeKind(files, params.description || '', brain.rootPath);
+  const riskTier = inferRiskTier(files, params.description || '', changeKind, isTypes, isAuth, highFanoutCount);
+  const initialScope = inferScopeTier(files, domains, isNewProject, descriptionIsComplex);
 
-  const phases = tier === 'complex'
-    ? ['RESEARCH', 'IDEATE', 'PLAN', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
-    : tier === 'standard'
-      ? ['RESEARCH', 'EXECUTE', 'OPTIMIZE', 'REVIEW', 'LEARN']
-      : ['EXECUTE', 'VERIFY', 'LEARN'];
+  // v0.10 — context budget downgrade. <30% remaining → scope drops one level.
+  const rawBudget = parseInt(params.context_budget_remaining || '100', 10);
+  const budgetRemaining = Number.isFinite(rawBudget) && rawBudget >= 0 && rawBudget <= 100 ? rawBudget : 100;
+  const { scope: scopeTier, degraded: budgetDegraded } = applyContextBudget(initialScope, budgetRemaining);
 
-  const instruction = tier === 'complex'
-    ? 'ENTER PLAN MODE NOW. Call EnterPlanMode tool immediately. Do NOT start coding without a plan. This task touches 3+ domains and requires RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW → LEARN.'
-    : tier === 'standard'
-      ? 'Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.'
-      : 'Simple task. EXECUTE → VERIFY → LEARN. Do it directly, then record what you learned.';
+  // auto_plan_mode is now risk-driven, not scope-driven.
+  const autoPlanMode = riskTier === 'high' || riskTier === 'medium';
+
+  const tier = deriveLegacyTier(riskTier, scopeTier);
+  let phases = phasesForScope(scopeTier, autoPlanMode);
+  // Budget-degraded tasks always drop OPTIMIZE — it's the most expensive phase
+  // (parallel review agents). Saves tokens when the host is already constrained.
+  if (budgetDegraded) {
+    phases = phases.filter((p) => p !== 'OPTIMIZE');
+  }
+
+  const instruction = autoPlanMode
+    ? `ENTER PLAN MODE NOW. Risk=${riskTier}, scope=${scopeTier}, change=${changeKind}. Call EnterPlanMode tool immediately. Do NOT start coding without a plan.`
+    : scopeTier === 'complex'
+      ? 'Many-file additive change. Follow phases: RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW → LEARN.'
+      : scopeTier === 'standard'
+        ? 'Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.'
+        : 'Simple task. EXECUTE → VERIFY → LEARN. Do it directly, then record what you learned.';
 
   // Protocol Guard side effect: write classification marker so PreToolUse
   // hook lets Edit/Write through this turn. See src/engine/protocol-guard.ts.
@@ -1055,6 +1175,9 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
       turnId: `${Date.now()}-${process.pid}`,
       classifiedAt: new Date().toISOString(),
       tier,
+      riskTier,
+      scopeTier,
+      changeKind,
       files,
     });
   } catch {
@@ -1062,16 +1185,13 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   }
 
   // v0.9 — pre-emptive learnings injection. When the task warrants RESEARCH
-  // (standard or complex), auto-run BM25 over the description + affected
-  // domains and embed the top 3 hits in the response. Closes the discipline
-  // gap where agents skip knit_search_learnings before re-investigating.
-  // Trivial-tier and inquiry-tier tasks skip this — they don't need it and
-  // the extra payload would be pure overhead.
+  // (standard or complex scope), auto-run BM25 over the description + affected
+  // domains and embed the top 3 hits in the response.
   let preEmptiveLearnings: Array<{ summary: string; lesson: string; tags: string[] }> | undefined;
-  if (tier === 'standard' || tier === 'complex') {
+  if (scopeTier === 'standard' || scopeTier === 'complex') {
     try {
-      const description = (params.description || '').trim();
-      const queryText = description || [...domains].join(' ');
+      const trimmed = (params.description || '').trim();
+      const queryText = trimmed || [...domains].join(' ');
       if (queryText) {
         const index = buildLearningsIndex(brain.knowledgeBase.entries);
         const hits = index.search(queryText, 3);
@@ -1088,22 +1208,35 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     }
   }
 
-  // Minimal-mode response by default; verbose=true (or "1") restores the
-  // diagnostic fields (reasoning, cross_domain_ripple, files_count) for
-  // debugging without paying their token cost on every routine call.
+  // FP nudge — surfaced for write-bearing tasks so users actually use the
+  // false-positive feedback loop. Skipping trivial keeps the noise down.
+  const fpNudge = scopeTier === 'standard' || scopeTier === 'complex'
+    ? 'If this classification is wrong, call knit_record_false_positive with the reason — improves the classifier over time.'
+    : undefined;
+
   const verbose = params.verbose === 'true' || params.verbose === '1';
   const base = {
     tier,
+    risk_tier: riskTier,
+    scope_tier: scopeTier,
+    change_kind: changeKind,
     affected_domains: [...domains],
     phases,
-    auto_plan_mode: tier === 'complex',
+    auto_plan_mode: autoPlanMode,
     instruction,
+    ...(budgetDegraded
+      ? {
+          degraded_for_budget: true,
+          budget_note: `Context budget remaining = ${budgetRemaining}%. Scope downgraded from ${initialScope} to ${scopeTier}; OPTIMIZE phase dropped to conserve tokens.`,
+        }
+      : {}),
     ...(preEmptiveLearnings && preEmptiveLearnings.length > 0
       ? {
           pre_emptive_learnings: preEmptiveLearnings,
           pre_emptive_note: 'Prior learnings auto-surfaced. Apply these before re-investigating from scratch. To get more, call knit_search_learnings with the same query.',
         }
       : {}),
+    ...(fpNudge ? { fp_nudge: fpNudge } : {}),
   };
   if (!verbose) {
     return JSON.stringify(base);
@@ -1112,9 +1245,9 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     ...base,
     files_count: files.length,
     cross_domain_ripple: crossDomainRipple,
-    reasoning: tier === 'complex'
-      ? `Complex: ${domains.size} domains affected${isTypes ? ', touches shared types' : ''}${isAuth ? ', security-sensitive' : ''}`
-      : tier === 'standard' ? `Standard: ${domains.size} domain(s), ${files.length} file(s)` : `Trivial: 1 domain, simple change`,
+    reasoning: autoPlanMode
+      ? `Risk=${riskTier}: ${isTypes ? 'types/schema touched, ' : ''}${isAuth ? 'auth/security touched, ' : ''}${changeKind === 'delete' ? 'delete intent, ' : ''}${highFanoutCount > 0 ? `${highFanoutCount} high-fanout file(s), ` : ''}scope=${scopeTier}`
+      : `Scope=${scopeTier}: ${domains.size} domain(s), ${files.length} file(s), change=${changeKind}`,
   });
 }
 

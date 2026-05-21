@@ -97,8 +97,8 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Update (write to the brain) ──────────────────────────────
     {
       name: 'knit_classify_task',
-      description: 'Call first on every task. Returns tier (inquiry/trivial/standard/complex), phases, auto_plan_mode.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' } , verbose: { type: 'string', description: '"true" to include reasoning + cross_domain_ripple + files_count (debug fields).' } }, required: ['files_to_touch'] },
+      description: 'Call first. Returns risk_tier (drives plan mode), scope_tier (drives phases), change_kind, phases, auto_plan_mode, tier. Optional context_budget_remaining (0-100) downgrades gracefully.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' }, verbose: { type: 'string', description: '"true" to include reasoning + cross_domain_ripple + files_count (debug fields).' }, context_budget_remaining: { type: 'string', description: 'Integer 0–100 — percent of host agent context window remaining. <30 triggers scope downgrade + skips OPTIMIZE phase. Defaults to 100.' } }, required: ['files_to_touch'] },
     },
     {
       name: 'knit_build_context',

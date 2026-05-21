@@ -438,6 +438,112 @@ describe('handleToolCall', () => {
     expect(result.files_count).toBe(4);
   });
 
+  // ── v0.10 — risk × scope × changeKind split ────────────────────
+  //
+  // The classifier now returns three independent dimensions. `tier` survives
+  // as a derived compound for back-compat (consumed by Protocol Guard marker
+  // + existing tests above). Plan-mode now fires on risk, not scope —
+  // catching the case the v0.9 classifier missed (1-file edit to auth.ts).
+
+  it('knit_classify_task v0.10 — returns risk_tier, scope_tier, change_kind', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/utils.ts',
+    }, brain));
+    expect(result.risk_tier).toMatch(/^(low|medium|high)$/);
+    expect(result.scope_tier).toMatch(/^(trivial|standard|complex)$/);
+    expect(result.change_kind).toMatch(/^(additive|modify|delete|mixed)$/);
+  });
+
+  it('knit_classify_task v0.10 — types touch → risk=high triggers plan mode on trivial scope', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts',
+      description: 'rename one field',
+    }, brain));
+    expect(result.risk_tier).toBe('high');
+    expect(result.auto_plan_mode).toBe(true);
+    expect(result.phases).toContain('PLAN');
+  });
+
+  it('knit_classify_task v0.10 — auth touch → risk=high', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/auth.ts',
+      description: 'tighten session expiry',
+    }, brain));
+    expect(result.risk_tier).toBe('high');
+    expect(result.auto_plan_mode).toBe(true);
+  });
+
+  it('knit_classify_task v0.10 — purely additive new files → risk=low, change_kind=additive', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/new-feature/foo.ts,src/new-feature/bar.ts',
+      description: 'add new feature module',
+    }, brain));
+    expect(result.change_kind).toBe('additive');
+    expect(result.risk_tier).toBe('low');
+    expect(result.auto_plan_mode).toBe(false);
+  });
+
+  it('knit_classify_task v0.10 — delete intent → change_kind=delete, risk=high', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/legacy.ts',
+      description: 'remove the legacy module entirely',
+    }, brain));
+    expect(result.change_kind).toBe('delete');
+    expect(result.risk_tier).toBe('high');
+  });
+
+  it('knit_classify_task v0.10 — context_budget_remaining < 30 downgrades scope', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/foo-new.ts,src/bar-new.ts,src/baz-new.ts,src/qux-new.ts',
+      description: 'add a batch of small additive helpers',
+      context_budget_remaining: '20',
+    }, brain));
+    expect(result.degraded_for_budget).toBe(true);
+    expect(result.scope_tier).not.toBe('complex');
+    expect(result.budget_note).toMatch(/20%/);
+    // Budget degradation always drops OPTIMIZE (most expensive phase).
+    expect(result.phases).not.toContain('OPTIMIZE');
+  });
+
+  it('knit_classify_task v0.10 — context_budget_remaining = 100 (default) → no degradation', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/foo-new.ts,src/bar-new.ts,src/baz-new.ts,src/qux-new.ts',
+      description: 'add a batch of small additive helpers',
+    }, brain));
+    expect(result.degraded_for_budget).toBeUndefined();
+  });
+
+  it('knit_classify_task v0.10 — fp_nudge surfaced on standard scope, hidden on trivial', () => {
+    const trivial = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/utils.ts',
+      description: 'add helper function',
+    }, brain));
+    expect(trivial.fp_nudge).toBeUndefined();
+
+    const standard = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,tests/utils.test.ts',
+      description: 'add endpoint with tests',
+    }, brain));
+    expect(standard.fp_nudge).toBeDefined();
+    expect(standard.fp_nudge).toMatch(/false_positive/);
+  });
+
+  it('knit_classify_task v0.10 — back-compat: tier still derived as max(risk, scope)', () => {
+    // High risk on trivial scope still maps to tier=complex for legacy consumers.
+    const highRiskTrivialScope = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/types.ts',
+      description: 'rename a field',
+    }, brain));
+    expect(highRiskTrivialScope.tier).toBe('complex');
+
+    // Low risk on standard scope maps to tier=standard.
+    const lowRiskStandard = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/new-a.ts,src/new-b.ts',
+      description: 'add two new utility files',
+    }, brain));
+    expect(lowRiskStandard.tier).toBe('standard');
+  });
+
   // ── v0.7 step 7 — knit_load_session lazy include ───────────────
   //
   // Default response carries session_context + slim intelligence + counts-only
