@@ -42,11 +42,23 @@ What turned out to already exist when planning v0.10:
 - [x] 10 new tests (515 total, 515 passing)
 - [x] FP nudge surfaced on standard + complex scope
 
-### Slice 2 — Retrieval audit + wire-up (NEXT WEEK)
-- [ ] Audit: which search paths use BM25+RRF? Grep `handleSearchLearnings`, `handleSearchSessions`, `handleSearchGlobalLearnings`, `handleQueryByDomains`
-- [ ] Any that fall back to substring → migrate to `retrieval/index.ts` fused query
-- [ ] Add session-diversity cap (max 2 per session in final top-K) — `retrieval/index.ts`
-- [ ] Add retrieval-quality metric: hits where relevance > 0.5 vs total queries
+### Slice 2 — Retrieval audit + wire-up ✅ shipped 2026-05-21
+Audit finding: the three free-text search paths (`handleSearchLearnings`,
+`handleSearchSessions`, `handleSearchGlobalLearnings`) already wire BM25+RRF.
+Substring is the intentional fallback for partial-word queries that don't survive
+tokenization, or empty BM25 results (tiny corpora). `queryByDomains` is correctly
+tag-equality (not free-text), no migration needed.
+
+The one real gap: `handleSearchGlobalLearnings` had no per-project diversity cap,
+so one chatty project could flood the cross-project top-K.
+
+- [x] Generic `diversifyBy<T>(results, keyFn, maxPerKey)` helper extracted from `diversifyByBranch`
+- [x] New `diversifyByProject` helper (caps results sharing the same `projectName`)
+- [x] Wired into `handleSearchGlobalLearnings` (over-fetch ×5, cap 2/project, then RRF)
+- [x] 12 new tests for `diversifyBy` / `diversifyByBranch` / `diversifyByProject`
+- [x] `handleSearchSessions` already had `diversifyByBranch` — verified
+- [x] `handleSearchLearnings` uses BM25+graph+RRF — verified
+- [ ] Retrieval-quality metric (>0.5 score hits / total) — **deferred to Slice 3** (metrics extension)
 
 ### Slice 3 — Compounding metrics extension
 - [ ] Extend `knit_compounding_metrics` response with:

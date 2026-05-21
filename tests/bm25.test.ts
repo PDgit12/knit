@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BM25Index, defaultTokenize, type BM25Document } from '../src/engine/retrieval/bm25.js';
+import { diversifyBy, diversifyByBranch, diversifyByProject } from '../src/engine/retrieval/index.js';
 
 /**
  * v0.8 phase 1 — standalone BM25 module.
@@ -245,5 +246,98 @@ describe('BM25Index — Knit-shaped corpus (realistic smoke test)', () => {
   it('unrelated query returns empty', () => {
     const idx = new BM25Index(knitCorpus());
     expect(idx.search('quantum cryptography')).toEqual([]);
+  });
+});
+
+// ── v0.10 — diversifiers ──────────────────────────────────────────
+//
+// `diversifyBy` is the generic key-extractor capper used by the session-
+// and project-specific helpers. Tests pin (1) the cap actually applies,
+// (2) original rank order is preserved within each bucket, (3) empty/null
+// bucket keys get their own '(empty)' lane.
+
+describe('diversifyBy — generic key-capper', () => {
+  it('caps results sharing the same key', () => {
+    const items = ['a1', 'a2', 'a3', 'b1', 'a4'];
+    const out = diversifyBy(items, (s) => s[0], 2);
+    expect(out).toEqual(['a1', 'a2', 'b1']);
+  });
+
+  it('preserves original rank order within each bucket', () => {
+    const items = ['a3', 'a1', 'a2'];
+    const out = diversifyBy(items, (s) => s[0], 5);
+    expect(out).toEqual(['a3', 'a1', 'a2']);
+  });
+
+  it('null/undefined keys all land in the (empty) bucket and are capped together', () => {
+    const items = [{ k: null }, { k: undefined }, { k: null }, { k: 'x' }];
+    const out = diversifyBy(items, (i) => i.k as string | null, 1);
+    expect(out).toHaveLength(2);
+    expect(out[0].k).toBeNull();
+    expect(out[1].k).toBe('x');
+  });
+
+  it('cap=0 returns empty', () => {
+    expect(diversifyBy(['a', 'b'], (s) => s, 0)).toEqual([]);
+  });
+});
+
+describe('diversifyByBranch — session-branch capper', () => {
+  function fakeHit(id: string, branch: string | null) {
+    return { id, score: 1, document: { id, text: '', metadata: { session: { branch } } } };
+  }
+
+  it('caps at maxPerBranch (default 2) per branch', () => {
+    const hits = [
+      fakeHit('1', 'feature/x'),
+      fakeHit('2', 'feature/x'),
+      fakeHit('3', 'feature/x'),
+      fakeHit('4', 'main'),
+    ];
+    const out = diversifyByBranch(hits);
+    expect(out.map((h) => h.id)).toEqual(['1', '2', '4']);
+  });
+
+  it('treats null branch as its own bucket', () => {
+    const hits = [
+      fakeHit('1', null),
+      fakeHit('2', null),
+      fakeHit('3', null),
+      fakeHit('4', 'main'),
+    ];
+    const out = diversifyByBranch(hits, 2);
+    expect(out.map((h) => h.id)).toEqual(['1', '2', '4']);
+  });
+});
+
+describe('diversifyByProject — global-learnings project capper', () => {
+  function fakeHit(id: string, projectName: string | null) {
+    return { id, score: 1, document: { id, text: '', metadata: { entry: { projectName } } } };
+  }
+
+  it('caps at maxPerProject (default 2) per source project', () => {
+    const hits = [
+      fakeHit('a', 'proj-a'),
+      fakeHit('b', 'proj-a'),
+      fakeHit('c', 'proj-a'),
+      fakeHit('d', 'proj-b'),
+      fakeHit('e', 'proj-a'),
+    ];
+    const out = diversifyByProject(hits);
+    expect(out.map((h) => h.id)).toEqual(['a', 'b', 'd']);
+  });
+
+  it('keeps quieter projects visible when a chatty one would dominate', () => {
+    const hits = [
+      fakeHit('chatty1', 'proj-loud'),
+      fakeHit('chatty2', 'proj-loud'),
+      fakeHit('chatty3', 'proj-loud'),
+      fakeHit('chatty4', 'proj-loud'),
+      fakeHit('quiet1', 'proj-quiet'),
+    ];
+    const out = diversifyByProject(hits, 2);
+    const projects = out.map((h) => (h.document.metadata as { entry: { projectName: string } }).entry.projectName);
+    expect(projects).toContain('proj-quiet');
+    expect(projects.filter((p) => p === 'proj-loud')).toHaveLength(2);
   });
 });

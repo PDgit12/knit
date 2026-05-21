@@ -64,28 +64,50 @@ export function buildSessionsIndex(sessions: SessionSummary[]): BM25Index {
   return new BM25Index(docs);
 }
 
-/** Session-diversified retrieval: cap the number of results per session
- *  branch in the final ranking. Prevents one verbose feature branch from
- *  flooding the results when many of its sessions match a query. From
- *  the v0.7 plan's step 9.5 — the trivial-to-add diversification once
- *  BM25 landed.
- *
- *  Returns the input list, in original rank order, but with no more than
- *  `maxPerBranch` results sharing the same branch. A null branch is
- *  treated as its own bucket. */
-export function diversifyByBranch<T extends { document: { metadata?: Record<string, unknown> } }>(
+/** Generic diversified-retrieval: cap the number of results sharing the
+ *  same bucket key. The key extractor turns each result into a string
+ *  bucket; null/empty buckets get their own '(empty)' lane. Used by the
+ *  branch- and project-specific helpers below so one verbose source can't
+ *  flood the top-K. From the v0.7 plan's step 9.5. */
+export function diversifyBy<T>(
   results: T[],
-  maxPerBranch = 2,
+  keyFn: (r: T) => string | null | undefined,
+  maxPerKey = 2,
 ): T[] {
   const counts = new Map<string, number>();
   const out: T[] = [];
   for (const r of results) {
-    const session = (r.document.metadata as { session?: SessionSummary } | undefined)?.session;
-    const branch = session?.branch ?? '(no-branch)';
-    const c = counts.get(branch) ?? 0;
-    if (c >= maxPerBranch) continue;
-    counts.set(branch, c + 1);
+    const key = keyFn(r) ?? '(empty)';
+    const c = counts.get(key) ?? 0;
+    if (c >= maxPerKey) continue;
+    counts.set(key, c + 1);
     out.push(r);
   }
   return out;
+}
+
+/** Session-diversified retrieval: cap results sharing the same git branch. */
+export function diversifyByBranch<T extends { document: { metadata?: Record<string, unknown> } }>(
+  results: T[],
+  maxPerBranch = 2,
+): T[] {
+  return diversifyBy(
+    results,
+    (r) => (r.document.metadata as { session?: SessionSummary } | undefined)?.session?.branch ?? '(no-branch)',
+    maxPerBranch,
+  );
+}
+
+/** Global-learning diversified retrieval: cap results sharing the same
+ *  source project. Prevents one chatty project's pool from drowning out
+ *  lessons from quieter projects in cross-project searches. */
+export function diversifyByProject<T extends { document: { metadata?: Record<string, unknown> } }>(
+  results: T[],
+  maxPerProject = 2,
+): T[] {
+  return diversifyBy(
+    results,
+    (r) => (r.document.metadata as { entry?: GlobalLearning } | undefined)?.entry?.projectName ?? '(no-project)',
+    maxPerProject,
+  );
 }

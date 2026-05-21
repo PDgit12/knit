@@ -38,7 +38,7 @@ import { VERSION } from '../version.js';
 import { scanIntegrations, persistScanResult, loadScanResult } from '../engine/integration-scanner.js';
 import {
   buildLearningsIndex, buildGlobalLearningsIndex, buildSessionsIndex,
-  diversifyByBranch, rrfFuse, toRankedResults,
+  diversifyByBranch, diversifyByProject, rrfFuse, toRankedResults,
   computeNeighborhood, rankLearningsByGraph,
 } from '../engine/retrieval/index.js';
 import type { KBEntry, GlobalLearning } from '../engine/types.js';
@@ -1804,8 +1804,12 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, brai
 
   if (entries.length > 0) {
     const index = buildGlobalLearningsIndex(entries);
-    const bm25Hits = index.search(query, Math.min(limit * 3, 50));
-    const fused = rrfFuse([toRankedResults(bm25Hits)], { k: 60 });
+    // Over-fetch so the project-diversifier has candidates to pick from.
+    const bm25Hits = index.search(query, Math.min(limit * 5, 50));
+    // v0.10 — cap per source project so one chatty project doesn't drown out
+    // lessons from quieter projects in the cross-project pool.
+    const diversified = diversifyByProject(bm25Hits, 2);
+    const fused = rrfFuse([toRankedResults(diversified)], { k: 60 });
     const byId = new Map<string, GlobalLearning>();
     for (const e of entries) byId.set(e.id, e);
     for (const f of fused) {
