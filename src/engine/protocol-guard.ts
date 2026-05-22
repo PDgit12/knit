@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname } from 'node:path';
 
 import {
+  claimMarkerPath,
   classificationMarkerPath,
   protocolConfigPath,
   sessionMarkerPath,
@@ -83,4 +84,28 @@ export function writeSessionMarker(rootPath: string): void {
   const path = sessionMarkerPath(rootPath);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, new Date().toISOString(), 'utf-8');
+}
+
+/** v0.11 slice 1 — claim verification marker. Written by handleVerifyClaim
+ *  as a side effect. The Stop hook checks for its presence on standard/
+ *  complex scope tasks to enforce the "verify ≥1 claim before LEARN" gate. */
+export function writeClaimMarker(rootPath: string): void {
+  const path = claimMarkerPath(rootPath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, new Date().toISOString(), 'utf-8');
+}
+
+export function readClaimMarker(rootPath: string): string | null {
+  const path = claimMarkerPath(rootPath);
+  if (!existsSync(path)) return null;
+  try {
+    return readFileSync(path, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+export function clearClaimMarker(rootPath: string): void {
+  const path = claimMarkerPath(rootPath);
+  if (existsSync(path)) rmSync(path, { force: true });
 }

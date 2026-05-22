@@ -48,7 +48,7 @@ import {
   getOtherTeamFindings, getBoardSummary,
 } from '../engine/teams.js';
 import {
-  isValidStrictness, readProtocolConfig, writeClassificationMarker, writeProtocolConfig,
+  isValidStrictness, readProtocolConfig, writeClassificationMarker, writeClaimMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
@@ -731,6 +731,14 @@ export function handleVerifyClaim(params: Record<string, string>, brain: BrainCa
     return JSON.stringify({ verdict: 'unparseable', error: 'claim parameter is required' });
   }
   const result = parseAndVerifyClaim(claim, brain);
+  // v0.11 slice 1 — claim verification marker. Stop hook reads this to
+  // enforce the "verify ≥1 claim before LEARN" gate on standard/complex
+  // scope tasks. Best-effort: marker IO failure never breaks verification.
+  try {
+    writeClaimMarker(brain.rootPath);
+  } catch {
+    // best-effort
+  }
   return JSON.stringify({ claim, ...result });
 }
 
@@ -1368,12 +1376,18 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     phases = phases.filter((p) => p !== 'OPTIMIZE');
   }
 
+  // v0.11 slice 1 — verify reminder gets appended on standard/complex scope.
+  // Stop hook enforces it (warn or block per strictness); the instruction text
+  // here is the upfront nudge so the agent knows to budget for a verify call.
+  const verifyReminder = (scopeTier === 'standard' || scopeTier === 'complex')
+    ? ' Before LEARN, verify ≥1 claim with knit_verify_claim — the REVIEW gate enforces this for standard/complex tasks.'
+    : '';
   const instruction = autoPlanMode
-    ? `ENTER PLAN MODE NOW. Risk=${riskTier}, scope=${scopeTier}, change=${changeKind}. Call EnterPlanMode tool immediately. Do NOT start coding without a plan.`
+    ? `ENTER PLAN MODE NOW. Risk=${riskTier}, scope=${scopeTier}, change=${changeKind}. Call EnterPlanMode tool immediately. Do NOT start coding without a plan.${verifyReminder}`
     : scopeTier === 'complex'
-      ? 'Many-file additive change. Follow phases: RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW → LEARN.'
+      ? `Many-file additive change. Follow phases: RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW → LEARN.${verifyReminder}`
       : scopeTier === 'standard'
-        ? 'Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.'
+        ? `Follow phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN. No plan mode needed but do research first.${verifyReminder}`
         : 'Simple task. EXECUTE → VERIFY → LEARN. Do it directly, then record what you learned.';
 
   // Protocol Guard side effect: write classification marker so PreToolUse

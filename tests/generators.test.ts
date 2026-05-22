@@ -318,6 +318,37 @@ describe('generateSettings', () => {
       expect(cmd).toContain('knit_classify_task');
       expect(cmd).toContain('process.exit(2)');
     });
+
+    // ── v0.11 slice 1 — Verify Layer claim gate ──
+    it('HOOKS_VERSION bumped to 8 in v0.11', async () => {
+      const { HOOKS_VERSION } = await import('../src/generators/settings.js');
+      expect(HOOKS_VERSION).toBeGreaterThanOrEqual(8);
+    });
+
+    it('UserPromptSubmit hook also clears the .claim-verified-current marker', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const cmd = (hooks.UserPromptSubmit[0] as any).hooks?.[0]?.command || '';
+      expect(cmd).toContain('.claim-verified-current');
+    });
+
+    it('emits a Stop-hook claim-verified gate referencing scope_tier + protocol-config', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const claimGate = (hooks.Stop as any[]).find((e) => {
+        const c = e.hooks?.[0]?.command || '';
+        return c.includes('.claim-verified-current') && c.includes('REVIEW gate');
+      });
+      expect(claimGate, 'Stop hook with claim gate not found').toBeDefined();
+      expect(claimGate._knitOwned).toBe(true);
+      const cmd = claimGate.hooks?.[0]?.command || '';
+      expect(cmd).toContain('scopeTier');
+      expect(cmd).toContain('standard');
+      expect(cmd).toContain('complex');
+      // Honors strictness: off → no-op, warn → stderr, block → exit 2.
+      expect(cmd).toContain('process.exit(2)');
+      expect(cmd).toContain('knit_verify_claim');
+    });
   });
 
   // ── Cross-platform (Windows + macOS + Linux + WSL) ──

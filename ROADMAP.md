@@ -89,19 +89,15 @@ into a chartable number.
 > Strategic call: v0.10 was *measurement*. v0.11 is *enforcement of correctness*.
 > Order: slice 1 (cheapest, biggest leverage) → slice 2 → slice 3 → slice 4.
 
-### Slice 1 — Mandatory `knit_verify_claim` as REVIEW gate
-**Implementation sketch.** Track per-turn whether `knit_verify_claim` was invoked.
-On Stop hook (or a guard at next Edit/Write attempt), check: if the active
-classification marker has `scopeTier in {standard, complex}` AND the claim
-marker is absent → emit warning (strictness=warn) or block (strictness=block).
-
-- [ ] New `claimMarkerPath` in `paths.ts` → `~/.knit/projects/<hash>/.claim-verified-current`
-- [ ] `writeClaimMarker(rootPath)` / `readClaimMarker(rootPath)` in `protocol-guard.ts`
-- [ ] `handleVerifyClaim` writes the marker as a side effect (mirrors how `handleClassifyTask` writes the classification marker)
-- [ ] Stop hook (in `generators/settings.ts`) reads both markers; if scope ≥ standard AND no claim marker → log stderr
-- [ ] Classifier instruction text appends *"Before LEARN, verify ≥1 claim with `knit_verify_claim`"* for standard/complex
-- [ ] Tests: marker write/read, gate fires/skips correctly, strictness=warn vs block
-- **Gotcha:** UserPromptSubmit hook already clears the classification marker each turn; mirror that for the claim marker so it's truly per-turn.
+### Slice 1 — Mandatory `knit_verify_claim` as REVIEW gate ✅ shipped 2026-05-22
+- [x] `claimMarkerPath` in `paths.ts` → `~/.knit/projects/<hash>/.claim-verified-current`
+- [x] `writeClaimMarker` / `readClaimMarker` / `clearClaimMarker` in `protocol-guard.ts`
+- [x] `handleVerifyClaim` writes the marker as a side effect
+- [x] Stop hook in `generators/settings.ts` reads classification + claim markers; warns/blocks per protocol-config strictness
+- [x] Classifier instruction text appends *"Before LEARN, verify ≥1 claim with `knit_verify_claim`"* on standard/complex scope
+- [x] UserPromptSubmit hook also clears the claim marker (mirror of search/classification marker clears)
+- [x] `HOOKS_VERSION` bumped 7 → 8 so existing users auto-receive the gate on next MCP call
+- [x] 9 new tests (542 total; was 533)
 
 ### Slice 2 — Edit/Write diff verification
 **Implementation sketch.** PostToolUse hook (cross-platform `node -e` payload,

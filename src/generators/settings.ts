@@ -7,6 +7,7 @@ import {
   projectDataDir,
   learningsDir,
   classificationMarkerPath,
+  claimMarkerPath,
   protocolConfigPath,
   sessionMarkerPath,
   searchMarkerPath,
@@ -52,8 +53,11 @@ import {
  *   v7 — 0.9.0+: v0.9 hook-level enforcement — search-marker clear on
  *                UserPromptSubmit, search-gate in PreToolUse Edit, pre/post
  *                import validation, Stop-hook budget watch
+ *   v8 — 0.11.0+: v0.11 Verify Layer — claim-marker clear on UserPromptSubmit,
+ *                 Stop-hook claim-verified gate on standard/complex scope
+ *                 (warn/block per protocol-config strictness)
  */
-export const HOOKS_VERSION = 7;
+export const HOOKS_VERSION = 8;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -125,6 +129,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
   const CLASSIFIED_MARKER = classificationMarkerPath(rootPath);
   const SESSION_MARKER = sessionMarkerPath(rootPath);
   const SEARCH_MARKER = searchMarkerPath(rootPath);
+  const CLAIM_MARKER = claimMarkerPath(rootPath);
   const CLAUDE_MD = `${rootPath}/CLAUDE.md`;
   // KNOWLEDGE_JSON exists in the import surface for future hook-side use
   // (e.g. cross-checking imports against the indexed graph) but is not yet
@@ -173,6 +178,10 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                 // so the next non-trivial task has to call knit_search_learnings again.
                 const sm = ${jsLit(SEARCH_MARKER)};
                 if (fs.existsSync(sm)) fs.rmSync(sm, { force: true });
+                // v0.11 slice 1: per-turn claim-verified marker — Stop-hook gate
+                // requires fresh verify_claim per non-trivial task.
+                const cm = ${jsLit(CLAIM_MARKER)};
+                if (fs.existsSync(cm)) fs.rmSync(cm, { force: true });
               } catch (e) {}
             `),
             timeout: 5,
@@ -507,6 +516,55 @@ function generateHooks(config: KnitConfig, rootPath: string) {
       ],
     });
   }
+
+  // v0.11 slice 1 — Stop-hook claim-verified gate. The REVIEW phase of the
+  // protocol requires that standard/complex scope tasks verify ≥1 claim
+  // against the knowledge graph before LEARN. The marker is written by
+  // knit_verify_claim and cleared on each UserPromptSubmit. Strictness levels:
+  //    off    → no-op
+  //    warn   → stderr reminder
+  //    block  → exit 2 (interrupts the Stop, surfaces the gate strongly)
+  // Reads scope_tier off the classification marker (back-compat: falls back
+  // to legacy `tier` field if a v0.9.x marker is on disk).
+  hooks.Stop.push({
+    _knitOwned: true,
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          try {
+            const fs = require("fs");
+            const cfgPath = ${jsLit(PROTOCOL_CONFIG)};
+            const classifiedPath = ${jsLit(CLASSIFIED_MARKER)};
+            const claimPath = ${jsLit(CLAIM_MARKER)};
+            let level = "warn";
+            if (fs.existsSync(cfgPath)) {
+              try {
+                const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+                if (cfg && (cfg.level === "off" || cfg.level === "warn" || cfg.level === "block")) level = cfg.level;
+              } catch (parseErr) {}
+            }
+            if (level === "off") return;
+            if (!fs.existsSync(classifiedPath)) return;
+            let scope;
+            try {
+              const marker = JSON.parse(fs.readFileSync(classifiedPath, "utf-8"));
+              scope = (marker && (marker.scopeTier || marker.tier)) || "";
+            } catch (e) { return; }
+            if (scope !== "standard" && scope !== "complex") return;
+            if (fs.existsSync(claimPath)) return;
+            if (level === "block") {
+              console.error("[knit] BLOCKED: " + scope + " task ended without verify_claim. The REVIEW gate requires ≥1 knit_verify_claim call before LEARN — verify the agent's claims against the knowledge graph or rerun.");
+              process.exit(2);
+            }
+            console.error("[knit] reminder: " + scope + " task ended without knit_verify_claim. The REVIEW gate is the anti-slop guard — verify the agent's claims against the graph before declaring done. Set strictness=block via knit_set_protocol_strictness to make this hard.");
+          } catch (e) {}
+        `),
+        timeout: 5,
+        statusMessage: 'Knit: REVIEW claim-gate...',
+      },
+    ],
+  });
 
   // v0.9 #4 — Stop hook budget watch. Cheap CLAUDE.md size check that runs
   // at session end. The token-budget guardrail in knit_brain_status is read

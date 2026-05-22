@@ -279,3 +279,85 @@ describe('citation rule in KNIT_INSTRUCTIONS (v0.9 #2)', () => {
     expect(KNIT_INSTRUCTIONS).toMatch(/unverified/);
   });
 });
+
+// ── v0.11 slice 1 — claim-verified marker ─────────────────────────
+//
+// Every knit_verify_claim call writes a per-turn marker that the Stop
+// hook reads to enforce the REVIEW gate on standard/complex tasks.
+// Cleared on UserPromptSubmit. Best-effort: marker IO failure must
+// never break the verification call itself.
+
+describe('handleVerifyClaim writes the claim marker (v0.11)', () => {
+  it('writes .claim-verified-current on successful verification', async () => {
+    const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
+    const { projectDataDir, claimMarkerPath } = await import('../src/engine/paths.js');
+    const { existsSync } = await import('node:fs');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    expect(existsSync(claimMarkerPath(projectRoot))).toBe(false);
+    handleVerifyClaim({ claim: 'src/auth.ts imports src/types.ts' }, buildBrainWithGraph());
+    expect(existsSync(claimMarkerPath(projectRoot))).toBe(true);
+  });
+
+  it('writes the marker even on contradicted verdict (the agent still verified)', async () => {
+    const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
+    const { projectDataDir, claimMarkerPath } = await import('../src/engine/paths.js');
+    const { existsSync } = await import('node:fs');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    handleVerifyClaim({ claim: 'src/auth.ts imports src/missing.ts' }, buildBrainWithGraph());
+    expect(existsSync(claimMarkerPath(projectRoot))).toBe(true);
+  });
+
+  it('does NOT write the marker when claim parameter is missing', async () => {
+    const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
+    const { projectDataDir, claimMarkerPath } = await import('../src/engine/paths.js');
+    const { existsSync } = await import('node:fs');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    handleVerifyClaim({ claim: '' }, buildBrainWithGraph());
+    // Empty-claim path returns early before the marker write.
+    expect(existsSync(claimMarkerPath(projectRoot))).toBe(false);
+  });
+});
+
+describe('handleClassifyTask appends verify reminder (v0.11)', () => {
+  it('includes the verify_claim reminder on standard scope', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,tests/api.test.ts',
+      description: 'add endpoint',
+    }, buildBrainWithGraph()));
+    expect(result.scope_tier).toBe('standard');
+    expect(result.instruction).toMatch(/knit_verify_claim/);
+  });
+
+  it('includes the verify_claim reminder on complex scope', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/a.ts,src/b.ts,src/c.ts,src/d.ts',
+      description: 'big refactor',
+    }, buildBrainWithGraph()));
+    expect(result.scope_tier).toBe('complex');
+    expect(result.instruction).toMatch(/knit_verify_claim/);
+  });
+
+  it('does NOT include the reminder on trivial scope', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/utils.ts',
+      description: 'tweak helper',
+    }, buildBrainWithGraph()));
+    expect(result.scope_tier).toBe('trivial');
+    expect(result.instruction).not.toMatch(/knit_verify_claim/);
+  });
+});

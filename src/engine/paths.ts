@@ -131,6 +131,14 @@ export function searchMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.searched-current');
 }
 
+/** v0.11 slice 1 — ~/.knit/projects/<hash>/.claim-verified-current
+ *  Per-turn marker written by knit_verify_claim. Cleared on UserPromptSubmit.
+ *  The Stop hook reads it to enforce "verify ≥1 claim before LEARN" on
+ *  standard/complex scope tasks — the anti-slop REVIEW gate. */
+export function claimMarkerPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), '.claim-verified-current');
+}
+
 /** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
 export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');
