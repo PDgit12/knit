@@ -230,6 +230,28 @@ export function recordCacheHit(kb: KnowledgeBase): void {
   kb.metrics.cacheHits++;
 }
 
+/** v0.10 slice 3 — generic counter bump for the new compounding-metrics
+ *  fields. Handlers should prefer this over poking kb.metrics directly so
+ *  that adding a new counter is one type-edit, not N call-site edits. */
+export function bumpMetric(
+  kb: KnowledgeBase,
+  key: 'totalClassifications' | 'planModeTriggers' | 'fpSuppressions' | 'graphQueries' | 'highScoreHits' | 'totalRetrievalQueries',
+  delta = 1,
+): void {
+  kb.metrics[key] = (kb.metrics[key] ?? 0) + delta;
+}
+
+/** v0.10 slice 3 — bump the classifications-by-tier breakdown. Used to
+ *  estimate tokens_spent_estimate (each tier has a typical per-session cost). */
+export function bumpClassificationTier(
+  kb: KnowledgeBase,
+  tier: 'inquiry' | 'trivial' | 'standard' | 'complex',
+  delta = 1,
+): void {
+  if (!kb.metrics.classificationsByTier) kb.metrics.classificationsByTier = {};
+  kb.metrics.classificationsByTier[tier] = (kb.metrics.classificationsByTier[tier] ?? 0) + delta;
+}
+
 /**
  * Generate a summary of knowledge base health for display.
  */

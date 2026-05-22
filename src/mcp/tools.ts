@@ -24,7 +24,7 @@ import {
   handleInstallAgent, handlePruneSessions,
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
-  handleScanIntegrations, handleCompoundingMetrics, handleVerifyClaim,
+  handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
@@ -358,6 +358,11 @@ export function getToolDefinitions(): ToolDef[] {
       inputSchema: { type: 'object', properties: {} },
     },
     {
+      name: 'knit_get_metrics_history',
+      description: 'Weekly metrics snapshots + week-over-week deltas. Companion to knit_compounding_metrics for trend charts ("got X% cheaper by week N").',
+      inputSchema: { type: 'object', properties: { limit: { type: 'string', description: 'How many recent snapshots (default 12, max 52).' } } },
+    },
+    {
       name: 'knit_verify_claim',
       description: 'Fact-check one claim against the knowledge graph. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: verified | contradicted | unparseable.',
       inputSchema: { type: 'object', properties: { claim: { type: 'string', description: 'One claim about the codebase to verify.' } }, required: ['claim'] },
@@ -444,6 +449,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_disable_feature: handleDisableFeature,
   knit_scan_integrations: handleScanIntegrations,
   knit_compounding_metrics: handleCompoundingMetrics,
+  knit_get_metrics_history: handleGetMetricsHistory,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,

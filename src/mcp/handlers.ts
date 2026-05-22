@@ -4,12 +4,12 @@
  * and returns a JSON string response.
  */
 
-import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject } from '../engine/scanner.js';
-import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase } from '../engine/knowledgebase.js';
+import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
 import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
@@ -30,7 +30,7 @@ import {
   type ProjectShape,
   type EnableableFeature,
 } from './features.js';
-import { featuresConfigPath, searchMarkerPath } from '../engine/paths.js';
+import { featuresConfigPath, searchMarkerPath, metricsHistoryPath } from '../engine/paths.js';
 import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
@@ -192,6 +192,14 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   const index = buildLearningsIndex(brain.knowledgeBase.entries);
   const bm25Hits = index.search(query, Math.min(limit * 3, 50));
 
+  // v0.10 slice 3 — retrieval counters. Top-result score > 5.0 (empirical
+  // BM25 relevance threshold for Knit-shaped corpora) signals a probably-
+  // relevant hit. Used to compute retrieval_high_score_rate_pct.
+  bumpMetric(brain.knowledgeBase, 'totalRetrievalQueries');
+  if (bm25Hits.length > 0 && bm25Hits[0].score > 5.0) {
+    bumpMetric(brain.knowledgeBase, 'highScoreHits');
+  }
+
   // Graph-traversal retriever (v0.8.1). When the agent passes `files`
   // it's editing, walk the import graph one hop and rank learnings that
   // mention graph-neighbor files. This catches the case where lexical
@@ -206,6 +214,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
       brain.reverseDeps ?? {},
     );
     graphHits = rankLearningsByGraph(brain.knowledgeBase.entries, neighborhood);
+    if (graphHits.length > 0) bumpMetric(brain.knowledgeBase, 'graphQueries');
   }
 
   // RRF fuses BM25 (lexical) with graph-traversal (structural) without
@@ -232,6 +241,11 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   }
 
   entries = entries.slice(0, limit);
+  // v0.10 slice 3 — bump fp_suppressions per FP-tagged entry surfaced.
+  // Each surfaced FP is a saved investigation: agents are instructed to
+  // skip false-positives, so seeing one in results == avoiding a re-chase.
+  const fpInResults = entries.filter((e) => e.tags.includes('#false-positive')).length;
+  if (fpInResults > 0) bumpMetric(brain.knowledgeBase, 'fpSuppressions', fpInResults);
   if (entries.length > 0) recordCacheHit(brain.knowledgeBase);
   writeSearchMarker(brain.rootPath);
   const retrieverLabel: 'bm25' | 'bm25+graph' = graphHits.length > 0 ? 'bm25+graph' : 'bm25';
@@ -852,6 +866,131 @@ function parseAndVerifyClaim(claim: string, brain: BrainCache): VerifierResult {
  *
  *  Companion to knit_brain_status's `token_budget` surface: budget tells you
  *  the per-session COST; compounding_metrics tells you the cumulative PAYOFF. */
+/** v0.10 slice 3 — frozen metrics snapshot persisted weekly to metrics-history.jsonl.
+ *  Each line is one JSON object; deltas computed by knit_get_metrics_history. */
+interface MetricsSnapshot {
+  ts: string;
+  sessions_recorded: number;
+  learnings_recorded: number;
+  cache_hits: number;
+  total_classifications: number;
+  plan_mode_triggers: number;
+  fp_suppressions: number;
+  graph_queries: number;
+  high_score_hits: number;
+  total_retrieval_queries: number;
+  tokens_spent_estimate: number;
+  tokens_saved_estimate: number;
+}
+
+const SNAPSHOT_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Append a snapshot to metrics-history.jsonl iff the last one is >7 days old
+ *  (or the file doesn't exist). Best-effort: any IO failure is swallowed by
+ *  the caller's try/catch. */
+function maybeAppendMetricsSnapshot(rootPath: string, snapshot: MetricsSnapshot): void {
+  const path = metricsHistoryPath(rootPath);
+  if (existsSync(path)) {
+    try {
+      const content = readFileSync(path, 'utf-8');
+      const lines = content.trim().split('\n').filter(Boolean);
+      if (lines.length > 0) {
+        const last = JSON.parse(lines[lines.length - 1]) as MetricsSnapshot;
+        const lastTs = Date.parse(last.ts);
+        const nowTs = Date.parse(snapshot.ts);
+        if (Number.isFinite(lastTs) && Number.isFinite(nowTs) && nowTs - lastTs < SNAPSHOT_MIN_AGE_MS) {
+          return;
+        }
+      }
+    } catch {
+      // Corrupt file → append a fresh snapshot. We don't try to repair history.
+    }
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  appendFileSync(path, JSON.stringify(snapshot) + '\n');
+}
+
+/** v0.10 slice 3 — knit_get_metrics_history.
+ *
+ *  Returns the last N weekly snapshots (default 12) plus week-over-week
+ *  deltas for the key compounding signals. Pair with knit_compounding_metrics
+ *  (which gives the point-in-time current state) to see "Knit got X% cheaper
+ *  by week N" trends. Tier 2 — opt-in via knit_enable_feature. */
+export function handleGetMetricsHistory(params: Record<string, string>, brain: BrainCache): string {
+  const limit = Math.max(1, Math.min(52, parseInt(params.limit || '12', 10) || 12));
+  const path = metricsHistoryPath(brain.rootPath);
+  if (!existsSync(path)) {
+    return JSON.stringify({
+      snapshots: [],
+      deltas: [],
+      count: 0,
+      instruction: 'No history yet. Snapshots accumulate weekly each time knit_compounding_metrics is called.',
+    });
+  }
+  let snapshots: MetricsSnapshot[] = [];
+  try {
+    const content = readFileSync(path, 'utf-8');
+    snapshots = content
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as MetricsSnapshot);
+  } catch {
+    return JSON.stringify({
+      snapshots: [],
+      deltas: [],
+      count: 0,
+      error: 'Failed to parse metrics-history.jsonl. File may be corrupt.',
+    });
+  }
+  const recent = snapshots.slice(-limit);
+  const deltas: Array<{
+    from: string;
+    to: string;
+    tokens_saved_delta: number;
+    cache_hits_delta: number;
+    plan_mode_triggers_delta: number;
+    total_classifications_delta: number;
+  }> = [];
+  for (let i = 1; i < recent.length; i++) {
+    const prev = recent[i - 1];
+    const curr = recent[i];
+    deltas.push({
+      from: prev.ts,
+      to: curr.ts,
+      tokens_saved_delta: curr.tokens_saved_estimate - prev.tokens_saved_estimate,
+      cache_hits_delta: curr.cache_hits - prev.cache_hits,
+      plan_mode_triggers_delta: curr.plan_mode_triggers - prev.plan_mode_triggers,
+      total_classifications_delta: curr.total_classifications - prev.total_classifications,
+    });
+  }
+  return JSON.stringify({
+    snapshots: recent,
+    deltas,
+    count: recent.length,
+    instruction:
+      recent.length === 0
+        ? 'No snapshots yet.'
+        : `Last ${recent.length} weekly snapshot(s). Compare deltas to see Knit's payoff week-over-week. Suggested chart: x=ts, y=tokens_saved_estimate.`,
+  });
+}
+
+/** v0.10 slice 3 — per-tier token-spent heuristics. Each tier has a typical
+ *  per-classification token cost based on its phase set:
+ *    inquiry   ~200    (read-only answer, no phases)
+ *    trivial   ~1500   (EXECUTE → VERIFY → LEARN, 1 file)
+ *    standard  ~8000   (RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN)
+ *    complex   ~25000  (full 6-phase + parallel agents)
+ *  Directional indicator only; real spend varies with file size, agent depth, etc. */
+const TOKENS_PER_TIER = { inquiry: 200, trivial: 1500, standard: 8000, complex: 25000 } as const;
+/** v0.10 slice 3 — per-mechanism token-savings heuristics:
+ *    cache hit       ~15000  (one full RESEARCH phase the agent didn't redo)
+ *    FP suppression  ~5000   (one investigation thread the agent skipped)
+ *    graph query     ~3000   (one round of grepping + reading replaced) */
+const TOKENS_SAVED_PER_CACHE_HIT = 15000;
+const TOKENS_SAVED_PER_FP_SUPPRESSION = 5000;
+const TOKENS_SAVED_PER_GRAPH_QUERY = 3000;
+
 export function handleCompoundingMetrics(_params: Record<string, string>, brain: BrainCache): string {
   const kb = brain.knowledgeBase;
   const totalSessions = sessionCount(brain.rootPath);
@@ -859,6 +998,14 @@ export function handleCompoundingMetrics(_params: Record<string, string>, brain:
   const accessedLearnings = kb.entries.filter((e) => e.accessCount > 0).length;
   const totalAccesses = kb.entries.reduce((sum, e) => sum + e.accessCount, 0);
   const cacheHits = kb.metrics.cacheHits ?? 0;
+  const totalClassifications = kb.metrics.totalClassifications ?? 0;
+  const planModeTriggers = kb.metrics.planModeTriggers ?? 0;
+  const fpSuppressions = kb.metrics.fpSuppressions ?? 0;
+  const graphQueries = kb.metrics.graphQueries ?? 0;
+  const highScoreHits = kb.metrics.highScoreHits ?? 0;
+  const totalRetrievalQueries = kb.metrics.totalRetrievalQueries ?? 0;
+  const tierBreakdown = kb.metrics.classificationsByTier ?? {};
+  const fpEntries = kb.entries.filter((e) => e.tags.includes('#false-positive')).length;
 
   const learningsPerSession = totalSessions > 0
     ? Math.round((totalLearnings / totalSessions) * 100) / 100
@@ -869,13 +1016,35 @@ export function handleCompoundingMetrics(_params: Record<string, string>, brain:
   const accessDensityPct = totalLearnings > 0
     ? Math.round((accessedLearnings / totalLearnings) * 100)
     : 0;
+  const planModeTriggerRatePct = totalClassifications > 0
+    ? Math.round((planModeTriggers / totalClassifications) * 100)
+    : 0;
+  const retrievalHighScoreRatePct = totalRetrievalQueries > 0
+    ? Math.round((highScoreHits / totalRetrievalQueries) * 100)
+    : 0;
+  // Classification accuracy = 1 − (FP entries that were learnings) / total classifications.
+  // Heuristic: each FP entry represents a wrong call the user reported, not a wrong
+  // classification per se, but it's the best proxy until we instrument the FP-on-classifier
+  // path explicitly in slice 4 (Verify Layer).
+  const classificationAccuracyPct = totalClassifications > 0
+    ? Math.max(0, Math.min(100, Math.round((1 - fpEntries / totalClassifications) * 100)))
+    : 100;
 
-  // Estimated tokens saved: each cache hit prevented one round of
-  // re-investigation. Conservative ~5000 tokens per hit covering the
-  // research-phase context the agent didn't have to rebuild. Real
-  // savings vary; this is a directional indicator, not an accounting figure.
-  const TOKENS_PER_CACHE_HIT_ESTIMATE = 5000;
-  const estimatedTokensSaved = cacheHits * TOKENS_PER_CACHE_HIT_ESTIMATE;
+  // Tokens spent (directional): sum of per-tier × per-tier-cost.
+  const tokensSpentEstimate =
+    (tierBreakdown.inquiry ?? 0) * TOKENS_PER_TIER.inquiry +
+    (tierBreakdown.trivial ?? 0) * TOKENS_PER_TIER.trivial +
+    (tierBreakdown.standard ?? 0) * TOKENS_PER_TIER.standard +
+    (tierBreakdown.complex ?? 0) * TOKENS_PER_TIER.complex;
+
+  // Tokens saved (directional): the cumulative payoff of cache hits + FP
+  // suppressions + graph queries.
+  const tokensSavedEstimate =
+    cacheHits * TOKENS_SAVED_PER_CACHE_HIT +
+    fpSuppressions * TOKENS_SAVED_PER_FP_SUPPRESSION +
+    graphQueries * TOKENS_SAVED_PER_GRAPH_QUERY;
+
+  const netTokenDelta = tokensSavedEstimate - tokensSpentEstimate;
 
   // Verdict — same scale as token_budget verdicts so callers can render
   // them uniformly.
@@ -884,6 +1053,28 @@ export function handleCompoundingMetrics(_params: Record<string, string>, brain:
   else if (reuseRatioPct < 20) verdict = 'warming';
   else if (reuseRatioPct < 50) verdict = 'compounding';
   else verdict = 'strong';
+
+  // Append a weekly snapshot if the last one is >7 days old (or none exists).
+  // This builds the metrics-history.jsonl that knit_get_metrics_history reads.
+  // Wrapped in try/catch: metrics IO must never break the response.
+  try {
+    maybeAppendMetricsSnapshot(brain.rootPath, {
+      ts: new Date().toISOString(),
+      sessions_recorded: totalSessions,
+      learnings_recorded: totalLearnings,
+      cache_hits: cacheHits,
+      total_classifications: totalClassifications,
+      plan_mode_triggers: planModeTriggers,
+      fp_suppressions: fpSuppressions,
+      graph_queries: graphQueries,
+      high_score_hits: highScoreHits,
+      total_retrieval_queries: totalRetrievalQueries,
+      tokens_spent_estimate: tokensSpentEstimate,
+      tokens_saved_estimate: tokensSavedEstimate,
+    });
+  } catch {
+    // Best-effort.
+  }
 
   return JSON.stringify({
     sessions_recorded: totalSessions,
@@ -894,7 +1085,21 @@ export function handleCompoundingMetrics(_params: Record<string, string>, brain:
     cache_hits: cacheHits,
     reuse_ratio_pct: reuseRatioPct,
     access_density_pct: accessDensityPct,
-    estimated_tokens_saved: estimatedTokensSaved,
+    // v0.10 slice 3 — token economics fields.
+    total_classifications: totalClassifications,
+    classifications_by_tier: tierBreakdown,
+    plan_mode_triggers: planModeTriggers,
+    plan_mode_trigger_rate_pct: planModeTriggerRatePct,
+    classification_accuracy_pct: classificationAccuracyPct,
+    fp_suppressions: fpSuppressions,
+    graph_queries: graphQueries,
+    total_retrieval_queries: totalRetrievalQueries,
+    retrieval_high_score_rate_pct: retrievalHighScoreRatePct,
+    tokens_spent_estimate: tokensSpentEstimate,
+    tokens_saved_estimate: tokensSavedEstimate,
+    net_token_delta: netTokenDelta,
+    // Back-compat field: keep `estimated_tokens_saved` so v0.9 callers don't break.
+    estimated_tokens_saved: tokensSavedEstimate,
     verdict,
     note: verdict === 'cold'
       ? 'Fresh project. Compounding signal kicks in around session 3 once the KB has a few entries.'
@@ -903,7 +1108,7 @@ export function handleCompoundingMetrics(_params: Record<string, string>, brain:
         : verdict === 'compounding'
           ? 'Healthy reuse. Knit is preventing re-investigation often enough to pay back the per-session overhead.'
           : 'Strong compounding — the KB is doing real work. Token budget cost is dominated by the savings on prevented re-investigations.',
-    instruction: 'Pair with knit_brain_status\'s token_budget surface to see cost-vs-payoff side by side.',
+    instruction: 'Pair with knit_brain_status\'s token_budget surface to see cost-vs-payoff side by side. Call knit_get_metrics_history for week-over-week trend.',
   });
 }
 
@@ -1115,6 +1320,9 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     } catch {
       // Best-effort: never let marker IO break classification.
     }
+    // v0.10 slice 3 — count every classification (inquiry too).
+    bumpMetric(brain.knowledgeBase, 'totalClassifications');
+    bumpClassificationTier(brain.knowledgeBase, 'inquiry');
     return JSON.stringify({
       tier: 'inquiry',
       risk_tier: 'low',
@@ -1183,6 +1391,13 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   } catch {
     // Best-effort: never let marker IO break classification.
   }
+
+  // v0.10 slice 3 — counters for compounding-metrics. Bumped in-memory;
+  // persists piggybacking on the next saveKnowledgeBase call (same pattern
+  // as recordCacheHit since v0.8).
+  bumpMetric(brain.knowledgeBase, 'totalClassifications');
+  bumpClassificationTier(brain.knowledgeBase, scopeTier);
+  if (autoPlanMode) bumpMetric(brain.knowledgeBase, 'planModeTriggers');
 
   // v0.9 — pre-emptive learnings injection. When the task warrants RESEARCH
   // (standard or complex scope), auto-run BM25 over the description + affected
@@ -1806,6 +2021,12 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, brai
     const index = buildGlobalLearningsIndex(entries);
     // Over-fetch so the project-diversifier has candidates to pick from.
     const bm25Hits = index.search(query, Math.min(limit * 5, 50));
+    // v0.10 slice 3 — global retrieval counters. Same threshold as the
+    // per-project search path.
+    bumpMetric(_brain.knowledgeBase, 'totalRetrievalQueries');
+    if (bm25Hits.length > 0 && bm25Hits[0].score > 5.0) {
+      bumpMetric(_brain.knowledgeBase, 'highScoreHits');
+    }
     // v0.10 — cap per source project so one chatty project doesn't drown out
     // lessons from quieter projects in the cross-project pool.
     const diversified = diversifyByProject(bm25Hits, 2);
@@ -2229,6 +2450,11 @@ export function handleSearchSessions(params: Record<string, string>, brain: Brai
     const index = buildSessionsIndex(sessions);
     // Over-fetch so diversification has candidates to choose from.
     const bm25Hits = index.search(query, Math.min(limit * 5, 50));
+    // v0.10 slice 3 — session retrieval counters.
+    bumpMetric(brain.knowledgeBase, 'totalRetrievalQueries');
+    if (bm25Hits.length > 0 && bm25Hits[0].score > 5.0) {
+      bumpMetric(brain.knowledgeBase, 'highScoreHits');
+    }
     const diversified = diversifyByBranch(bm25Hits, 2);
     const byId = new Map<string, SessionSummary>();
     for (const s of sessions) byId.set(s.id, s);

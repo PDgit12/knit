@@ -60,15 +60,21 @@ so one chatty project could flood the cross-project top-K.
 - [x] `handleSearchLearnings` uses BM25+graph+RRF — verified
 - [ ] Retrieval-quality metric (>0.5 score hits / total) — **deferred to Slice 3** (metrics extension)
 
-### Slice 3 — Compounding metrics extension
-- [ ] Extend `knit_compounding_metrics` response with:
-  - `tokens_spent_estimate` (sum from session entries)
-  - `tokens_saved_estimate` (cache hits × 15k + FP suppressions × 5k + graph queries × 5k)
-  - `wrong_retrievals_count` (when learning entry surfaced but agent ignored)
-  - `plan_mode_trigger_rate_weekly` (week-over-week)
-  - `classification_accuracy` (1 − FP_count / total_classifications)
-- [ ] Persist weekly snapshots to `~/.knit/projects/<hash>/metrics-history.jsonl`
-- [ ] New tool: `knit_get_metrics_history` (Tier 2, opt-in)
+### Slice 3 — Compounding metrics extension ✅ shipped 2026-05-22
+The forcing-function slice. Turns "Knit makes Claude cheaper" from a claim
+into a chartable number.
+
+- [x] `KBMetrics` extended (all optional for back-compat): `totalClassifications`, `planModeTriggers`, `classificationsByTier`, `fpSuppressions`, `graphQueries`, `highScoreHits`, `totalRetrievalQueries`
+- [x] `bumpMetric` + `bumpClassificationTier` helpers in `knowledgebase.ts`
+- [x] `handleClassifyTask` instrumented (every call bumps total + tier breakdown + plan-mode trigger)
+- [x] `handleSearchLearnings` / `handleSearchSessions` / `handleSearchGlobalLearnings` instrumented (queries, high-score hits @ BM25 score > 5.0, graph contributions, FP surfacings)
+- [x] `handleCompoundingMetrics` response extended: `total_classifications`, `classifications_by_tier`, `plan_mode_triggers`, `plan_mode_trigger_rate_pct`, `classification_accuracy_pct`, `fp_suppressions`, `graph_queries`, `total_retrieval_queries`, `retrieval_high_score_rate_pct`, `tokens_spent_estimate`, `tokens_saved_estimate`, `net_token_delta`
+- [x] Token heuristics (directional, not accounting): inquiry 200, trivial 1.5k, standard 8k, complex 25k spent; cache_hit 15k, fp_suppression 5k, graph_query 3k saved
+- [x] Weekly snapshot persistence to `~/.knit/projects/<hash>/metrics-history.jsonl` (only writes if last is >7 days old)
+- [x] New Tier-1 tool `knit_get_metrics_history` — returns snapshots + week-over-week deltas
+- [x] Back-compat: `estimated_tokens_saved` field retained, points to new `tokens_saved_estimate`
+- [x] 10 new tests (533 total, all passing)
+- [ ] `wrong_retrievals_count` — deferred to v0.11 (Verify Layer needs the instrumentation point)
 
 ### Deferred from v0.10
 - Local embeddings (`@xenova/transformers`) — bundle size hit, defer until BM25 ceiling proven

@@ -282,6 +282,22 @@ export interface KBMetrics {
   domainDistribution: Record<string, number>;
   /** Session history (last 20) */
   sessions: SessionRecord[];
+  // v0.10 slice 3 — compounding-metrics counters. All optional for back-compat
+  // with v0.9.x KBs already on disk. Bumped by handlers via `bumpMetric`.
+  /** Total knit_classify_task calls (drives classification_accuracy_pct). */
+  totalClassifications?: number;
+  /** Of those, how many triggered auto_plan_mode (drives plan_mode_trigger_rate_pct). */
+  planModeTriggers?: number;
+  /** Breakdown by tier — used to estimate tokens_spent. */
+  classificationsByTier?: Partial<Record<TaskTier, number>>;
+  /** False-positive entries filtered out of retrieval responses. */
+  fpSuppressions?: number;
+  /** Times graph-traversal contributed at least one hit to retrieval. */
+  graphQueries?: number;
+  /** Retrieval queries where the top BM25 score exceeded the relevance threshold. */
+  highScoreHits?: number;
+  /** Total free-text retrieval queries (denominator for retrieval-quality). */
+  totalRetrievalQueries?: number;
 }
 
 export interface SessionRecord {

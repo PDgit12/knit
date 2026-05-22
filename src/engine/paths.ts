@@ -143,6 +143,14 @@ export function integrationsConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'integrations.json');
 }
 
+/** v0.10 slice 3 — ~/.knit/projects/<hash>/metrics-history.jsonl
+ *  Weekly snapshots of the compounding-metrics surface. Append-only; each
+ *  line is one frozen snapshot. Read by knit_get_metrics_history to compute
+ *  week-over-week trends ("47% cheaper by week 8" style charts). */
+export function metricsHistoryPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'metrics-history.jsonl');
+}
+
 /** ~/.knit/projects/<hash>/learnings/ */
 export function learningsDir(rootPath: string): string {
   return join(projectDataDir(rootPath), 'learnings');
