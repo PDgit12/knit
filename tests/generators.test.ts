@@ -464,6 +464,16 @@ describe('generateSettings', () => {
       // wrap their bodies in try/catch, so a healthy hook exits 0 even when
       // its target file doesn't exist yet.
       for (const cmd of commands) {
+        // Skip hooks that shell out to npm run (build-verification Stop hook).
+        // When this test executes inside `npm publish` → prepublishOnly →
+        // `npm run test`, running a hook that spawns its own `npm run
+        // typecheck/lint/build` creates recursive npm contention and times
+        // out. The hook's own logic is exercised by the dedicated "build
+        // verification" tests earlier in this file; this test is only
+        // checking that `node -e` payloads parse under current Node.
+        if (cmd.includes('execSync(cmd, { cwd: __getRoot()')) {
+          continue;
+        }
         try {
           // Pipe an empty stdin and close it. Some hooks (the PreToolUse
           // destructive-git blocker) read stdin and wait for EOF; without an
