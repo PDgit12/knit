@@ -99,18 +99,24 @@ into a chartable number.
 - [x] `HOOKS_VERSION` bumped 7 → 8 so existing users auto-receive the gate on next MCP call
 - [x] 9 new tests (542 total; was 533)
 
-### Slice 2 — Edit/Write diff verification
-**Implementation sketch.** PostToolUse hook (cross-platform `node -e` payload,
-no MCP roundtrip) reads `tool_input.new_string` (Edit) or `content` (Write),
-re-reads the file from disk, compares.
+### Slice 2 — Edit/Write diff verification + universal tsc check ✅ shipped 2026-05-22
+Expanded scope from "diff verification only" to also include a universal
+post-edit tsc — directly addresses the SDK-quirk class of bugs that
+plan-mode reviewers can't predict (wrong type import paths, undefined-
+until-loaded narrowing, async-contract mismatches).
 
-- [ ] Add hook to `generators/settings.ts` PostToolUse matcher `Edit|Write|MultiEdit`
-- [ ] Bump `HOOKS_VERSION` (currently 7) → 8 so existing users auto-upgrade
-- [ ] Hook payload: parse stdin JSON, extract `tool_input.file_path` + intended content, read file, compare. Stderr message: `[knit] verify: landed | drifted | unchanged`
-- [ ] MultiEdit support: iterate each edit
-- [ ] No-op when `tool_input.file_path` is missing (best-effort)
-- [ ] Tests in `tests/generators.test.ts` — the existing cross-platform-hook tests already exercise inline `node -e` payloads; pattern is well-known
-- **Gotcha:** Edit's `old_string` may have already been mutated (the tool succeeded); we're verifying that `new_string` LANDED, not that `old_string` was there. Test against the file post-tool.
+- [x] PostToolUse diff-verify hook on `Write|Edit|MultiEdit`
+  - `Write` → exact match; reports byte delta on drift
+  - `Edit` → `new_string` substring check; flags if `old_string` still present (edit failed)
+  - `MultiEdit` → per-edit check; reports landed/drifted counts
+- [x] Universal post-edit tsc check (replaces v0.9's config-gated typecheck hook)
+  - Walks up to find `tsconfig.json` (works regardless of where Knit setup put the user)
+  - Prefers `node_modules/.bin/tsc`; falls back to `npx --no-install tsc`
+  - Filters output to errors mentioning the touched file
+  - Surfaces cross-file ripples explicitly ("project has N type error(s) but none in `f` directly")
+  - Catches all three Clerk/Auth-SDK class of bugs at edit time
+- [x] `HOOKS_VERSION` 8 → 9 so existing users auto-upgrade on next MCP call
+- [x] 3 new generator tests (545 total; was 542)
 
 ### Slice 3 — Behavioral re-classification
 **Implementation sketch.** Stop hook aggregates the turn's Edit/Write file

@@ -332,7 +332,54 @@ describe('generateSettings', () => {
       expect(cmd).toContain('.claim-verified-current');
     });
 
-    it('emits a Stop-hook claim-verified gate referencing scope_tier + protocol-config', () => {
+    // ── v0.11 slice 2 — PostToolUse diff verification + universal tsc ──
+
+    it('HOOKS_VERSION bumped to 9 in v0.11 slice 2', async () => {
+      const { HOOKS_VERSION } = await import('../src/generators/settings.js');
+      expect(HOOKS_VERSION).toBeGreaterThanOrEqual(9);
+    });
+
+    it('emits a PostToolUse diff-verify hook on Write|Edit|MultiEdit', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const diff = (hooks.PostToolUse as any[]).find((e) => {
+        const cmd = e.hooks?.[0]?.command || '';
+        return e.matcher === 'Write|Edit|MultiEdit' && cmd.includes('verify: write landed');
+      });
+      expect(diff, 'diff-verify hook not found').toBeDefined();
+      expect(diff._knitOwned).toBe(true);
+      const cmd = diff.hooks?.[0]?.command || '';
+      // All three tool shapes covered:
+      expect(cmd).toContain('toolName === "Write"');
+      expect(cmd).toContain('toolName === "Edit"');
+      expect(cmd).toContain('toolName === "MultiEdit"');
+      // Drift detection messages:
+      expect(cmd).toContain('write DRIFTED');
+      expect(cmd).toContain('edit DRIFTED');
+      expect(cmd).toContain('edits DRIFTED');
+    });
+
+    it('emits a universal post-edit tsc check that runtime-detects tsconfig.json', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const tscHook = (hooks.PostToolUse as any[]).find((e) => {
+        const cmd = e.hooks?.[0]?.command || '';
+        return e.matcher === 'Write|Edit|MultiEdit' && cmd.includes('tsc check:');
+      });
+      expect(tscHook, 'universal tsc check hook not found').toBeDefined();
+      const cmd = tscHook.hooks?.[0]?.command || '';
+      // Runtime tsconfig detection (NOT a config-time gate):
+      expect(cmd).toContain('tsconfig.json');
+      // Walks up the file tree to find project root:
+      expect(cmd).toContain('depth < 10');
+      // Falls back to npx when local tsc is missing:
+      expect(cmd).toContain('npx --no-install tsc');
+      // Output filtered to errors mentioning the touched file:
+      expect(cmd).toContain('error TS');
+      expect(cmd).toContain('cross-file ripple');
+    });
+
+    it('Stop-hook claim-verified gate referencing scope_tier + protocol-config', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
       const claimGate = (hooks.Stop as any[]).find((e) => {

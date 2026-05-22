@@ -56,8 +56,12 @@ import {
  *   v8 — 0.11.0+: v0.11 Verify Layer — claim-marker clear on UserPromptSubmit,
  *                 Stop-hook claim-verified gate on standard/complex scope
  *                 (warn/block per protocol-config strictness)
+ *   v9 — 0.11.0 slice 2: PostToolUse diff-verify + per-file tsc check
+ *                 catches SDK quirks at edit time (wrong import paths,
+ *                 narrowing failures, async contract mismatches) without
+ *                 waiting for the Stop-hook build verification.
  */
-export const HOOKS_VERSION = 8;
+export const HOOKS_VERSION = 9;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -328,6 +332,146 @@ function generateHooks(config: KnitConfig, rootPath: string) {
     Stop: [],
   };
 
+  // v0.11 slice 2 — Diff verification. After Edit/Write/MultiEdit, re-read
+  // the file from disk and verify the intended content actually landed.
+  // Catches: silent partial edits, accidental no-ops, encoding corruption,
+  // and the rare "tool succeeded but file is unchanged" case. Logs at
+  // stderr only — never blocks. Pairs with the post-write import validator
+  // (v0.9 #3) and the universal tsc check (slice 2 below) for a complete
+  // anti-slop PostToolUse triplet.
+  hooks.PostToolUse.push({
+    _knitOwned: true,
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          let d = "";
+          process.stdin.on("data", (c) => d += c);
+          process.stdin.on("end", () => {
+            try {
+              const fs = require("fs");
+              const i = JSON.parse(d);
+              const toolName = i.tool_name || "";
+              const ti = i.tool_input || {};
+              const f = ti.file_path || (i.tool_response && i.tool_response.filePath) || "";
+              if (!f || !fs.existsSync(f)) return;
+              const cur = fs.readFileSync(f, "utf-8");
+              if (toolName === "Write") {
+                const intended = ti.content || "";
+                if (cur === intended) {
+                  console.error("[knit] verify: write landed — " + f);
+                } else {
+                  const lenDelta = cur.length - intended.length;
+                  console.error("[knit] verify: write DRIFTED — " + f + " differs by " + lenDelta + " char(s) from intent. Something modified the file after Write.");
+                }
+              } else if (toolName === "Edit") {
+                const newStr = ti.new_string || "";
+                const oldStr = ti.old_string || "";
+                if (newStr && cur.indexOf(newStr) !== -1) {
+                  console.error("[knit] verify: edit landed — " + f);
+                } else if (oldStr && cur.indexOf(oldStr) !== -1) {
+                  console.error("[knit] verify: edit DRIFTED — " + f + " still contains the old_string. Edit may have silently failed.");
+                } else {
+                  console.error("[knit] verify: edit ambiguous — " + f + " contains neither new_string nor old_string. Inspect manually.");
+                }
+              } else if (toolName === "MultiEdit") {
+                const edits = Array.isArray(ti.edits) ? ti.edits : [];
+                let landed = 0;
+                let drifted = 0;
+                for (const e of edits) {
+                  if (e && e.new_string && cur.indexOf(e.new_string) !== -1) landed++;
+                  else drifted++;
+                }
+                if (drifted === 0) {
+                  console.error("[knit] verify: all " + landed + " edits landed — " + f);
+                } else {
+                  console.error("[knit] verify: " + drifted + " of " + (landed + drifted) + " edits DRIFTED — " + f + ". Some new_string values not found in file post-edit.");
+                }
+              }
+            } catch (e) {}
+          });
+        `),
+        timeout: 5,
+        statusMessage: 'Knit: verifying edit landed...',
+      },
+    ],
+  });
+
+  // v0.11 slice 2 — Universal post-edit tsc check. The architectural answer
+  // to SDK quirks that plan-mode reviewers can't predict (wrong type import
+  // paths, undefined-until-loaded narrowing, async contract mismatches).
+  // Runs project-wide tsc on every .ts/.tsx Edit/Write so cross-file type
+  // errors surface immediately — not at the next Stop or CI run.
+  //
+  // Universal: detects tsconfig.json at runtime rather than gating on
+  // config-time language detection. Catches the case where Knit's setup
+  // missed the language or the user is in a fresh project. Falls back to
+  // `npx tsc` if local tsc isn't installed.
+  hooks.PostToolUse.push({
+    _knitOwned: true,
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          let d = "";
+          process.stdin.on("data", (c) => d += c);
+          process.stdin.on("end", () => {
+            try {
+              const fs = require("fs");
+              const path = require("path");
+              const cp = require("child_process");
+              const i = JSON.parse(d);
+              const ti = i.tool_input || {};
+              const f = ti.file_path || (i.tool_response && i.tool_response.filePath) || "";
+              if (!/\\.(?:ts|tsx|mts|cts)$/.test(f)) return;
+              // Walk up to find tsconfig.json (project root).
+              let dir = path.dirname(f);
+              let projectRoot = null;
+              for (let depth = 0; depth < 10; depth++) {
+                if (fs.existsSync(path.join(dir, "tsconfig.json"))) { projectRoot = dir; break; }
+                const parent = path.dirname(dir);
+                if (parent === dir) break;
+                dir = parent;
+              }
+              if (!projectRoot) return;
+              // Prefer local tsc; fall back to npx.
+              const localTsc = path.join(projectRoot, "node_modules", ".bin", "tsc");
+              const tscCmd = fs.existsSync(localTsc) ? JSON.stringify(localTsc) : "npx --no-install tsc";
+              let out = "";
+              let failed = false;
+              try {
+                cp.execSync(tscCmd + " --noEmit --pretty false", { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 15000, encoding: "utf-8" });
+              } catch (err) {
+                failed = true;
+                out = (err && (err.stdout || err.stderr) || "").toString();
+              }
+              if (!failed) {
+                console.error("[knit] tsc check: clean — " + f);
+                return;
+              }
+              // Filter tsc output to errors mentioning the touched file (or its dir).
+              const touched = path.basename(f);
+              const lines = out.split("\\n").map((s) => s.trim()).filter(Boolean);
+              const relevant = lines.filter((l) => l.indexOf(touched) !== -1 || l.indexOf(f) !== -1);
+              const errorCount = lines.filter((l) => /error TS\\d+:/.test(l)).length;
+              if (relevant.length > 0) {
+                console.error("[knit] tsc check: " + relevant.length + " error(s) referencing " + touched + ":");
+                for (const l of relevant.slice(0, 6)) console.error("  " + l);
+                if (relevant.length > 6) console.error("  ... and " + (relevant.length - 6) + " more");
+              } else if (errorCount > 0) {
+                console.error("[knit] tsc check: project has " + errorCount + " type error(s) (none in " + touched + " directly — likely a cross-file ripple). Run \`npx tsc --noEmit\` for full output.");
+              }
+            } catch (e) {}
+          });
+        `),
+        timeout: 20,
+        statusMessage: 'Knit: tsc on edit...',
+      },
+    ],
+  });
+
   // v0.9 #3 — Post-write import validation. After the file lands on disk,
   // re-parse imports and report any unresolved relative paths. Catches
   // anything that slipped past the pre-write check (#9) — e.g. a MultiEdit
@@ -376,33 +520,14 @@ function generateHooks(config: KnitConfig, rootPath: string) {
     ],
   });
 
-  // TypeScript typecheck on edit
-  if (config.stack.language === 'typescript' && config.stack.typecheckCommand) {
-    hooks.PostToolUse.push({
-      _knitOwned: true,
-      matcher: 'Write|Edit',
-      hooks: [
-        {
-          type: 'command',
-          command: nodeHook(`
-            let d = "";
-            process.stdin.on("data", (c) => d += c);
-            process.stdin.on("end", () => {
-              try {
-                const i = JSON.parse(d);
-                const f = (i.tool_input && i.tool_input.file_path) || (i.tool_response && i.tool_response.filePath) || "";
-                if (!/\\.tsx?$/.test(f)) return;
-                ${REPO_ROOT_JS}
-                require("child_process").execSync("npx tsc --noEmit --pretty false", { cwd: __getRoot(), stdio: "inherit" });
-              } catch (e) {}
-            });
-          `),
-          timeout: 30,
-          statusMessage: 'Type checking...',
-        },
-      ],
-    });
-  }
+  // Superseded by the universal v0.11 slice 2 tsc-check hook above.
+  // The new hook runs the same `tsc --noEmit --pretty false` but:
+  //  - detects tsconfig.json at runtime instead of gating on config-time
+  //    stack detection (catches projects where Knit setup missed the
+  //    language or the user installed Knit into a half-configured tree),
+  //  - filters output to errors mentioning the touched file, and
+  //  - reports cross-file ripples explicitly so a Clerk-style narrowing
+  //    error in a SHARED type surfaces even when the edit was elsewhere.
 
   // Python syntax check on edit
   if (config.stack.language === 'python') {
