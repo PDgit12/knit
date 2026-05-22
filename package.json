@@ -1,6 +1,6 @@
 {
   "name": "knit-mcp",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Knit — second brain for Claude Code. MCP server giving any AI agent project-scoped memory, tiered workflow protocol, and parallel team worktrees.",
   "type": "module",
   "bin": {

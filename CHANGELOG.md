@@ -2,6 +2,90 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] — 2026-05-22
+
+**The "token economics" release.** v0.9 closed enforcement; v0.10 makes the
+cheapness claim *measurable*. Three slices, one shippable release.
+
+### Added — Classifier signal upgrade (slice 1)
+
+- **`risk_tier` × `scope_tier` split.** v0.9's compound `tier` conflated two
+  dimensions: how risky (auth/types/breaking) vs how big (file count, domain
+  count). v0.10 separates them:
+  - `risk_tier` (low/medium/high) drives `auto_plan_mode`
+  - `scope_tier` (trivial/standard/complex) drives phase count
+  - A 1-line edit to `types.ts` is now correctly classified as
+    high-risk-low-scope → plan mode triggers
+  - A 6-file additive deploy-prep is low-risk-high-scope → no plan mode,
+    just more phases
+- **`change_kind` inference.** Per-file `existsSync` against project root
+  classifies each task as `additive | modify | delete | mixed`. Delete intent
+  ("remove the legacy module") overrides file-existence inference.
+- **`context_budget_remaining`** input. Pass 0–100 to signal how much
+  context the host agent has left; <30 forces scope downgrade + drops the
+  OPTIMIZE phase (the most expensive parallel-agents phase).
+- **FP nudge** — standard+complex responses include
+  `"if this is wrong, call knit_record_false_positive"`. Closes the
+  feedback-loop gap.
+- Back-compat: legacy `tier` field derived as `max(risk, scope)`. Every v0.9
+  caller (Protocol Guard marker, instruction text) keeps working.
+
+### Added — Retrieval diversity (slice 2)
+
+- **`diversifyByProject`** — caps results per source project in cross-project
+  searches. One chatty project can no longer flood the cross-project top-K.
+- **Generic `diversifyBy<T>(results, keyFn, maxPerKey)`** extracted; the
+  branch- and project-cappers are now thin wrappers.
+- **`handleSearchGlobalLearnings`** now over-fetches ×5 from BM25 → caps
+  2/project → RRF fusion.
+
+**Audit finding:** All three free-text search paths already wire BM25+RRF.
+Substring is the deliberate fallback for partial-word queries / tiny
+corpora. `queryByDomains` is correctly tag-equality. No migration work
+needed beyond the diversity asymmetry above.
+
+### Added — Compounding-metrics extension (slice 3)
+
+The forcing-function slice. Turns "Knit makes Claude cheaper" from claim
+into a chartable number.
+
+- **6 new counters in `KBMetrics`** (all optional for back-compat):
+  `totalClassifications`, `planModeTriggers`, `classificationsByTier`,
+  `fpSuppressions`, `graphQueries`, `highScoreHits`, `totalRetrievalQueries`.
+- **`handleClassifyTask`** + the 3 search handlers instrumented to bump
+  these counters.
+- **`handleCompoundingMetrics` response** gains 11 new fields:
+  `total_classifications`, `classifications_by_tier`, `plan_mode_triggers`,
+  `plan_mode_trigger_rate_pct`, `classification_accuracy_pct`,
+  `fp_suppressions`, `graph_queries`, `total_retrieval_queries`,
+  `retrieval_high_score_rate_pct`, `tokens_spent_estimate`,
+  `tokens_saved_estimate`, `net_token_delta`.
+- **Token heuristics** (directional, not accounting):
+  - Spent: inquiry 200, trivial 1.5k, standard 8k, complex 25k per
+    classification
+  - Saved: cache_hit 15k + fp_suppression 5k + graph_query 3k
+- **Weekly snapshot persistence** to
+  `~/.knit/projects/<hash>/metrics-history.jsonl`. Snapshots only write if
+  the last one is >7 days old. This is what feeds the "47% cheaper by week
+  8" chart.
+- **`knit_get_metrics_history`** (Tier 1, new) — returns the last N weekly
+  snapshots (default 12, max 52) plus week-over-week deltas.
+
+### Added — `bumpMetric` + `bumpClassificationTier` helpers
+
+In `src/engine/knowledgebase.ts`. One type-edit adds a new counter without
+touching N call sites.
+
+### Tests
+
+10 new classify tests + 12 new diversifier tests + 10 new metrics tests.
+Total: **533/533 passing** (was 506 before v0.10). Tool registry: **44**.
+
+### Strategic context
+
+This release is the foundation for v0.11 (Verify Layer / anti-slop) and
+v0.12 (universal auto-config). See [ROADMAP.md](./ROADMAP.md).
+
 ## [0.9.0] — 2026-05-19
 
 **The "tackle the honest limits" release.** v0.8 closed the retrieval story
