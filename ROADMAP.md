@@ -85,61 +85,132 @@ into a chartable number.
 ## v0.11 — Verify Layer (Anti-Slop) (~2 weeks)
 
 > Cross-check every Claude claim. No slop survives.
+>
+> Strategic call: v0.10 was *measurement*. v0.11 is *enforcement of correctness*.
+> Order: slice 1 (cheapest, biggest leverage) → slice 2 → slice 3 → slice 4.
 
 ### Slice 1 — Mandatory `knit_verify_claim` as REVIEW gate
-- [ ] Protocol Guard: REVIEW phase checks for `knit_verify_claim` call in turn
-- [ ] If absent and `scopeTier >= 'standard'` → warn (strictness=warn) or block (strictness=block)
-- [ ] Surface in classifier `instruction` for standard/complex: *"Before LEARN, verify your claims with `knit_verify_claim`."*
-- [ ] Tests: verify gate fires on standard+complex, skips on trivial+inquiry
+**Implementation sketch.** Track per-turn whether `knit_verify_claim` was invoked.
+On Stop hook (or a guard at next Edit/Write attempt), check: if the active
+classification marker has `scopeTier in {standard, complex}` AND the claim
+marker is absent → emit warning (strictness=warn) or block (strictness=block).
+
+- [ ] New `claimMarkerPath` in `paths.ts` → `~/.knit/projects/<hash>/.claim-verified-current`
+- [ ] `writeClaimMarker(rootPath)` / `readClaimMarker(rootPath)` in `protocol-guard.ts`
+- [ ] `handleVerifyClaim` writes the marker as a side effect (mirrors how `handleClassifyTask` writes the classification marker)
+- [ ] Stop hook (in `generators/settings.ts`) reads both markers; if scope ≥ standard AND no claim marker → log stderr
+- [ ] Classifier instruction text appends *"Before LEARN, verify ≥1 claim with `knit_verify_claim`"* for standard/complex
+- [ ] Tests: marker write/read, gate fires/skips correctly, strictness=warn vs block
+- **Gotcha:** UserPromptSubmit hook already clears the classification marker each turn; mirror that for the claim marker so it's truly per-turn.
 
 ### Slice 2 — Edit/Write diff verification
-- [ ] New PostToolUse hook on Edit|Write|MultiEdit
-- [ ] Re-read file, diff vs `tool_input.new_string` (or `content` for Write)
-- [ ] Log `[knit] verify: edit landed | edit drifted | file unchanged` to stderr
-- [ ] If drift detected → suggest re-edit
-- [ ] No-op for read-only tools
+**Implementation sketch.** PostToolUse hook (cross-platform `node -e` payload,
+no MCP roundtrip) reads `tool_input.new_string` (Edit) or `content` (Write),
+re-reads the file from disk, compares.
+
+- [ ] Add hook to `generators/settings.ts` PostToolUse matcher `Edit|Write|MultiEdit`
+- [ ] Bump `HOOKS_VERSION` (currently 7) → 8 so existing users auto-upgrade
+- [ ] Hook payload: parse stdin JSON, extract `tool_input.file_path` + intended content, read file, compare. Stderr message: `[knit] verify: landed | drifted | unchanged`
+- [ ] MultiEdit support: iterate each edit
+- [ ] No-op when `tool_input.file_path` is missing (best-effort)
+- [ ] Tests in `tests/generators.test.ts` — the existing cross-platform-hook tests already exercise inline `node -e` payloads; pattern is well-known
+- **Gotcha:** Edit's `old_string` may have already been mutated (the tool succeeded); we're verifying that `new_string` LANDED, not that `old_string` was there. Test against the file post-tool.
 
 ### Slice 3 — Behavioral re-classification
-- [ ] After significant edit batch (≥3 files in same turn), re-run classifier on the diff
-- [ ] If new classification ≠ original → log "classification drift" event
-- [ ] Surfaces silent scope creep early
+**Implementation sketch.** Stop hook aggregates the turn's Edit/Write file
+paths (parse the PostToolUse log buffer or a per-turn append-only file), then
+invokes a lightweight handler that re-runs classifier inference on the diff.
+If new classification differs from the marker → log drift event.
+
+- [ ] New `turnEditLogPath` in `paths.ts` → `~/.knit/projects/<hash>/.turn-edits.jsonl`
+- [ ] PostToolUse hook (extends slice 2's hook) appends `{path, ts}` per Edit/Write
+- [ ] UserPromptSubmit hook clears `.turn-edits.jsonl` per turn (mirror existing marker-clear pattern)
+- [ ] New handler `handleReclassifyTurn(brain)` or Stop-hook payload that reads the turn log + classification marker, re-runs `inferRiskTier`/`inferScopeTier`, logs drift if mismatch
+- [ ] Threshold: only re-classify if turn touched ≥3 files (cheap path for trivial turns)
+- [ ] Tests: simulate turn with type-change diff → assert re-classification surfaces drift
+- **Gotcha:** Don't make re-classification expensive — reuse the existing inference helpers, no agent spawning.
 
 ### Slice 4 — Self-healing classifier (per-project calibration)
-- [ ] Track classification → outcome per project
-- [ ] If 3+ FPs in same direction (e.g., "complex but was actually standard") → adjust per-project threshold
-- [ ] Per-project calibration stored at `~/.knit/projects/<hash>/calibration.json`
-- [ ] Cross-project learnings stay global; per-project tuning stays local
+**Implementation sketch.** Persist a per-project calibration sidecar that
+adjusts the risk/scope thresholds based on accumulated FP records.
+
+- [ ] New file `~/.knit/projects/<hash>/calibration.json` — `{ riskOffsets: { types: -1, auth: 0, ... }, scopeOffsets: { fileCountAdjust: 0 } }`
+- [ ] `inferRiskTier` / `inferScopeTier` accept an optional calibration arg; default no-op
+- [ ] When `knit_record_false_positive` is called with a `#classifier` tag → bump the calibration counter for the direction (e.g., `complex-but-was-trivial` → fileCountAdjust + 1)
+- [ ] After 3+ same-direction FPs → flip the threshold by 1 unit, log the adjustment to learnings
+- [ ] `knit_get_calibration` (Tier 2) shows current per-project tuning
+- [ ] Tests: feed 3 FPs in same direction → assert threshold adjusts; cross-project pool unchanged
+- **Gotcha:** This is the riskiest slice — a buggy calibration permanently miscalibrates. Add `knit_reset_calibration` admin tool so users can flush.
 
 ---
 
 ## v0.12 — Universal Auto-Configuration (~2 weeks)
 
 > `npx knit-mcp setup` on ANY repo produces accurate config. Zero manual edits.
+> 
+> Order: phases are dependent — 0 feeds 1 feeds 2 feeds 3 feeds 4.
 
 ### Phase 0 — Project fingerprinting (extend `scanner.ts`)
-- [ ] Detect language(s), framework, test runner, build command, lint setup, CI
-- [ ] Output structured `ProjectFingerprint` type
+**Implementation sketch.** Today `scanner.ts` scans imports + computes graph
+metrics. Extend it to also emit a `ProjectFingerprint` — the detected
+language/framework/test-runner/build-tool/CI signals.
+
+- [ ] New type `ProjectFingerprint` in `types.ts`: `{ languages, framework, testRunner, buildCommand, lintCommand, typecheckCommand, ciFiles, packageManager }`
+- [ ] `scanProjectFingerprint(rootPath)` in `scanner.ts` — file-presence + content sniffs (`tsconfig.json` → typescript; `next.config.*` → next.js; `vitest.config.*` → vitest; etc.)
+- [ ] Cached on `BrainCache.fingerprint`; rebuilt on `engram refresh`
+- [ ] Surface via `knit_brain_status` so users can see what was detected
+- [ ] Tests: fixture repos in `tests/fixtures/` for ts+next, py+fastapi, go, rust, etc.
+- **Gotcha:** Detection signals overlap (a TS project may have both `vitest.config.ts` and `jest.config.js`). Order detection by file priority; tie-break by package.json scripts.
 
 ### Phase 1 — Domain inference
-- [ ] Git co-change clustering (last 90 days, files-touched-together)
-- [ ] Import graph centrality → identify domain heads
-- [ ] Test colocation → confirm boundaries
-- [ ] Output: ranked candidate domains with confidence scores
+**Implementation sketch.** Three signals fuse via Reciprocal Rank Fusion
+(reuse the existing `rrfFuse`) to produce ranked candidate domains.
+
+- [ ] Git co-change clustering — `git log --name-only -90.days` parse → file-pair co-occurrence matrix → DBSCAN or simple greedy clustering
+- [ ] Import-graph centrality — for each top-level `src/` subdir, compute PageRank-ish score via existing graph data
+- [ ] Test colocation — `tests/foo/` ↔ `src/foo/` confirms domain `foo`
+- [ ] Fuse signals via `rrfFuse` (already available) → ranked candidates with confidence
+- [ ] New handler `handleInferDomains(brain)` (Tier 2) — returns candidates for user confirmation
+- [ ] Tests: hand-built fixture repo with 3 known domains → assert inference recovers them at top-3
+- **Gotcha:** Co-change is noisy on tiny repos. Require ≥10 commits for the signal; fall back to import-graph centrality alone otherwise.
 
 ### Phase 2 — Template composition
-- [ ] CLAUDE.md generator consumes `ProjectFingerprint` + inferred domains
-- [ ] Marker-wrapped sections all auto-generated; outside markers untouched
-- [ ] Per-language `Build & Verify` snippets
+**Implementation sketch.** `generators/claude-md.ts` consumes
+`ProjectFingerprint` + inferred domains + user confirmations to produce a
+fully marker-wrapped CLAUDE.md. Everything outside markers stays untouched.
+
+- [ ] Extend `generateClaudeMd(config)` to accept fingerprint + domains
+- [ ] New section helpers per language: `buildAndVerifySection('typescript' | 'python' | 'go' | ...)` — emits the project's actual commands, not generic placeholders
+- [ ] Domain Architecture section: one block per inferred domain with file lists + agent recommendations
+- [ ] Marker invariants preserved: `<!-- knit:start -->...<!-- knit:end -->` wraps everything Knit owns
+- [ ] Tests: generate against each fixture → snapshot output → CLAUDE.md validates with grep checks (build commands present, domain blocks present, markers intact)
+- **Gotcha:** Existing CLAUDE.md may have user content between/outside markers. Diff-merge logic must NEVER touch outside-marker content.
 
 ### Phase 3 — Validation loop
-- [ ] After generation: run detected typecheck, run `knit_brain_status`, run a trivial `knit_classify_task`
-- [ ] Any failure → roll back generation, surface error to user
-- [ ] Add `engram doctor` CLI for ongoing health checks
+**Implementation sketch.** After generation, run a 3-step smoke test; if any
+step fails, roll back the generated CLAUDE.md to its pre-generation state.
+
+- [ ] Backup pre-generation CLAUDE.md to `~/.knit/projects/<hash>/.claude-md.backup`
+- [ ] Run detected typecheck command (from fingerprint) — must exit 0
+- [ ] Run `knit_brain_status` programmatically — must respond
+- [ ] Run `knit_classify_task` with `files_to_touch: src/foo.ts` (or detected real file) — must return tier=trivial
+- [ ] On any failure → restore from backup, surface error
+- [ ] New CLI: `engram doctor` runs the same validation suite on demand
+- [ ] Tests: induce each failure mode (broken typecheck, missing brain) → assert rollback fires
+- **Gotcha:** The validation loop must NOT trigger Knit's own protocol-guard hooks (infinite loop). Disable hooks during validation by setting `KNIT_VALIDATION_MODE=1` env var, which the hooks check.
 
 ### Phase 4 — Drift detection
-- [ ] Every N sessions: diff CLAUDE.md domain file lists vs actual `src/`
-- [ ] Diff Phase Status vs latest git tags
-- [ ] Surface drift via `knit_get_board_summary`
+**Implementation sketch.** Periodic check (every 7 days) that the CLAUDE.md
+domain blocks still match reality. Surface drift via `knit_get_board_summary`
+so users see it on the next session start.
+
+- [ ] On each `knit_load_session`, check `~/.knit/projects/<hash>/.last-drift-check` — if >7 days, run drift check
+- [ ] Drift checks: (a) does each CLAUDE.md-listed file still exist? (b) are there top-level `src/` dirs not represented? (c) does Phase Status reference shipped versions vs latest git tag?
+- [ ] Drift report emitted to `~/.knit/projects/<hash>/drift-report.json`
+- [ ] `knit_get_board_summary` surfaces unread drift reports
+- [ ] New `knit_dismiss_drift` to acknowledge
+- [ ] Tests: stale CLAUDE.md vs new src/ structure → assert drift surfaces
+- **Gotcha:** Don't auto-fix drift — surface only. User confirms before regenerating.
 
 ---
 
