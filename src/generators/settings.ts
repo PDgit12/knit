@@ -11,6 +11,7 @@ import {
   protocolConfigPath,
   sessionMarkerPath,
   searchMarkerPath,
+  turnEditLogPath,
   knowledgePath,
 } from '../engine/paths.js';
 
@@ -60,8 +61,12 @@ import {
  *                 catches SDK quirks at edit time (wrong import paths,
  *                 narrowing failures, async contract mismatches) without
  *                 waiting for the Stop-hook build verification.
+ *  v10 — 0.11.0 slice 3: PostToolUse appends to .turn-edits.jsonl;
+ *                 UserPromptSubmit clears it; Stop-hook compares the
+ *                 touched-file set against the classification marker
+ *                 and surfaces scope/risk drift before LEARN.
  */
-export const HOOKS_VERSION = 9;
+export const HOOKS_VERSION = 10;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -134,6 +139,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
   const SESSION_MARKER = sessionMarkerPath(rootPath);
   const SEARCH_MARKER = searchMarkerPath(rootPath);
   const CLAIM_MARKER = claimMarkerPath(rootPath);
+  const TURN_EDIT_LOG = turnEditLogPath(rootPath);
   const CLAUDE_MD = `${rootPath}/CLAUDE.md`;
   // KNOWLEDGE_JSON exists in the import surface for future hook-side use
   // (e.g. cross-checking imports against the indexed graph) but is not yet
@@ -186,6 +192,10 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                 // requires fresh verify_claim per non-trivial task.
                 const cm = ${jsLit(CLAIM_MARKER)};
                 if (fs.existsSync(cm)) fs.rmSync(cm, { force: true });
+                // v0.11 slice 3: per-turn edit log — the Stop-hook drift detector
+                // re-classifies the actual touched set and surfaces scope creep.
+                const tl = ${jsLit(TURN_EDIT_LOG)};
+                if (fs.existsSync(tl)) fs.rmSync(tl, { force: true });
               } catch (e) {}
             `),
             timeout: 5,
@@ -331,6 +341,38 @@ function generateHooks(config: KnitConfig, rootPath: string) {
     PostToolUse: [],
     Stop: [],
   };
+
+  // v0.11 slice 3 — Turn-edit appender. Every Edit/Write/MultiEdit appends
+  // its file_path to .turn-edits.jsonl. The Stop hook then reads the whole
+  // set and compares against the classification marker to surface drift
+  // (e.g., trivial classification but turn actually touched 7 files).
+  hooks.PostToolUse.push({
+    _knitOwned: true,
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          let d = "";
+          process.stdin.on("data", (c) => d += c);
+          process.stdin.on("end", () => {
+            try {
+              const fs = require("fs");
+              const path = require("path");
+              const i = JSON.parse(d);
+              const ti = i.tool_input || {};
+              const f = ti.file_path || (i.tool_response && i.tool_response.filePath) || "";
+              if (!f) return;
+              const logPath = ${jsLit(TURN_EDIT_LOG)};
+              fs.mkdirSync(path.dirname(logPath), { recursive: true });
+              fs.appendFileSync(logPath, JSON.stringify({ file: f, ts: new Date().toISOString() }) + "\\n");
+            } catch (e) {}
+          });
+        `),
+        timeout: 5,
+      },
+    ],
+  });
 
   // v0.11 slice 2 — Diff verification. After Edit/Write/MultiEdit, re-read
   // the file from disk and verify the intended content actually landed.
@@ -641,6 +683,64 @@ function generateHooks(config: KnitConfig, rootPath: string) {
       ],
     });
   }
+
+  // v0.11 slice 3 — Stop-hook drift detector. Reads .turn-edits.jsonl and
+  // the classification marker; if the touched set is inconsistent with the
+  // original classification (more files than declared, or risky files in
+  // a low-risk classification), logs scope/risk drift to stderr. Doesn't
+  // block — just surfaces the silent scope-creep failure mode.
+  hooks.Stop.push({
+    _knitOwned: true,
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          try {
+            const fs = require("fs");
+            const path = require("path");
+            const classifiedPath = ${jsLit(CLASSIFIED_MARKER)};
+            const logPath = ${jsLit(TURN_EDIT_LOG)};
+            if (!fs.existsSync(classifiedPath) || !fs.existsSync(logPath)) return;
+            let marker;
+            try {
+              marker = JSON.parse(fs.readFileSync(classifiedPath, "utf-8"));
+            } catch (e) { return; }
+            const originalScope = (marker && (marker.scopeTier || marker.tier)) || "";
+            const originalRisk = (marker && marker.riskTier) || "low";
+            if (!originalScope) return;
+            // Parse turn-edit log → unique file set.
+            const seen = new Set();
+            const raw = fs.readFileSync(logPath, "utf-8");
+            for (const line of raw.split("\\n")) {
+              if (!line.trim()) continue;
+              try { const e = JSON.parse(line); if (e.file) seen.add(e.file); } catch (e2) {}
+            }
+            const touched = Array.from(seen);
+            const n = touched.length;
+            if (n === 0) return;
+            // Scope drift: trivial classification but turn touched 3+ files.
+            const scopeDrift = (originalScope === "trivial" && n >= 3) ||
+                               (originalScope === "standard" && n >= 6);
+            // Risk drift: low-risk classification but turn touched risky files.
+            const riskyPatterns = /(\\btypes?\\.tsx?|\\bschema\\.|\\bauth\\.|\\bsecurity\\.|migrations?\\/)/i;
+            const riskyHit = touched.find((f) => riskyPatterns.test(f));
+            const riskDrift = originalRisk === "low" && !!riskyHit;
+            if (!scopeDrift && !riskDrift) return;
+            console.error("[knit] drift detector — turn touched " + n + " file(s); classification was scope=" + originalScope + ", risk=" + originalRisk);
+            if (scopeDrift) {
+              console.error("  scope drift: " + n + " files exceeds the " + originalScope + " threshold. Next time, re-classify when scope grows.");
+            }
+            if (riskDrift) {
+              console.error("  risk drift: low-risk classification but touched " + riskyHit + " — high-risk pattern (types/schema/auth/migrations). Should have triggered plan mode.");
+            }
+            console.error("  touched: " + touched.slice(0, 8).join(", ") + (touched.length > 8 ? " ... and " + (touched.length - 8) + " more" : ""));
+          } catch (e) {}
+        `),
+        timeout: 5,
+        statusMessage: 'Knit: drift detector...',
+      },
+    ],
+  });
 
   // v0.11 slice 1 — Stop-hook claim-verified gate. The REVIEW phase of the
   // protocol requires that standard/complex scope tasks verify ≥1 claim

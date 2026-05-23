@@ -139,6 +139,15 @@ export function claimMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.claim-verified-current');
 }
 
+/** v0.11 slice 3 — ~/.knit/projects/<hash>/.turn-edits.jsonl
+ *  Per-turn append-only log of file paths the agent has Edit/Write'd.
+ *  Cleared on UserPromptSubmit. The Stop hook reads it and compares
+ *  the touched set against the classification marker to surface scope
+ *  drift (turn touched 8 files but original classification was trivial). */
+export function turnEditLogPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), '.turn-edits.jsonl');
+}
+
 /** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
 export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');

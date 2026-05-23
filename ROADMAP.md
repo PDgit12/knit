@@ -118,19 +118,16 @@ until-loaded narrowing, async-contract mismatches).
 - [x] `HOOKS_VERSION` 8 → 9 so existing users auto-upgrade on next MCP call
 - [x] 3 new generator tests (545 total; was 542)
 
-### Slice 3 — Behavioral re-classification
-**Implementation sketch.** Stop hook aggregates the turn's Edit/Write file
-paths (parse the PostToolUse log buffer or a per-turn append-only file), then
-invokes a lightweight handler that re-runs classifier inference on the diff.
-If new classification differs from the marker → log drift event.
-
-- [ ] New `turnEditLogPath` in `paths.ts` → `~/.knit/projects/<hash>/.turn-edits.jsonl`
-- [ ] PostToolUse hook (extends slice 2's hook) appends `{path, ts}` per Edit/Write
-- [ ] UserPromptSubmit hook clears `.turn-edits.jsonl` per turn (mirror existing marker-clear pattern)
-- [ ] New handler `handleReclassifyTurn(brain)` or Stop-hook payload that reads the turn log + classification marker, re-runs `inferRiskTier`/`inferScopeTier`, logs drift if mismatch
-- [ ] Threshold: only re-classify if turn touched ≥3 files (cheap path for trivial turns)
-- [ ] Tests: simulate turn with type-change diff → assert re-classification surfaces drift
-- **Gotcha:** Don't make re-classification expensive — reuse the existing inference helpers, no agent spawning.
+### Slice 3 — Behavioral re-classification ✅ shipped 2026-05-23
+- [x] `turnEditLogPath` in `paths.ts` → `.turn-edits.jsonl`
+- [x] `appendTurnEdit` / `readTurnEdits` / `clearTurnEdits` in `protocol-guard.ts`
+- [x] PostToolUse appender hook (inline write per Edit/Write/MultiEdit)
+- [x] UserPromptSubmit clears the turn log alongside other per-turn markers
+- [x] Stop-hook drift detector — inline scope + risk checks (no agent spawning):
+  - scope drift: `trivial` classification with ≥3 files OR `standard` with ≥6
+  - risk drift: `low` riskTier classification but touched types/schema/auth/migrations
+- [x] HOOKS_VERSION 9 → 10
+- [x] 4 new generator tests (549 total)
 
 ### Slice 4 — Self-healing classifier (per-project calibration)
 **Implementation sketch.** Persist a per-project calibration sidecar that

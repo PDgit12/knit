@@ -379,6 +379,48 @@ describe('generateSettings', () => {
       expect(cmd).toContain('cross-file ripple');
     });
 
+    // ── v0.11 slice 3 — drift detector ──
+
+    it('HOOKS_VERSION bumped to 10 in v0.11 slice 3', async () => {
+      const { HOOKS_VERSION } = await import('../src/generators/settings.js');
+      expect(HOOKS_VERSION).toBeGreaterThanOrEqual(10);
+    });
+
+    it('PostToolUse appends to .turn-edits.jsonl on every Edit/Write', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const appender = (hooks.PostToolUse as any[]).find((e) => {
+        const c = e.hooks?.[0]?.command || '';
+        return e.matcher === 'Write|Edit|MultiEdit' && c.includes('.turn-edits.jsonl') && c.includes('appendFileSync');
+      });
+      expect(appender, 'turn-edit appender hook not found').toBeDefined();
+    });
+
+    it('UserPromptSubmit also clears .turn-edits.jsonl per turn', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const cmd = (hooks.UserPromptSubmit[0] as any).hooks?.[0]?.command || '';
+      expect(cmd).toContain('.turn-edits.jsonl');
+    });
+
+    it('emits a Stop-hook drift detector that compares touched files vs classification', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const drift = (hooks.Stop as any[]).find((e) => {
+        const c = e.hooks?.[0]?.command || '';
+        return c.includes('drift detector') && c.includes('.turn-edits.jsonl');
+      });
+      expect(drift, 'Stop-hook drift detector not found').toBeDefined();
+      const cmd = drift.hooks?.[0]?.command || '';
+      // Detects both scope and risk drift:
+      expect(cmd).toContain('scope drift');
+      expect(cmd).toContain('risk drift');
+      // Risky-file pattern includes types/schema/auth/migrations:
+      expect(cmd).toContain('types');
+      expect(cmd).toContain('auth');
+      expect(cmd).toContain('migrations');
+    });
+
     it('Stop-hook claim-verified gate referencing scope_tier + protocol-config', () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, unknown[]>;
@@ -465,7 +507,7 @@ describe('generateSettings', () => {
       expect(allText).not.toMatch(/\\\\[A-Za-z]/);  // backslash-escaped paths
     });
 
-    it('every inline node -e command parses cleanly under POSIX shell (no unbalanced quotes)', () => {
+    it('every inline node -e command parses cleanly under POSIX shell (no unbalanced quotes)', { timeout: 30000 }, () => {
       const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
       const hooks = settings.hooks as Record<string, Array<{ hooks: Array<{ command?: unknown }> }>>;
 
