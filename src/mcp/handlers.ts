@@ -51,6 +51,8 @@ import {
   isValidStrictness, readProtocolConfig, writeClassificationMarker, writeClaimMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
 import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration } from '../engine/calibration.js';
+import { chunkRequirements, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
+import type { RequirementsSource } from '../engine/requirements.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
 
@@ -1759,6 +1761,143 @@ export function handleResetCalibration(_params: Record<string, string>, brain: B
     scope_adjust: fresh.scopeAdjust,
     risk_adjust: fresh.riskAdjust,
     instruction: 'Calibration wiped. Classifier reverts to default thresholds.',
+  });
+}
+
+/** v0.11 slice 5 — knit_index_requirements.
+ *
+ *  Ingest a long-form requirements / spec / RFC document into a
+ *  BM25-indexed per-project store. Chunks on paragraph boundaries, persists
+ *  to ~/.knit/projects/<hash>/requirements/<source-id>.json.
+ *
+ *  Companion to knit_generate_test_cases — same problem solved at ingest
+ *  vs query time. Designed for the enterprise-requirements use case
+ *  (200KB Jira spec → retrieved 5-7KB relevant context per query). */
+export function handleIndexRequirements(params: Record<string, string>, brain: BrainCache): string {
+  const filePath = (params.file_path || '').trim();
+  if (!filePath) {
+    return JSON.stringify({ error: 'file_path is required', status: 'error' });
+  }
+  if (!existsSync(filePath)) {
+    return JSON.stringify({ error: `file not found: ${filePath}`, status: 'error' });
+  }
+  let content: string;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch (err) {
+    return JSON.stringify({ error: `read failed: ${(err as Error).message}`, status: 'error' });
+  }
+  const sourceBytes = Buffer.byteLength(content, 'utf-8');
+  const minCharsRaw = parseInt(params.min_chars || '50', 10);
+  const minChars = Number.isFinite(minCharsRaw) && minCharsRaw > 0 ? minCharsRaw : 50;
+  const chunks = chunkRequirements(content, minChars);
+  if (chunks.length === 0) {
+    return JSON.stringify({
+      status: 'error',
+      error: 'No chunks produced — every paragraph was shorter than min_chars. Lower min_chars or check the input.',
+    });
+  }
+  const sourceId = (params.source_id || '').trim() || slugifySourceId(filePath);
+  const label = (params.label || '').trim() || undefined;
+  const source: RequirementsSource = {
+    sourceId,
+    sourcePath: filePath,
+    sourceBytes,
+    indexedAt: new Date().toISOString(),
+    label,
+    chunks,
+  };
+  try {
+    saveSource(brain.rootPath, source);
+  } catch (err) {
+    return JSON.stringify({ error: `save failed: ${(err as Error).message}`, status: 'error' });
+  }
+  return JSON.stringify({
+    status: 'indexed',
+    source_id: sourceId,
+    chunks_indexed: chunks.length,
+    source_bytes: sourceBytes,
+    avg_chunk_chars: Math.round(chunks.reduce((s, c) => s + c.text.length, 0) / chunks.length),
+    instruction: `Indexed ${chunks.length} chunks from ${filePath}. Call knit_generate_test_cases with feature="<your topic>" to retrieve only the relevant chunks for a specific feature.`,
+  });
+}
+
+/** v0.11 slice 5 — knit_generate_test_cases.
+ *
+ *  Free-text query against all indexed requirements sources. Returns the
+ *  top-N most relevant chunks via BM25 + RRF across sources, plus a
+ *  structured template the agent can use to generate test cases from the
+ *  retrieved context. Optional source_id filter to scope to one doc.
+ *
+ *  This is the "200KB doc → 5-7KB relevant context" core of the enterprise
+ *  pilot. The agent gets only what's relevant to the named feature, not
+ *  the whole spec. */
+export function handleGenerateTestCases(params: Record<string, string>, brain: BrainCache): string {
+  const feature = (params.feature || '').trim();
+  if (!feature) {
+    return JSON.stringify({ error: 'feature is required (the topic / feature name to retrieve context for)', status: 'error' });
+  }
+  const topNRaw = parseInt(params.top_n || '5', 10);
+  const topN = Number.isFinite(topNRaw) && topNRaw > 0 && topNRaw <= 30 ? topNRaw : 5;
+  const sourceFilter = (params.source_id || '').trim();
+  const summaries = listSources(brain.rootPath);
+  if (summaries.length === 0) {
+    return JSON.stringify({
+      status: 'no_sources',
+      error: 'No requirements indexed yet. Call knit_index_requirements first with the path to your spec / Jira export / Swagger doc.',
+    });
+  }
+  const sourcesToSearch: RequirementsSource[] = [];
+  if (sourceFilter) {
+    const s = loadSource(brain.rootPath, sourceFilter);
+    if (!s) {
+      return JSON.stringify({
+        status: 'error',
+        error: `source_id "${sourceFilter}" not found. Available: ${summaries.map((x) => x.sourceId).join(', ')}`,
+      });
+    }
+    sourcesToSearch.push(s);
+  } else {
+    for (const summary of summaries) {
+      const s = loadSource(brain.rootPath, summary.sourceId);
+      if (s) sourcesToSearch.push(s);
+    }
+  }
+  const hits = retrieveTopChunks(sourcesToSearch, feature, topN);
+  const contextBytes = hits.reduce((s, h) => s + Buffer.byteLength(h.chunk.text, 'utf-8'), 0);
+  const totalBytes = sourcesToSearch.reduce((s, src) => s + src.sourceBytes, 0);
+  const reductionPct = totalBytes > 0 ? Math.round(100 - (contextBytes / totalBytes) * 100) : 0;
+  return JSON.stringify({
+    status: 'ok',
+    feature,
+    sources_searched: sourcesToSearch.map((s) => s.sourceId),
+    context_chunks: hits.map((h) => ({
+      source_id: h.sourceId,
+      source_label: h.sourceLabel,
+      chunk_id: h.chunk.id,
+      start_line: h.chunk.startLine,
+      end_line: h.chunk.endLine,
+      text: h.chunk.text,
+    })),
+    context_bytes: contextBytes,
+    total_source_bytes: totalBytes,
+    reduction_pct: reductionPct,
+    suggested_template: `Given the retrieved context for feature "${feature}", generate test cases covering: happy path, edge cases (boundaries, empty/null inputs), failure modes (invalid input, downstream errors), and any compliance requirements stated in the chunks above. Cite chunk_id when a test maps to a specific requirement.`,
+    instruction: `Retrieved ${hits.length} chunk(s) — ${contextBytes} bytes of ${totalBytes} total (${reductionPct}% reduction). Use the chunks as the LLM's grounding context; cite chunk_id per test case.`,
+  });
+}
+
+/** v0.11 slice 5 — knit_list_requirements (helper). Returns all indexed
+ *  sources with header info (no chunks). Cheap; for showing the agent
+ *  what's available before calling knit_generate_test_cases. */
+export function handleListRequirements(_params: Record<string, string>, brain: BrainCache): string {
+  const summaries = listSources(brain.rootPath);
+  return JSON.stringify({
+    count: summaries.length,
+    sources: summaries,
+    instruction: summaries.length === 0
+      ? 'No requirements indexed yet. Call knit_index_requirements with a file_path to ingest one.'
+      : 'Use source_id with knit_generate_test_cases to scope retrieval to one doc, or omit it to search across all.',
   });
 }
 

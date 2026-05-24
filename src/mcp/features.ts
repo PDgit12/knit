@@ -64,6 +64,9 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_record_false_positive', tier: 1, category: 'fp-reflection', rationale: 'Universal — reviewer agents flag FPs on any project. v0.11 slice 4: direction tags feed the self-healing classifier.' },
   { tool: 'knit_get_calibration', tier: 1, category: 'fp-reflection', rationale: 'Per-project classifier calibration state. Pair with compounding_metrics for the self-healing view.' },
   { tool: 'knit_reset_calibration', tier: 3, category: 'admin', rationale: 'Wipe classifier calibration. Admin because it discards accumulated tuning.', enable_via: 'knit_enable_feature("admin")' },
+  { tool: 'knit_index_requirements', tier: 1, category: 'memory', rationale: 'Ingest long-form requirements/specs into a BM25-indexed per-project store. Enables the 200KB-doc → relevant-chunks-only retrieval pattern.' },
+  { tool: 'knit_generate_test_cases', tier: 1, category: 'memory', rationale: 'Query indexed requirements; returns top-N relevant chunks + test-generation template. Companion to knit_index_requirements.' },
+  { tool: 'knit_list_requirements', tier: 1, category: 'memory', rationale: 'List indexed requirements sources (header info only). Cheap discovery tool.' },
   { tool: 'knit_get_false_positives', tier: 1, category: 'fp-reflection', rationale: 'Universal' },
   { tool: 'knit_reflect', tier: 1, category: 'fp-reflection', rationale: 'Returns "not enough data" on sparse projects; always available' },
 

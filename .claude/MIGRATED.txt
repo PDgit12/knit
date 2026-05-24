@@ -1,0 +1,8 @@
+Knit data migrated to ~/.knit/ on 2026-05-18.
+
+Centralized location for this project:
+  /Users/piyushdua/.knit/projects/a9b94f14e71b1771
+
+The legacy files in this .claude/ directory are no longer read by engram and
+can be deleted at your discretion. Future learnings, knowledge indexes, and
+session memory live in the new path.

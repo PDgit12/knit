@@ -157,6 +157,21 @@ export function calibrationPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'calibration.json');
 }
 
+/** v0.11 slice 5 — ~/.knit/projects/<hash>/requirements/
+ *  Directory holding indexed requirements documents. Each source doc
+ *  becomes one JSON file named by source id (typically the basename
+ *  slug). Used by knit_index_requirements + knit_generate_test_cases for
+ *  the enterprise-requirements ingestion flow (200KB Jira spec → 5-7KB
+ *  retrieved context for test-case generation). */
+export function requirementsDir(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'requirements');
+}
+
+/** Path to one indexed requirements source. */
+export function requirementSourcePath(rootPath: string, sourceId: string): string {
+  return join(requirementsDir(rootPath), `${sourceId}.json`);
+}
+
 /** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
 export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');

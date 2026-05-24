@@ -26,6 +26,7 @@ import {
   handleListFeatures, handleEnableFeature, handleDisableFeature,
   handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
   handleGetCalibration, handleResetCalibration,
+  handleIndexRequirements, handleGenerateTestCases, handleListRequirements,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
@@ -124,6 +125,21 @@ export function getToolDefinitions(): ToolDef[] {
     {
       name: 'knit_reset_calibration',
       description: 'Wipe per-project classifier calibration back to default zeros. Admin tier — use when calibration drifted in a bad direction.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'knit_index_requirements',
+      description: 'Ingest a long-form requirements / spec / RFC doc into a BM25-indexed per-project store. Companion to knit_generate_test_cases — solves the 200KB-doc → relevant-only-context problem at ingest time.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Absolute path to the source doc (Jira export, Swagger spec, RFC, etc.).' }, source_id: { type: 'string', description: 'Optional id (defaults to slugified basename).' }, label: { type: 'string', description: 'Human-readable label, e.g. "PAY-1234 Payment Flow Spec".' }, min_chars: { type: 'string', description: 'Drop chunks shorter than this (default 50).' } }, required: ['file_path'] },
+    },
+    {
+      name: 'knit_generate_test_cases',
+      description: 'Free-text query against indexed requirements. Returns top-N relevant chunks via BM25+RRF across sources, plus a test-case-generation template. Companion to knit_index_requirements.',
+      inputSchema: { type: 'object', properties: { feature: { type: 'string', description: 'The topic / feature name to retrieve context for.' }, source_id: { type: 'string', description: 'Optional — scope retrieval to one indexed source. Omit to search across all.' }, top_n: { type: 'string', description: 'How many chunks to return (default 5, max 30).' } }, required: ['feature'] },
+    },
+    {
+      name: 'knit_list_requirements',
+      description: 'List all indexed requirements sources (header info only — no chunks). Cheap. Call before knit_generate_test_cases to see what is available.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
@@ -463,6 +479,9 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_get_metrics_history: handleGetMetricsHistory,
   knit_get_calibration: handleGetCalibration,
   knit_reset_calibration: handleResetCalibration,
+  knit_index_requirements: handleIndexRequirements,
+  knit_generate_test_cases: handleGenerateTestCases,
+  knit_list_requirements: handleListRequirements,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,
@@ -474,10 +493,17 @@ export function handleToolCall(
   params: Record<string, string>,
   brain: BrainCache,
 ): string {
-  // Path validation — prevent directory traversal (including URL-encoded)
+  // Path validation — prevent directory traversal (including URL-encoded).
+  // knit_index_requirements is exempt from the absolute-path block: it
+  // explicitly takes a user-supplied path to a spec doc on disk (Jira
+  // export, Swagger file, etc.) and there's no project-relative shape
+  // that makes sense for it. Traversal-sequence + NUL byte checks still
+  // apply to that tool — only the `/` prefix is allowed.
   if (params.file_path) {
     const decoded = decodeURIComponent(params.file_path).replace(/\\/g, '/');
-    if (decoded.includes('..') || decoded.startsWith('/') || decoded.includes('\0')) {
+    const allowAbsolute = toolName === 'knit_index_requirements';
+    const bad = decoded.includes('..') || decoded.includes('\0') || (!allowAbsolute && decoded.startsWith('/'));
+    if (bad) {
       return JSON.stringify({ error: 'Invalid file path — no traversal or absolute paths allowed' });
     }
     params.file_path = decoded;
