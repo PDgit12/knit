@@ -53,6 +53,7 @@ import {
 import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration } from '../engine/calibration.js';
 import { chunkRequirements, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
 import type { RequirementsSource } from '../engine/requirements.js';
+import { inferDomains } from '../engine/domain-inference.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
 
@@ -302,16 +303,17 @@ const TOKEN_BUDGETS = {
   /** Generated CLAUDE.md block. v0.7 trim landed at ~2KB on typical projects;
    *  6.5KB target allows for projects with many domains / large project map. */
   claude_md_bytes: 6500,
-  /** Tier-gated tools/list response. v0.7 typical: 26 active × ~280 bytes ≈ 7.3KB.
-   *  8.5KB target allows Tier-2 team tools to come online on ≥3-domain projects
-   *  without crossing into warn. Full 38-tool exposure (everything enabled)
-   *  sits in warn range, surfacing the bloat without blocking it. */
-  tool_registry_bytes: 8500,
+  /** Tier-gated tools/list response. v0.12 typical: 38 Tier-1 active × ~280
+   *  bytes ≈ 10.6KB. 11KB target allows headroom for the v0.12 + v0.13
+   *  growth without immediately warning; full 51-tool exposure
+   *  (everything enabled) sits in warn range, surfacing the bloat. */
+  tool_registry_bytes: 11000,
   /** MCP server `instructions` field — sent at handshake. v0.7 ships at ~2KB. */
   instructions_bytes: 2500,
   /** Sum of the three above — the per-session fixed cost Knit imposes.
-   *  v0.7 typical: ~12KB; 17.5KB target covers the union with slack. */
-  per_session_overhead_bytes: 17500,
+   *  v0.12 typical: ~14KB (CLAUDE.md ~2KB + tools ~10.6KB + instructions ~2KB);
+   *  20KB target covers the union with slack as more tools come online. */
+  per_session_overhead_bytes: 20000,
 } as const;
 
 function verdict(actual: number, target: number): 'healthy' | 'warn' | 'over-budget' {
@@ -1761,6 +1763,27 @@ export function handleResetCalibration(_params: Record<string, string>, brain: B
     scope_adjust: fresh.scopeAdjust,
     risk_adjust: fresh.riskAdjust,
     instruction: 'Calibration wiped. Classifier reverts to default thresholds.',
+  });
+}
+
+/** v0.12 phase 1 — knit_infer_domains.
+ *
+ *  Fuses three signals into ranked domain candidates: git co-change
+ *  clustering, import-graph centrality, test colocation. RRF fuses
+ *  rankings so a domain strong in one signal still surfaces. Output is
+ *  intended for user review before being accepted into CLAUDE.md's
+ *  Domain Architecture block (v0.12 phase 2). */
+export function handleInferDomains(params: Record<string, string>, brain: BrainCache): string {
+  const lookbackRaw = parseInt(params.lookback_days || '90', 10);
+  const lookbackDays = Number.isFinite(lookbackRaw) && lookbackRaw > 0 && lookbackRaw <= 730 ? lookbackRaw : 90;
+  const importGraph = brain.knowledge?.importGraph ?? {};
+  const testMap = brain.knowledge?.testMap ?? { tested: {}, untested: [], testFiles: [] };
+  const result = inferDomains(brain.rootPath, importGraph, testMap as { tested: Record<string, string[]>; testFiles: string[] }, lookbackDays);
+  return JSON.stringify({
+    ...result,
+    instruction: result.candidates.length === 0
+      ? 'No domain signals available yet. Ensure the project has commits in the last 90 days AND src/ structure AND an indexed import graph (run knit_brain_status to verify).'
+      : `Found ${result.candidates.length} candidate domain(s). Review the file lists; accepted candidates feed into v0.12 phase 2 (template composition) so CLAUDE.md\'s Domain Architecture block stays accurate.`,
   });
 }
 

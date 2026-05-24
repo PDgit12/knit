@@ -27,7 +27,7 @@ import {
   handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
   handleGetCalibration, handleResetCalibration,
   handleIndexRequirements, handleGenerateTestCases, handleListRequirements,
-  handleGetFingerprint,
+  handleGetFingerprint, handleInferDomains,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
@@ -147,6 +147,11 @@ export function getToolDefinitions(): ToolDef[] {
       name: 'knit_get_fingerprint',
       description: 'v0.12 phase 0 — project fingerprint: languages, framework, test runner, linter, build/lint/typecheck commands, package manager, CI files. Foundation for auto-config.',
       inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'knit_infer_domains',
+      description: 'v0.12 phase 1 — domain inference: ranks candidate domains by fusing git co-change + import-graph centrality + test colocation via RRF. Review candidates before accepting into CLAUDE.md.',
+      inputSchema: { type: 'object', properties: { lookback_days: { type: 'string', description: 'How many days of git history for co-change clustering (default 90, max 730).' } } },
     },
     {
       name: 'knit_save_handoff',
@@ -489,6 +494,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_generate_test_cases: handleGenerateTestCases,
   knit_list_requirements: handleListRequirements,
   knit_get_fingerprint: handleGetFingerprint,
+  knit_infer_domains: handleInferDomains,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,
