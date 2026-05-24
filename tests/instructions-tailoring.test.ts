@@ -85,7 +85,7 @@ describe('buildInstructions', () => {
     expect((out.match(/General rule:/g) || []).length).toBe(1);
   });
 
-  it('stays under the v0.9 budget (~1000 token target ≈ 4.5KB with citation rule + all addenda)', () => {
+  it('stays under the v0.11.1 budget (~1300 token target ≈ 5.5KB with v0.11 tool surface + all addenda)', () => {
     const scan = emptyScan();
     scan.detected.ruflo = { present: true, via: ['mcp-server'] };
     scan.detected.gstack = { present: true, via: ['home-dir'] };
@@ -93,6 +93,6 @@ describe('buildInstructions', () => {
     scan.detected.conductor = { present: true, via: ['home-dir'] };
     scan.detected.custom_workflow_sections = ['Engineering Workflow'];
     const out = buildInstructions(scan);
-    expect(out.length).toBeLessThan(4500);
+    expect(out.length).toBeLessThan(5500);
   });
 });

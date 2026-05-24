@@ -309,8 +309,11 @@ const TOKEN_BUDGETS = {
    *  growth without immediately warning; full 51-tool exposure
    *  (everything enabled) sits in warn range, surfacing the bloat. */
   tool_registry_bytes: 11000,
-  /** MCP server `instructions` field — sent at handshake. v0.7 ships at ~2KB. */
-  instructions_bytes: 2500,
+  /** MCP server `instructions` field — sent at handshake. v0.11.1 surfaces
+   *  9 new tools (verify_claim, calibration, requirements ingestion,
+   *  fingerprint, infer_domains, compose_template) → ~3.5KB. The
+   *  discoverability-vs-budget trade-off favors surfacing real tools. */
+  instructions_bytes: 4000,
   /** Sum of the three above — the per-session fixed cost Knit imposes.
    *  v0.12 typical: ~14KB (CLAUDE.md ~2KB + tools ~10.6KB + instructions ~2KB);
    *  20KB target covers the union with slack as more tools come online. */

@@ -3,8 +3,8 @@
   <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PDgit12/knit/ci.yml?style=for-the-badge&label=CI&color=10b981" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
-  <img src="https://img.shields.io/badge/tests-492%20passing-22c55e?style=for-the-badge" alt="tests" />
-  <img src="https://img.shields.io/badge/MCP%20tools-43-7c3aed?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/tests-626%20passing-22c55e?style=for-the-badge" alt="tests" />
+  <img src="https://img.shields.io/badge/MCP%20tools-52-7c3aed?style=for-the-badge" alt="tools" />
 </p>
 
 <h1 align="center">🧶 knit</h1>
@@ -18,9 +18,10 @@
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-what-knit-is">What it is</a> ·
-  <a href="#-whats-new-in-v090">v0.9</a> ·
-  <a href="#-43-mcp-tools">Tools</a> ·
-  <a href="#-how-its-different">Comparison</a>
+  <a href="#-whats-new-in-v0110">v0.11</a> ·
+  <a href="#-52-mcp-tools">Tools</a> ·
+  <a href="#-how-its-different">Comparison</a> ·
+  <a href="#-honest-comparison-vs-memory-libraries">vs mem0/Letta</a>
 </p>
 
 ---
@@ -407,6 +408,34 @@ Compounding
 | **Non-code projects** | No | No | Limited | **Description-driven via `knit_setup_project`** |
 
 **The bet:** Ruflo for agent quantity (swarms, federation, plugins). Knit for **agent quality** (memory, classification, token discipline, hallucination defense). Different markets. The integration scanner detects Ruflo when installed and tailors instructions to defer routing to it — Knit operates as the memory + classification substrate underneath.
+
+---
+
+## 🧭 Honest comparison vs memory libraries
+
+The mem0 / Letta / agentmemory comparison deserves a separate section because they're a different category — **memory-as-a-service libraries**, not MCP-native workflow layers. Reading their published benchmarks side-by-side:
+
+| | mem0 | Letta (MemGPT) | agentmemory | **Knit** |
+|--|---|---|---|---|
+| **Published benchmark** | LOCOMO: 67–92% LLM-as-Judge; ~90% token reduction (1.7K vs 26K per conversation) | No head-to-head token-reduction number; "Letta Leaderboard" benchmarks *LLMs* on agentic memory, not Letta | LongMemEval-S: **95.2% R@5** with BM25+RRF+graph; 86.2% BM25-only | **Not yet measured.** Same architecture as agentmemory; no published number. |
+| **Retrieval architecture** | Vector + graph (Mem0g variant) | OS-inspired tiered memory (core/recall/archival) | BM25 + local vectors + KG fused via RRF (k=60) | BM25 + RRF + graph-traversal (fused via RRF k=60). Per-project + cross-project diversity caps. |
+| **Install shape** | SDK integration; managed cloud or self-hosted | SDK integration; self-hosted server | Python library | **`npx knit-mcp setup` → MCP server, zero glue.** Works with Claude Code / Cursor / Codex / any MCP host. |
+| **Workflow primitive** | None — pure memory | Agent-managed memory operations | None — pure retrieval | **4-tier classifier + plan-mode + protocol guard + parallel team worktrees.** |
+| **Self-calibration** | No | No | No | **Per-project classifier calibration** (v0.11): user FP feedback shifts thresholds; classifier gets less wrong over time. |
+
+### What's honest about this
+
+**On pure retrieval quality, agentmemory's published 95.2% R@5 on LongMemEval-S is likely the ceiling Knit's BM25+RRF+graph would hit** (same architecture, same fusion constant). But Knit hasn't run the benchmark yet, so we don't claim parity — only that the underlying primitives are the same.
+
+**Knit isn't trying to be a better mem0.** It's a different product:
+- **MCP-native + zero-glue install** — mem0/Letta require SDK integration; Knit drops into any MCP host (Claude Code, Cursor, Codex) with one command.
+- **Workflow primitive** — the 4-tier classifier + plan-mode + protocol guard + team worktrees is what makes Knit a *command layer*, not a memory library.
+- **Per-project classifier calibration** (v0.11 slice 4) — `knit_record_false_positive` with a direction tag shifts thresholds over time. Nobody else does this; nobody else needs to, because they're memory libraries, not workflow routers.
+- **Measurable cheapness** — `knit_compounding_metrics` + `knit_get_metrics_history` make the "cheaper over time" claim *chartable per project*. mem0 publishes aggregate dataset numbers; Knit ships per-user instrumentation.
+
+### What's deferred
+
+LongMemEval-S R@5/R@10 + LOCOMO LLM-as-Judge runs are on the roadmap (v0.13+). Until they're published, treat any cross-system token-savings comparison as architectural-claim-only.
 
 ---
 

@@ -40,6 +40,11 @@ When to reach for other Knit tools:
 - knit_get_workflow({phase}) — fetch protocol depth for one phase on demand. Do not try to remember the workflow; ask for it.
 - knit_list_features — if you want to do X but the tool isn't visible, this surfaces what's hidden and how to enable it.
 - knit_save_handoff — call when context degrades or session ends so the next session resumes cleanly.
+- knit_verify_claim — fact-check one claim against the graph BEFORE LEARN on standard/complex scope (Stop-hook gate enforces this).
+- knit_index_requirements / knit_generate_test_cases — for long-form spec / RFC / Jira-export ingestion. Indexes once, retrieves only relevant chunks per feature query.
+- knit_get_fingerprint — detected stack (lang/framework/test/lint/build/CI) for choosing the right tooling per project.
+- knit_infer_domains + knit_compose_template — propose CLAUDE.md auto-config sections from git co-change + import-graph + colocation signals.
+- knit_get_calibration / knit_record_false_positive (with a direction tag like #complex-was-trivial) — feed the self-healing classifier so it tunes per-project over time.
 
 The protocol enforces a 4-tier classifier:
 - Inquiry: read-only "what / where / audit / explain" — just answer.

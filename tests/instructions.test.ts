@@ -7,10 +7,14 @@ describe('KNIT_INSTRUCTIONS', () => {
     expect(KNIT_INSTRUCTIONS.length).toBeGreaterThan(100);
   });
 
-  it('stays under the v0.9 token budget (~750 tokens, conservatively bytes)', () => {
-    // v0.9 added the citation rule (~70 tokens) to the base. Budget widened
-    // from 2500 bytes → 3000 bytes to reflect the new ceiling.
-    expect(KNIT_INSTRUCTIONS.length).toBeLessThan(3000);
+  it('stays under the v0.11.1 token budget (~1000 tokens, conservatively bytes)', () => {
+    // v0.9 widened 2500 → 3000 for the citation rule. v0.11.1 widens
+    // 3000 → 4000 to surface the new v0.11 tools (verify_claim, calibration,
+    // requirements ingestion, fingerprint, infer_domains, compose_template).
+    // The "discoverability vs budget" trade-off: hidden tools cost more than
+    // a few hundred extra bytes in the system prompt, because agents won't
+    // call what they don't know exists. Capped at 4KB to keep the floor.
+    expect(KNIT_INSTRUCTIONS.length).toBeLessThan(4000);
   });
 
   it('tells the agent to call knit_load_session at session start', () => {
