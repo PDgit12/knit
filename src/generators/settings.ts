@@ -366,7 +366,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
               const logPath = ${jsLit(TURN_EDIT_LOG)};
               fs.mkdirSync(path.dirname(logPath), { recursive: true });
               fs.appendFileSync(logPath, JSON.stringify({ file: f, ts: new Date().toISOString() }) + "\\n");
-            } catch (e) {}
+            } catch (e) { try { process.stderr.write('[knit] turn-edit appender hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
           });
         `),
         timeout: 5,
@@ -431,7 +431,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
                   console.error("[knit] verify: " + drifted + " of " + (landed + drifted) + " edits DRIFTED — " + f + ". Some new_string values not found in file post-edit.");
                 }
               }
-            } catch (e) {}
+            } catch (e) { try { process.stderr.write('[knit] diff verifier hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
           });
         `),
         timeout: 5,
@@ -505,7 +505,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
               } else if (errorCount > 0) {
                 console.error("[knit] tsc check: project has " + errorCount + " type error(s) (none in " + touched + " directly — likely a cross-file ripple). Run \`npx tsc --noEmit\` for full output.");
               }
-            } catch (e) {}
+            } catch (e) { try { process.stderr.write('[knit] tsc check hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
           });
         `),
         timeout: 20,
