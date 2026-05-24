@@ -2,6 +2,111 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] — 2026-05-24
+
+**The "verify + auto-config foundation" release.** v0.10 made token
+economics measurable; v0.11 makes Knit **trustworthy** (Verify Layer
+catches AI slop at edit time) **and auto-configurable** (fingerprint →
+domain inference → template composition lays the groundwork for
+zero-config installs).
+
+### Added — Verify Layer (slices 1–4)
+
+- **Slice 1 — Mandatory `knit_verify_claim` REVIEW gate.** New Stop-hook
+  reads scope from the classification marker; if scope ∈ {standard,
+  complex} AND no claim marker → warn or block per protocol-config
+  strictness. Closes the silent-finish failure mode where an agent
+  completes a multi-file task with unverified claims.
+- **Slice 2 — Diff verification + universal post-edit tsc.** Two new
+  PostToolUse hooks: one re-reads the file and confirms intent landed
+  (catches silent partial edits and `tool succeeded but file unchanged`),
+  the other runs `tsc --noEmit` against the project's tsconfig with
+  filtered per-file output. Catches the Clerk/Auth-SDK quirk class of
+  bugs at edit time (wrong type import paths, undefined-until-loaded
+  narrowing, async-contract mismatches).
+- **Slice 3 — Behavioral re-classification (drift detector).** New
+  per-turn append-only `.turn-edits.jsonl`; Stop hook reads it and
+  surfaces scope/risk drift inline: trivial classification with ≥3 files
+  → scope drift; low-risk classification touching types/schema/auth/
+  migrations → risk drift.
+- **Slice 4 — Self-healing classifier (per-project calibration).** New
+  `~/.knit/projects/<hash>/calibration.json` sidecar. `knit_record_
+  false_positive` with a direction tag (e.g. `#complex-was-trivial`)
+  bumps a per-direction counter; 3+ same-direction FPs shift the scope
+  or risk threshold by 1 unit. Classifier gets less wrong over time
+  without explicit retraining. New `knit_get_calibration` + admin-tier
+  `knit_reset_calibration`.
+
+### Added — Requirements ingestion (slice 5)
+
+Generic enterprise-shape primitive: ingest a long-form spec / RFC /
+requirements doc, BM25-index per chunk, retrieve only relevant chunks
+for a feature query. Validated against the FIS test-case-generation use
+case (200KB Jira spec → 5-7KB retrieved context per feature).
+
+- `knit_index_requirements(file_path, source_id?, label?, min_chars?)`
+- `knit_generate_test_cases(feature, source_id?, top_n?)` — returns
+  ranked chunks + test-generation template + byte-reduction signal
+- `knit_list_requirements()` — cheap header-info discovery
+
+### Added — Auto-config foundation (v0.12 phases 0–2)
+
+Foundation for zero-config installs that produce accurate per-project
+CLAUDE.md from real detected signals.
+
+- **Phase 0 — `ProjectFingerprint` + `knit_get_fingerprint`.** Detects
+  languages (polyglot-aware), framework, test runner, linter, build/
+  lint/typecheck commands, package manager, CI files (GitHub Actions,
+  GitLab CI, CircleCI, Travis, Jenkins, Azure Pipelines).
+- **Phase 1 — Domain inference (`knit_infer_domains`).** Three signals
+  fused via RRF: git co-change clustering (last 90 days), import-graph
+  centrality, test colocation. Returns ranked candidates with confidence
+  (0–1) + signal transparency. Top-8 cap.
+- **Phase 2 — Template composition (`knit_compose_template`).** Pure
+  generator: ProjectFingerprint + DomainCandidate[] → markdown sections
+  (Project Identity, Build & Verify with real commands, Domain
+  Architecture confidence table). Preview only — user pastes into
+  CLAUDE.md to accept. Graceful fallbacks when signals sparse.
+
+### Hooks bumped
+
+`HOOKS_VERSION` 7 → **10** in three steps (v0.11 slices 1/2/3). Existing
+users auto-receive the new hooks on next MCP call via cache.ts's
+version-check refresh path. Per-turn marker clears now include claim
+marker + turn-edit log alongside the existing classification + search
+markers.
+
+### Tool surface
+
+51 → **52** tools (Tier 1: 32 → 39). New: knit_verify_claim REVIEW
+enforcement, knit_get_calibration, knit_reset_calibration,
+knit_index_requirements, knit_generate_test_cases, knit_list_requirements,
+knit_get_fingerprint, knit_infer_domains, knit_compose_template.
+Tool-registry byte budget bumped 8500 → 11000 to fit the v0.11/v0.12
+baseline without false over-budget verdicts.
+
+### Tests
+
+506 (pre-v0.10) → **625**. New test files: `tests/calibration.test.ts`
+(22), `tests/requirements.test.ts` (27), `tests/fingerprint.test.ts`
+(13), `tests/domain-inference.test.ts` (8), `tests/auto-config.test.ts`
+(11). Plus targeted additions to verify-claim, generators, mcp-tools,
+features, token-budget tests.
+
+### Bug fixes during v0.11
+
+- **Object-aliasing in calibration defaults.** `{ ...DEFAULT_CALIBRATION }`
+  was a shallow copy; `fpDirections` aliased the same object reference
+  across all callers. First mutation poisoned the shared default; next
+  "fresh" load returned polluted state. Replaced with `freshDefault()`
+  factory.
+- **Off-by-one in `chunkRequirements`.** `bufStart` was set to
+  `endLine+1` after flush — wrong when a blank line intervened.
+  Restructured to track `bufStart` lazily on first non-empty line.
+- **Path-traversal guard.** Per-tool exemption for
+  `knit_index_requirements` (legitimately takes absolute paths to
+  user-supplied docs); traversal-sequence + NUL byte checks still apply.
+
 ## [0.10.0] — 2026-05-22
 
 **The "token economics" release.** v0.9 closed enforcement; v0.10 makes the

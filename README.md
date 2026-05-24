@@ -414,6 +414,7 @@ Compounding
 
 | Version | Headline |
 |---|---|
+| **v0.11.0** | Verify Layer + auto-config foundation · mandatory `knit_verify_claim` REVIEW gate · post-edit diff verify + universal `tsc` check · drift detector · self-healing classifier (per-project calibration) · `knit_index_requirements` + `knit_generate_test_cases` (BM25 over long specs) · `knit_get_fingerprint` + `knit_infer_domains` + `knit_compose_template` (zero-config CLAUDE.md). 52 tools, 625 tests. |
 | **v0.10.0** | Token-economics release · risk × scope × change_kind classifier split · `context_budget_remaining` graceful degradation · per-project diversity cap on cross-project search · 11 new compounding-metrics fields + weekly snapshot persistence + `knit_get_metrics_history`. Makes "Knit makes Claude cheaper" a chartable number from day 1. |
 | **v0.9.0** | Hook-level enforcement · citation rule · `knit_verify_claim` · auto-search in classify · `suggested_reads` · `knit_get_learning` · `knit_consolidate_learnings`. |
 | **v0.8.x** | Vectorless RAG (BM25 + RRF) · graph-traversal retriever · per-project instruction tailoring · `knit_compounding_metrics` · integration scanner. |
