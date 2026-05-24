@@ -123,11 +123,44 @@ describe('recordClassifierFP', () => {
     expect(after3.scopeAdjust).toBe(-1);
   });
 
-  it('shifts riskAdjust +1 on 3rd high-risk-was-low FP', () => {
-    recordClassifierFP(projectRoot, 'high-risk-was-low');
-    recordClassifierFP(projectRoot, 'high-risk-was-low');
-    const after3 = recordClassifierFP(projectRoot, 'high-risk-was-low');
+  it('shifts riskAdjust +1 on 3rd high-risk-was-low-risk FP (long form)', () => {
+    recordClassifierFP(projectRoot, 'high-risk-was-low-risk');
+    recordClassifierFP(projectRoot, 'high-risk-was-low-risk');
+    const after3 = recordClassifierFP(projectRoot, 'high-risk-was-low-risk');
     expect(after3.riskAdjust).toBe(1);
+  });
+
+  // ── v0.11.1 regression — pre-fix bug: applyAdjustment matched the
+  // shorthand "high-risk-was-low" but parseDirection normalizes user-typed
+  // shorthand to "high-risk-was-low-risk". The full path
+  // (parseDirection → recordClassifierFP) silently dropped every
+  // risk-direction calibration shift. Tests prior to v0.11.1 missed this
+  // because they bypassed parseDirection.
+  it('v0.11.1 regression — parseDirection → recordClassifierFP round-trip actually shifts riskAdjust', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const brain = {
+      rootPath: projectRoot,
+      knowledge: {
+        generatedAt: new Date().toISOString(),
+        summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] },
+        files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] },
+      },
+      reverseDeps: {},
+      knowledgeBase: { version: 1, projectName: 'test', entries: [], metrics: { totalSessions: 0, totalLearnings: 0, cacheHits: 0, domainDistribution: {}, sessions: [] } },
+      config: { name: 'test', packageManager: 'npm', stack: { language: 'typescript', dependencies: [], buildCommand: '', lintCommand: '', typecheckCommand: '' }, domains: [], targetAgent: 'claude-code', tokenOptimization: 'standard' },
+      loadedAt: Date.now(),
+      autoInitialized: false,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    // User types the SHORTHAND tag (#high-risk-was-low) — what the README
+    // examples show. parseDirection normalizes; we MUST shift after 3.
+    for (let i = 0; i < 3; i++) {
+      handleToolCall('knit_record_false_positive', {
+        summary: 'x', reason: 'y', tags: '#high-risk-was-low',
+      }, brain);
+    }
+    const cal = loadCalibration(projectRoot);
+    expect(cal.riskAdjust).toBe(1);
   });
 
   it('persists calibration across loads', () => {

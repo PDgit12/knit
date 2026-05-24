@@ -101,20 +101,30 @@ export function recordClassifierFP(rootPath: string, direction: string): Calibra
 }
 
 /** Shift scopeAdjust / riskAdjust based on the direction of accumulated FPs.
- *  - "complex-was-trivial" → scope is over-sensitive → scopeAdjust + 1
- *    (require more files before classifying complex).
- *  - "trivial-was-complex" → scope is under-sensitive → scopeAdjust - 1.
- *  - "high-risk-was-low" → risk is over-sensitive → riskAdjust + 1.
- *  - "low-risk-was-high" → risk is under-sensitive → riskAdjust - 1.
+ *  Matches the LONG-FORM directions that parseDirection normalizes to —
+ *  "high-risk-was-low-risk" rather than the shorthand "high-risk-was-low".
+ *  Pre-v0.11.1 bug: this matched only the shorthand, so every risk-direction
+ *  FP coming through parseDirection silently dropped the calibration shift.
+ *
+ *  Scope directions:
+ *  - "complex-was-trivial" / "complex-was-standard" → scope over-sensitive
+ *    → scopeAdjust + 1 (require more files before classifying complex).
+ *  - "trivial-was-complex" / "standard-was-complex" → scope under-sensitive
+ *    → scopeAdjust - 1.
+ *  Risk directions:
+ *  - "high-risk-was-low-risk" / "high-risk-was-medium-risk" → risk
+ *    over-sensitive → riskAdjust + 1.
+ *  - "low-risk-was-high-risk" / "medium-risk-was-high-risk" → risk
+ *    under-sensitive → riskAdjust - 1.
  *  Other directions don't shift today; they're just counted. */
 function applyAdjustment(cal: Calibration, direction: string): void {
   if (direction === 'complex-was-trivial' || direction === 'complex-was-standard') {
     cal.scopeAdjust += 1;
   } else if (direction === 'trivial-was-complex' || direction === 'standard-was-complex') {
     cal.scopeAdjust -= 1;
-  } else if (direction === 'high-risk-was-low' || direction === 'high-risk-was-medium-risk') {
+  } else if (direction === 'high-risk-was-low-risk' || direction === 'high-risk-was-medium-risk') {
     cal.riskAdjust += 1;
-  } else if (direction === 'low-risk-was-high' || direction === 'medium-risk-was-high') {
+  } else if (direction === 'low-risk-was-high-risk' || direction === 'medium-risk-was-high-risk') {
     cal.riskAdjust -= 1;
   }
 }
