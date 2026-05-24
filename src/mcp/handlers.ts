@@ -1817,7 +1817,7 @@ export function handleInferDomains(params: Record<string, string>, brain: BrainC
     ...result,
     instruction: result.candidates.length === 0
       ? 'No domain signals available yet. Ensure the project has commits in the last 90 days AND src/ structure AND an indexed import graph (run knit_brain_status to verify).'
-      : `Found ${result.candidates.length} candidate domain(s). Review the file lists; accepted candidates feed into v0.12 phase 2 (template composition) so CLAUDE.md\'s Domain Architecture block stays accurate.`,
+      : `Found ${result.candidates.length} candidate domain(s). Review the file lists; accepted candidates feed into v0.12 phase 2 (template composition) so CLAUDE.md's Domain Architecture block stays accurate.`,
   });
 }
 

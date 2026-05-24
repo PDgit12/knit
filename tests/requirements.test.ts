@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -122,9 +122,8 @@ describe('saveSource + loadSource round-trip', () => {
       indexedAt: new Date().toISOString(), chunks: [{ id: 'c1', text: 'x', startLine: 1, endLine: 1 }],
     };
     saveSource(projectRoot, source);
-    const fs = require('node:fs');
     const dir = join(projectDataDir(projectRoot), 'requirements');
-    const files = fs.readdirSync(dir);
+    const files = readdirSync(dir);
     expect(files.some((f: string) => f.endsWith('.tmp'))).toBe(false);
     expect(files).toContain('spec.json');
   });
@@ -209,7 +208,6 @@ describe('retrieveTopChunks', () => {
 describe('integration via handleToolCall', () => {
   it('index → list → generate test cases end-to-end with byte-reduction signal', async () => {
     const { handleToolCall } = await import('../src/mcp/tools.js');
-    const fs = require('node:fs');
     const reqPath = join(projectRoot, 'pay-spec.md');
     // ~5 short paragraphs over min_chars threshold.
     const doc = [
@@ -219,7 +217,7 @@ describe('integration via handleToolCall', () => {
       'PCI compliance mandates that card numbers never reach our servers — tokenization via Stripe Elements.',
       'Rate limiting: 100 requests per minute per merchant; exceeding returns 429 with Retry-After header.',
     ].join('\n\n');
-    fs.writeFileSync(reqPath, doc, 'utf-8');
+    writeFileSync(reqPath, doc, 'utf-8');
     const brain = buildBrain();
 
     // 1. Index the doc.
@@ -263,11 +261,10 @@ describe('integration via handleToolCall', () => {
 
   it('source_id filter scopes retrieval to one doc', async () => {
     const { handleToolCall } = await import('../src/mcp/tools.js');
-    const fs = require('node:fs');
     const a = join(projectRoot, 'a.md');
     const b = join(projectRoot, 'b.md');
-    fs.writeFileSync(a, 'webhook auth flow needs token refresh handling on expiry to keep sessions live', 'utf-8');
-    fs.writeFileSync(b, 'webhook payment flow needs idempotency key handling on duplicate retries from clients', 'utf-8');
+    writeFileSync(a, 'webhook auth flow needs token refresh handling on expiry to keep sessions live', 'utf-8');
+    writeFileSync(b, 'webhook payment flow needs idempotency key handling on duplicate retries from clients', 'utf-8');
     const brain = buildBrain();
     handleToolCall('knit_index_requirements', { file_path: a }, brain);
     handleToolCall('knit_index_requirements', { file_path: b }, brain);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,8 +48,7 @@ describe('loadCalibration', () => {
   it('returns defaults when calibration file is malformed', () => {
     saveCalibration(projectRoot, { fpDirections: {}, scopeAdjust: 0, riskAdjust: 0, updatedAt: '' });
     // Corrupt the file
-    const fs = require('node:fs');
-    fs.writeFileSync(calibrationPath(projectRoot), 'not valid json', 'utf-8');
+    writeFileSync(calibrationPath(projectRoot), 'not valid json', 'utf-8');
     const cal = loadCalibration(projectRoot);
     expect(cal.scopeAdjust).toBe(0);
     expect(cal.riskAdjust).toBe(0);
@@ -259,8 +258,7 @@ describe('classifier reads calibration', () => {
   });
 
   function buildMinimalBrainShared() {
-    const fs = require('node:fs');
-    fs.mkdirSync(projectDataDir(projectRoot), { recursive: true });
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
     return {
       rootPath: projectRoot,
       knowledge: {
