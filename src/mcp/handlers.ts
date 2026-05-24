@@ -8,7 +8,7 @@ import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlin
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
-import { scanProject } from '../engine/scanner.js';
+import { scanProject, scanProjectFingerprint } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
 import { statSync } from 'node:fs';
 import {
@@ -1761,6 +1761,29 @@ export function handleResetCalibration(_params: Record<string, string>, brain: B
     scope_adjust: fresh.scopeAdjust,
     risk_adjust: fresh.riskAdjust,
     instruction: 'Calibration wiped. Classifier reverts to default thresholds.',
+  });
+}
+
+/** v0.12 phase 0 — knit_get_fingerprint.
+ *
+ *  Returns the detected ProjectFingerprint: languages, framework, test
+ *  runner, linter, build/lint/typecheck commands, package manager, CI
+ *  files. Foundation for v0.12 phases 1 (domain inference) and 2
+ *  (template composition). Computed fresh on each call — cheap. */
+export function handleGetFingerprint(_params: Record<string, string>, brain: BrainCache): string {
+  const fp = scanProjectFingerprint(brain.rootPath);
+  const detected = [
+    fp.languages.length > 0 ? `lang=${fp.languages.join('+')}` : null,
+    fp.framework ? `framework=${fp.framework}` : null,
+    fp.testRunner ? `test=${fp.testRunner}` : null,
+    fp.linter ? `lint=${fp.linter}` : null,
+    fp.packageManager ? `pm=${fp.packageManager}` : null,
+    fp.ciFiles.length > 0 ? `ci=${fp.ciFiles.length} file(s)` : null,
+  ].filter(Boolean).join(', ');
+  return JSON.stringify({
+    fingerprint: fp,
+    summary: detected || 'no signals detected — likely an empty or unsupported project shape',
+    instruction: 'Use this fingerprint when generating CLAUDE.md / agent prompts so build commands and test runner match the project. Re-run on engram refresh to pick up stack changes.',
   });
 }
 

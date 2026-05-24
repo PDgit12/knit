@@ -119,10 +119,10 @@ describe('knit_brain_status — token_budget surface', () => {
 
     const result = JSON.parse(handleBrainStatus({}, buildMinimalBrain()));
     const tr = result.token_budget.budgets.tool_registry;
-    // Empty-shape project → only Tier 1 visible. v0.11 slice 4 has 33
-    // Tier-1 tools. Range 28-36 catches drift in either direction.
+    // Empty-shape project → only Tier 1 visible. v0.12 phase 0 has 37
+    // Tier-1 tools. Range 28-42 catches drift in either direction.
     expect(tr.active_tool_count).toBeGreaterThanOrEqual(28);
-    expect(tr.active_tool_count).toBeLessThanOrEqual(36);
+    expect(tr.active_tool_count).toBeLessThanOrEqual(42);
     // 30 tools * 280 bytes ≈ 8400 bytes — within 25% slack of the 8500 target.
     expect(['healthy', 'warn']).toContain(tr.verdict);
   });

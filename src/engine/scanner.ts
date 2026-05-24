@@ -1,7 +1,7 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
-import type { ProjectScan, StackInfo, Domain, GitInfo } from './types.js';
+import type { ProjectScan, StackInfo, Domain, GitInfo, ProjectFingerprint } from './types.js';
 import { agentsForRole } from './agent-registry.js';
 
 /**
@@ -19,6 +19,82 @@ export function scanProject(rootPath: string): ProjectScan {
     hasExistingClaudeMd: existsSync(join(rootPath, 'CLAUDE.md')),
     git: detectGit(rootPath),
   };
+}
+
+/** v0.12 phase 0 — Project fingerprinting.
+ *
+ *  Wraps the existing stack/package-manager detection into a single
+ *  ProjectFingerprint object plus adds CI-file detection (which the legacy
+ *  StackInfo didn't track). Output is what v0.12 phase 1 + 2 consume to
+ *  generate accurate per-project CLAUDE.md from real signals. */
+export function scanProjectFingerprint(rootPath: string): ProjectFingerprint {
+  const stack = detectStack(rootPath);
+  const pm = detectPackageManager(rootPath);
+  const languages: string[] = [];
+  if (stack.language && stack.language !== 'unknown') languages.push(stack.language);
+  // Secondary language detection: a TS/JS project that also has python
+  // scripts (common for data-science / ML repos) or a polyglot monorepo.
+  if (stack.language !== 'python' && existsSync(join(rootPath, 'pyproject.toml'))) languages.push('python');
+  if (stack.language !== 'go' && existsSync(join(rootPath, 'go.mod'))) languages.push('go');
+  if (stack.language !== 'rust' && existsSync(join(rootPath, 'Cargo.toml'))) languages.push('rust');
+  return {
+    languages,
+    framework: stack.framework,
+    testRunner: stack.testFramework,
+    linter: detectLinter(rootPath, stack.language),
+    buildCommand: stack.buildCommand,
+    lintCommand: stack.lintCommand,
+    typecheckCommand: stack.typecheckCommand,
+    packageManager: pm === 'unknown' ? null : pm,
+    ciFiles: detectCiFiles(rootPath),
+    scannedAt: new Date().toISOString(),
+  };
+}
+
+/** Detect a linter from common config-file presence + dep signals. Linter
+ *  detection lives separately from StackInfo for back-compat (legacy
+ *  StackInfo doesn't track linter as a first-class field). */
+function detectLinter(rootPath: string, language: string | null): string | null {
+  if (existsSync(join(rootPath, '.eslintrc.json')) || existsSync(join(rootPath, '.eslintrc.js'))
+      || existsSync(join(rootPath, 'eslint.config.js')) || existsSync(join(rootPath, 'eslint.config.mjs'))
+      || existsSync(join(rootPath, 'eslint.config.ts'))) return 'eslint';
+  if (existsSync(join(rootPath, '.ruff.toml')) || existsSync(join(rootPath, 'ruff.toml'))) return 'ruff';
+  if (existsSync(join(rootPath, '.golangci.yml')) || existsSync(join(rootPath, '.golangci.yaml'))) return 'golangci-lint';
+  if (existsSync(join(rootPath, 'clippy.toml'))) return 'clippy';
+  // Fallbacks by language convention.
+  if (language === 'python' && existsSync(join(rootPath, 'pyproject.toml'))) {
+    try {
+      const py = readFileSync(join(rootPath, 'pyproject.toml'), 'utf-8');
+      if (py.includes('ruff')) return 'ruff';
+      if (py.includes('flake8')) return 'flake8';
+      if (py.includes('pylint')) return 'pylint';
+    } catch { /* malformed — skip */ }
+  }
+  if (language === 'go') return 'golangci-lint';
+  if (language === 'rust') return 'clippy';
+  return null;
+}
+
+/** Detect CI configuration files (GitHub Actions, GitLab CI, CircleCI,
+ *  Travis, Jenkins). Returns relative paths to all matched files. */
+function detectCiFiles(rootPath: string): string[] {
+  const out: string[] = [];
+  // GitHub Actions
+  const ghDir = join(rootPath, '.github', 'workflows');
+  if (existsSync(ghDir)) {
+    try {
+      for (const f of readdirSync(ghDir)) {
+        if (f.endsWith('.yml') || f.endsWith('.yaml')) {
+          out.push(join('.github/workflows', f));
+        }
+      }
+    } catch { /* unreadable — skip */ }
+  }
+  // GitLab CI / CircleCI / Travis / Jenkins
+  for (const f of ['.gitlab-ci.yml', '.circleci/config.yml', '.travis.yml', 'Jenkinsfile', 'azure-pipelines.yml']) {
+    if (existsSync(join(rootPath, f))) out.push(f);
+  }
+  return out;
 }
 
 function detectPackageManager(root: string): ProjectScan['packageManager'] {

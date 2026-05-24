@@ -67,6 +67,7 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_index_requirements', tier: 1, category: 'memory', rationale: 'Ingest long-form requirements/specs into a BM25-indexed per-project store. Enables the 200KB-doc → relevant-chunks-only retrieval pattern.' },
   { tool: 'knit_generate_test_cases', tier: 1, category: 'memory', rationale: 'Query indexed requirements; returns top-N relevant chunks + test-generation template. Companion to knit_index_requirements.' },
   { tool: 'knit_list_requirements', tier: 1, category: 'memory', rationale: 'List indexed requirements sources (header info only). Cheap discovery tool.' },
+  { tool: 'knit_get_fingerprint', tier: 1, category: 'diagnostics', rationale: 'v0.12 — project fingerprint (lang/framework/test/lint/build/CI). Foundation for auto-config and per-project template generation.' },
   { tool: 'knit_get_false_positives', tier: 1, category: 'fp-reflection', rationale: 'Universal' },
   { tool: 'knit_reflect', tier: 1, category: 'fp-reflection', rationale: 'Returns "not enough data" on sparse projects; always available' },
 

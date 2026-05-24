@@ -246,6 +246,34 @@ export interface TeamBoard {
   createdAt: string;
 }
 
+/** v0.12 phase 0 — Project fingerprint.
+ *  Structured snapshot of detected stack signals (language, framework,
+ *  test runner, build tooling, CI). Computed by scanProjectFingerprint()
+ *  and surfaced via knit_get_fingerprint. Fed into v0.12 phase 1 (domain
+ *  inference) and phase 2 (template composition) so generated CLAUDE.md
+ *  reflects the project's actual conventions instead of generic
+ *  placeholders. */
+export interface ProjectFingerprint {
+  /** Primary languages detected (multi-language projects keep order). */
+  languages: string[];
+  /** Detected framework (next, fastapi, gin, etc.) or null. */
+  framework: string | null;
+  /** Test runner (vitest, jest, pytest, go test, etc.) or null. */
+  testRunner: string | null;
+  /** Linter (eslint, ruff, golangci-lint) or null. */
+  linter: string | null;
+  /** Inferred shell command for build / lint / typecheck — copy-paste ready. */
+  buildCommand: string | null;
+  lintCommand: string | null;
+  typecheckCommand: string | null;
+  /** Package manager (npm/yarn/pnpm/bun/pip/cargo/go-mod) or null. */
+  packageManager: string | null;
+  /** Continuous-integration files detected (relative paths). */
+  ciFiles: string[];
+  /** When the fingerprint was computed. */
+  scannedAt: string;
+}
+
 /** v0.11 slice 4 — per-project classifier calibration. Persisted to
  *  `~/.knit/projects/<hash>/calibration.json`. Updated whenever
  *  knit_record_false_positive is called with a #classifier tag; read by
