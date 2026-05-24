@@ -480,11 +480,12 @@ function generateHooks(config: KnitConfig, rootPath: string) {
               if (!projectRoot) return;
               // Prefer local tsc; fall back to npx.
               const localTsc = path.join(projectRoot, "node_modules", ".bin", "tsc");
-              const tscCmd = fs.existsSync(localTsc) ? JSON.stringify(localTsc) : "npx --no-install tsc";
+              const tscBin = fs.existsSync(localTsc) ? localTsc : "npx";
+              const tscArgs = fs.existsSync(localTsc) ? ["--noEmit", "--pretty", "false"] : ["--no-install", "tsc", "--noEmit", "--pretty", "false"];
               let out = "";
               let failed = false;
               try {
-                cp.execSync(tscCmd + " --noEmit --pretty false", { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 15000, encoding: "utf-8" });
+                cp.execFileSync(tscBin, tscArgs, { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 15000, encoding: "utf-8" });
               } catch (err) {
                 failed = true;
                 out = (err && (err.stdout || err.stderr) || "").toString();

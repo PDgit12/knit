@@ -205,6 +205,24 @@ describe('retrieveTopChunks', () => {
   });
 });
 
+function buildBrain(root?: string) {
+  const r = root ?? projectRoot;
+  return {
+    rootPath: r,
+    knowledge: {
+      generatedAt: new Date().toISOString(),
+      summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] },
+      files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] },
+    },
+    reverseDeps: {},
+    knowledgeBase: { version: 1, projectName: 'test', entries: [], metrics: { totalSessions: 0, totalLearnings: 0, cacheHits: 0, domainDistribution: {}, sessions: [] } },
+    config: { name: 'test', packageManager: 'npm', stack: { language: 'typescript', dependencies: [], buildCommand: '', lintCommand: '', typecheckCommand: '' }, domains: [], targetAgent: 'claude-code', tokenOptimization: 'standard' },
+    loadedAt: Date.now(),
+    autoInitialized: false,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
+}
+
 describe('integration via handleToolCall', () => {
   it('index → list → generate test cases end-to-end with byte-reduction signal', async () => {
     const { handleToolCall } = await import('../src/mcp/tools.js');
@@ -273,22 +291,44 @@ describe('integration via handleToolCall', () => {
     expect(scoped.context_chunks.every((c: { source_id: string }) => c.source_id === 'a')).toBe(true);
   });
 
-  function buildBrain() {
-    return {
-      rootPath: projectRoot,
-      knowledge: {
-        generatedAt: new Date().toISOString(),
-        summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] },
-        files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] },
-      },
-      reverseDeps: {},
-      knowledgeBase: { version: 1, projectName: 'test', entries: [], metrics: { totalSessions: 0, totalLearnings: 0, cacheHits: 0, domainDistribution: {}, sessions: [] } },
-      config: { name: 'test', packageManager: 'npm', stack: { language: 'typescript', dependencies: [], buildCommand: '', lintCommand: '', typecheckCommand: '' }, domains: [], targetAgent: 'claude-code', tokenOptimization: 'standard' },
-      loadedAt: Date.now(),
-      autoInitialized: false,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any;
-  }
+});
+
+describe('security fixes — C1, H1, H2', () => {
+  it('knit_index_requirements rejects source_id with path traversal', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const reqPath = join(projectRoot, 'spec.md');
+    writeFileSync(reqPath, 'This is a long enough paragraph to survive the default minimum character filter applied here.', 'utf-8');
+    const res = JSON.parse(handleToolCall('knit_index_requirements', { file_path: reqPath, source_id: '../../tmp/x' }, buildBrain()));
+    expect(res.status).toBe('error');
+    expect(res.error).toMatch(/Invalid source_id/);
+  });
+
+  it('knit_index_requirements rejects files >5MB', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const bigPath = join(projectRoot, 'big.md');
+    writeFileSync(bigPath, Buffer.alloc(6 * 1024 * 1024));
+    const res = JSON.parse(handleToolCall('knit_index_requirements', { file_path: bigPath }, buildBrain()));
+    expect(res.status).toBe('error');
+    expect(res.error).toMatch(/5MB/);
+  });
+
+  it('knit_index_requirements redacts secrets in chunks', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const reqPath = join(projectRoot, 'secret-spec.md');
+    const doc = [
+      'The database connection string is postgres://admin:s3cr3tpassword@db.example.com:5432/payments.',
+      'This paragraph is here to ensure we have enough content to cross the minimum character filter.',
+    ].join('\n\n');
+    writeFileSync(reqPath, doc, 'utf-8');
+    const brain = buildBrain();
+    const res = JSON.parse(handleToolCall('knit_index_requirements', { file_path: reqPath }, brain));
+    expect(res.status).toBe('indexed');
+    const saved = loadSource(projectRoot, res.source_id);
+    expect(saved).not.toBeNull();
+    const allText = saved!.chunks.map((c) => c.text).join(' ');
+    expect(allText).not.toMatch(/postgres:\/\/admin:s3cr3tpassword/);
+    expect(allText).toMatch(/\[REDACTED:connection-string-postgres\]/);
+  });
 });
 
 // Avoid unused-import warning when we only use requirementSourcePath in helpers.
