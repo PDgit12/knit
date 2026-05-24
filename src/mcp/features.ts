@@ -69,6 +69,7 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_list_requirements', tier: 1, category: 'memory', rationale: 'List indexed requirements sources (header info only). Cheap discovery tool.' },
   { tool: 'knit_get_fingerprint', tier: 1, category: 'diagnostics', rationale: 'v0.12 — project fingerprint (lang/framework/test/lint/build/CI). Foundation for auto-config and per-project template generation.' },
   { tool: 'knit_infer_domains', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 1 — ranks candidate domains via RRF fusion of git co-change + import-graph centrality + test colocation. Feeds template composition.' },
+  { tool: 'knit_compose_template', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 2 — generates CLAUDE.md sections (Project Identity, Build & Verify, Domain Architecture) from fingerprint + domains. Preview only; user accepts manually.' },
   { tool: 'knit_get_false_positives', tier: 1, category: 'fp-reflection', rationale: 'Universal' },
   { tool: 'knit_reflect', tier: 1, category: 'fp-reflection', rationale: 'Returns "not enough data" on sparse projects; always available' },
 

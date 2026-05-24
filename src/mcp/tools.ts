@@ -27,7 +27,7 @@ import {
   handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
   handleGetCalibration, handleResetCalibration,
   handleIndexRequirements, handleGenerateTestCases, handleListRequirements,
-  handleGetFingerprint, handleInferDomains,
+  handleGetFingerprint, handleInferDomains, handleComposeTemplate,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
@@ -152,6 +152,11 @@ export function getToolDefinitions(): ToolDef[] {
       name: 'knit_infer_domains',
       description: 'v0.12 phase 1 — domain inference: ranks candidate domains by fusing git co-change + import-graph centrality + test colocation via RRF. Review candidates before accepting into CLAUDE.md.',
       inputSchema: { type: 'object', properties: { lookback_days: { type: 'string', description: 'How many days of git history for co-change clustering (default 90, max 730).' } } },
+    },
+    {
+      name: 'knit_compose_template',
+      description: 'v0.12 phase 2 — composes Project Identity / Build & Verify / Domain Architecture sections from fingerprint + domains. Preview only; paste into CLAUDE.md to accept.',
+      inputSchema: { type: 'object', properties: { project_name: { type: 'string', description: 'Optional name override; defaults to detected project name.' } } },
     },
     {
       name: 'knit_save_handoff',
@@ -495,6 +500,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_list_requirements: handleListRequirements,
   knit_get_fingerprint: handleGetFingerprint,
   knit_infer_domains: handleInferDomains,
+  knit_compose_template: handleComposeTemplate,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,

@@ -150,41 +150,29 @@ until-loaded narrowing, async-contract mismatches).
 > 
 > Order: phases are dependent — 0 feeds 1 feeds 2 feeds 3 feeds 4.
 
-### Phase 0 — Project fingerprinting (extend `scanner.ts`)
-**Implementation sketch.** Today `scanner.ts` scans imports + computes graph
-metrics. Extend it to also emit a `ProjectFingerprint` — the detected
-language/framework/test-runner/build-tool/CI signals.
+### Phase 0 — Project fingerprinting ✅ shipped 2026-05-24
+- [x] `ProjectFingerprint` type in `types.ts`
+- [x] `scanProjectFingerprint(rootPath)` in `scanner.ts` — wraps detectStack + adds linter + CI detection
+- [x] `knit_get_fingerprint` Tier-1 tool surfaces the fingerprint + summary line
+- [x] Detects: languages (primary + polyglot secondary), framework, test runner, linter, build/lint/typecheck commands, package manager, CI files (GitHub Actions, GitLab CI, CircleCI, Travis, Jenkins, Azure Pipelines)
+- [x] 13 new tests
 
-- [ ] New type `ProjectFingerprint` in `types.ts`: `{ languages, framework, testRunner, buildCommand, lintCommand, typecheckCommand, ciFiles, packageManager }`
-- [ ] `scanProjectFingerprint(rootPath)` in `scanner.ts` — file-presence + content sniffs (`tsconfig.json` → typescript; `next.config.*` → next.js; `vitest.config.*` → vitest; etc.)
-- [ ] Cached on `BrainCache.fingerprint`; rebuilt on `engram refresh`
-- [ ] Surface via `knit_brain_status` so users can see what was detected
-- [ ] Tests: fixture repos in `tests/fixtures/` for ts+next, py+fastapi, go, rust, etc.
-- **Gotcha:** Detection signals overlap (a TS project may have both `vitest.config.ts` and `jest.config.js`). Order detection by file priority; tie-break by package.json scripts.
+### Phase 1 — Domain inference ✅ shipped 2026-05-24
+- [x] New `src/engine/domain-inference.ts` module
+- [x] Git co-change clustering via `git log --name-only --since=...`; threshold ≥3 commits to fire
+- [x] Import-graph centrality — top-level src dirs by inbound-edge count
+- [x] Test colocation — `tests/<dir>/` mirror OR test files referencing `<dir>/`
+- [x] Fused via `rrfFuse` (k=60), normalized confidence 0–1, top-8 cap
+- [x] `knit_infer_domains` Tier-1 tool with `lookback_days` param
+- [x] 7 new tests covering empty signals, centrality alone, colocation, RRF fusion, confidence range, cap
 
-### Phase 1 — Domain inference
-**Implementation sketch.** Three signals fuse via Reciprocal Rank Fusion
-(reuse the existing `rrfFuse`) to produce ranked candidate domains.
-
-- [ ] Git co-change clustering — `git log --name-only -90.days` parse → file-pair co-occurrence matrix → DBSCAN or simple greedy clustering
-- [ ] Import-graph centrality — for each top-level `src/` subdir, compute PageRank-ish score via existing graph data
-- [ ] Test colocation — `tests/foo/` ↔ `src/foo/` confirms domain `foo`
-- [ ] Fuse signals via `rrfFuse` (already available) → ranked candidates with confidence
-- [ ] New handler `handleInferDomains(brain)` (Tier 2) — returns candidates for user confirmation
-- [ ] Tests: hand-built fixture repo with 3 known domains → assert inference recovers them at top-3
-- **Gotcha:** Co-change is noisy on tiny repos. Require ≥10 commits for the signal; fall back to import-graph centrality alone otherwise.
-
-### Phase 2 — Template composition
-**Implementation sketch.** `generators/claude-md.ts` consumes
-`ProjectFingerprint` + inferred domains + user confirmations to produce a
-fully marker-wrapped CLAUDE.md. Everything outside markers stays untouched.
-
-- [ ] Extend `generateClaudeMd(config)` to accept fingerprint + domains
-- [ ] New section helpers per language: `buildAndVerifySection('typescript' | 'python' | 'go' | ...)` — emits the project's actual commands, not generic placeholders
-- [ ] Domain Architecture section: one block per inferred domain with file lists + agent recommendations
-- [ ] Marker invariants preserved: `<!-- knit:start -->...<!-- knit:end -->` wraps everything Knit owns
-- [ ] Tests: generate against each fixture → snapshot output → CLAUDE.md validates with grep checks (build commands present, domain blocks present, markers intact)
-- **Gotcha:** Existing CLAUDE.md may have user content between/outside markers. Diff-merge logic must NEVER touch outside-marker content.
+### Phase 2 — Template composition ✅ shipped 2026-05-24
+- [x] New `src/generators/auto-config.ts` module
+- [x] `composeAutoConfiguredSections(name, fingerprint, domains)` produces Project Identity + Build & Verify + Domain Architecture as markdown
+- [x] Build & Verify emits real shell commands (typecheck/lint/test/build) when fingerprint has them; falls back to manual-fill prompt otherwise
+- [x] Domain Architecture renders a confidence-ranked table with signals + anchor files
+- [x] `knit_compose_template` Tier-1 tool returns preview only — user pastes into CLAUDE.md to accept
+- [x] 11 new tests covering full signals + fallbacks + handler integration
 
 ### Phase 3 — Validation loop
 **Implementation sketch.** After generation, run a 3-step smoke test; if any

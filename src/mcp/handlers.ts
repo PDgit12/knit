@@ -54,6 +54,7 @@ import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration }
 import { chunkRequirements, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
 import type { RequirementsSource } from '../engine/requirements.js';
 import { inferDomains } from '../engine/domain-inference.js';
+import { composeAutoConfiguredSections } from '../generators/auto-config.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
 
@@ -1763,6 +1764,39 @@ export function handleResetCalibration(_params: Record<string, string>, brain: B
     scope_adjust: fresh.scopeAdjust,
     risk_adjust: fresh.riskAdjust,
     instruction: 'Calibration wiped. Classifier reverts to default thresholds.',
+  });
+}
+
+/** v0.12 phase 2 — knit_compose_template.
+ *
+ *  Generates auto-configured CLAUDE.md sections (Project Identity,
+ *  Build & Verify, Domain Architecture) from the project's detected
+ *  fingerprint + inferred domains. Returns a preview string the user can
+ *  paste into CLAUDE.md (between knit markers) — no file IO done here.
+ *
+ *  This is phase 2 of the v0.12 auto-config trifecta:
+ *    phase 0 — detect (knit_get_fingerprint)
+ *    phase 1 — infer (knit_infer_domains)
+ *    phase 2 — compose (knit_compose_template) ← here */
+export function handleComposeTemplate(params: Record<string, string>, brain: BrainCache): string {
+  const projectName = (params.project_name || brain.config?.name || 'Project').trim();
+  const fingerprint = scanProjectFingerprint(brain.rootPath);
+  const importGraph = brain.knowledge?.importGraph ?? {};
+  const testMap = brain.knowledge?.testMap ?? { tested: {}, untested: [], testFiles: [] };
+  const inferred = inferDomains(brain.rootPath, importGraph, testMap as { tested: Record<string, string[]>; testFiles: string[] });
+  const composed = composeAutoConfiguredSections(projectName, fingerprint, inferred.candidates);
+  return JSON.stringify({
+    project_name: projectName,
+    fingerprint,
+    inferred_domains: inferred.candidates.length,
+    signal_coverage: inferred.signalCoverage,
+    composed_sections: {
+      project_identity: composed.projectIdentity,
+      build_and_verify: composed.buildAndVerify,
+      domain_architecture: composed.domainArchitecture,
+    },
+    combined_preview: composed.combined,
+    instruction: 'Preview only — paste between <!-- knit:start --> and <!-- knit:end --> in CLAUDE.md to accept. Re-run after stack or domain changes to refresh.',
   });
 }
 
