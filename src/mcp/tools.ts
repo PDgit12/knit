@@ -25,6 +25,7 @@ import {
   handleSetProtocolStrictness, handleGetProtocolStrictness,
   handleListFeatures, handleEnableFeature, handleDisableFeature,
   handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
+  handleGetCalibration, handleResetCalibration,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
 } from './handlers.js';
@@ -112,8 +113,18 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_record_false_positive',
-      description: 'Mark a finding as confirmed non-issue so future reviewers suppress it.',
-      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'What was flagged.' }, reason: { type: 'string', description: 'Why it\'s not a real issue.' }, tags: { type: 'string', description: 'Domain tags.' } }, required: ['summary', 'reason'] },
+      description: 'Mark a finding as confirmed non-issue so future reviewers suppress it. v0.11: include a direction tag (e.g. "#complex-was-trivial") to also feed the self-healing classifier.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'What was flagged.' }, reason: { type: 'string', description: 'Why it\'s not a real issue.' }, tags: { type: 'string', description: 'Space-separated tags. Optional classifier-direction tag tunes calibration: #complex-was-trivial, #trivial-was-complex, #high-risk-was-low, etc.' } }, required: ['summary', 'reason'] },
+    },
+    {
+      name: 'knit_get_calibration',
+      description: 'Read per-project classifier calibration: FP counters by direction, current scope/risk adjustments. v0.11 slice 4.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'knit_reset_calibration',
+      description: 'Wipe per-project classifier calibration back to default zeros. Admin tier — use when calibration drifted in a bad direction.',
+      inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_save_handoff',
@@ -450,6 +461,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_scan_integrations: handleScanIntegrations,
   knit_compounding_metrics: handleCompoundingMetrics,
   knit_get_metrics_history: handleGetMetricsHistory,
+  knit_get_calibration: handleGetCalibration,
+  knit_reset_calibration: handleResetCalibration,
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,

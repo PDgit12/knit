@@ -148,6 +148,15 @@ export function turnEditLogPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.turn-edits.jsonl');
 }
 
+/** v0.11 slice 4 — ~/.knit/projects/<hash>/calibration.json
+ *  Per-project classifier calibration. Tracks accumulated false-positive
+ *  feedback by direction (e.g., "complex-was-trivial" counter) so the
+ *  classifier can self-tune over time. Cross-project learnings stay
+ *  global; per-project tuning stays local to avoid leakage. */
+export function calibrationPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'calibration.json');
+}
+
 /** ~/.knit/projects/<hash>/features.json — opt-in feature flags (Tier 2/3 enable). */
 export function featuresConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'features.json');

@@ -50,6 +50,7 @@ import {
 import {
   isValidStrictness, readProtocolConfig, writeClassificationMarker, writeClaimMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
+import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration } from '../engine/calibration.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
 
 
@@ -1236,12 +1237,16 @@ function inferRiskTier(
   isTypes: boolean,
   isAuth: boolean,
   highFanoutCount: number,
+  riskAdjust = 0,
 ): RiskTier {
   const lower = description.toLowerCase();
   const breakingHints = /\b(migration|breaking|rewrite|schema\s+change|deprecate|backwards?[-\s]incompatible)\b/.test(lower);
-  if (isTypes || isAuth || breakingHints || changeKind === 'delete' || highFanoutCount >= 1) {
-    return 'high';
-  }
+  // v0.11 slice 4 — calibration shift. Positive riskAdjust → downweight
+  // risky signals (require more signals to classify high). Negative → upweight.
+  // Each unit of riskAdjust requires +1 additional risky signal to escalate.
+  const riskSignals = (isTypes ? 1 : 0) + (isAuth ? 1 : 0) + (breakingHints ? 1 : 0) +
+                      (changeKind === 'delete' ? 1 : 0) + (highFanoutCount >= 1 ? 1 : 0);
+  if (riskSignals >= 1 + Math.max(0, riskAdjust)) return 'high';
   if ((changeKind === 'modify' || changeKind === 'mixed') && files.length >= 2) {
     return 'medium';
   }
@@ -1254,12 +1259,17 @@ function inferScopeTier(
   domains: Set<string>,
   isNewProject: boolean,
   descriptionIsComplex: boolean,
+  scopeAdjust = 0,
 ): ScopeTier {
   if (isNewProject) {
     return descriptionIsComplex ? 'complex' : 'standard';
   }
-  if (domains.size >= 3 || files.length > 3) return 'complex';
-  if (domains.size >= 2 || files.length > 1) return 'standard';
+  // v0.11 slice 4 — calibration shift. Positive scopeAdjust → require more
+  // files before classifying complex (less sensitive). Negative → more.
+  const complexFileThreshold = Math.max(1, 3 + scopeAdjust);
+  const standardFileThreshold = Math.max(1, 1 + Math.floor(scopeAdjust / 2));
+  if (domains.size >= 3 || files.length > complexFileThreshold) return 'complex';
+  if (domains.size >= 2 || files.length > standardFileThreshold) return 'standard';
   return 'trivial';
 }
 
@@ -1356,9 +1366,12 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     || description.length > 100;
 
   // v0.10 — compute the three new dimensions before deriving back-compat tier.
+  // v0.11 slice 4 — load per-project calibration and apply its scope/risk
+  // adjustments. Default state is zero offsets (no change from v0.10 behavior).
+  const calibration = loadCalibration(brain.rootPath);
   const changeKind = inferChangeKind(files, params.description || '', brain.rootPath);
-  const riskTier = inferRiskTier(files, params.description || '', changeKind, isTypes, isAuth, highFanoutCount);
-  const initialScope = inferScopeTier(files, domains, isNewProject, descriptionIsComplex);
+  const riskTier = inferRiskTier(files, params.description || '', changeKind, isTypes, isAuth, highFanoutCount, calibration.riskAdjust);
+  const initialScope = inferScopeTier(files, domains, isNewProject, descriptionIsComplex, calibration.scopeAdjust);
 
   // v0.10 — context budget downgrade. <30% remaining → scope drops one level.
   const rawBudget = parseInt(params.context_budget_remaining || '100', 10);
@@ -1677,6 +1690,7 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
 
 export function handleRecordFalsePositive(params: Record<string, string>, brain: BrainCache): string {
   const date = new Date().toISOString().split('T')[0];
+  const tags = [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')), '#false-positive'];
   const entry = {
     date,
     summary: redactSecrets(params.summary || 'Untitled FP'),
@@ -1684,16 +1698,67 @@ export function handleRecordFalsePositive(params: Record<string, string>, brain:
     approach: 'Verified manually',
     outcome: 'success' as const,
     lesson: redactSecrets(params.reason || 'Confirmed non-issue'),
-    tags: [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')), '#false-positive'],
+    tags,
   };
 
   addEntry(brain.knowledgeBase, entry);
   saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
 
+  // v0.11 slice 4 — self-healing classifier. If the FP tags include a
+  // direction (e.g., #complex-was-trivial), bump the per-project
+  // calibration counter; after 3+ same-direction FPs the classifier
+  // thresholds shift to absorb the feedback.
+  let calibrationUpdate: { direction: string; scope_adjust: number; risk_adjust: number } | undefined;
+  const direction = parseDirection(tags);
+  if (direction) {
+    try {
+      const cal = recordClassifierFP(brain.rootPath, direction);
+      calibrationUpdate = { direction, scope_adjust: cal.scopeAdjust, risk_adjust: cal.riskAdjust };
+    } catch {
+      // best-effort: never let calibration IO break FP recording
+    }
+  }
+
   return JSON.stringify({
     status: 'recorded', summary: entry.summary,
     total_false_positives: getFalsePositives(brain.knowledgeBase).length,
-    instruction: 'This will be included in future agent prompts as a DO NOT FLAG item.',
+    ...(calibrationUpdate ? { calibration_update: calibrationUpdate } : {}),
+    instruction: 'This will be included in future agent prompts as a DO NOT FLAG item.' + (calibrationUpdate ? ' Classifier calibration updated.' : ''),
+  });
+}
+
+/** v0.11 slice 4 — knit_get_calibration. Returns the per-project
+ *  classifier calibration state: accumulated FP counters by direction,
+ *  current scope/risk adjustments, last-updated timestamp. Pair with
+ *  knit_compounding_metrics for a complete view of how the classifier
+ *  is tuning itself over time. */
+export function handleGetCalibration(_params: Record<string, string>, brain: BrainCache): string {
+  const cal = loadCalibration(brain.rootPath);
+  const totalFps = Object.values(cal.fpDirections).reduce((s, n) => s + n, 0);
+  const adjustments = Math.abs(cal.scopeAdjust) + Math.abs(cal.riskAdjust);
+  return JSON.stringify({
+    fp_directions: cal.fpDirections,
+    scope_adjust: cal.scopeAdjust,
+    risk_adjust: cal.riskAdjust,
+    pending_fp_count: totalFps,
+    accumulated_adjustments: adjustments,
+    updated_at: cal.updatedAt,
+    instruction: adjustments === 0 && totalFps === 0
+      ? 'No calibration yet. The classifier uses default thresholds. To teach it: when a classification is wrong, call knit_record_false_positive with a tag like "#complex-was-trivial" — 3 same-direction FPs shift the threshold by 1 unit.'
+      : `Classifier has been tuned ${adjustments} unit(s); ${totalFps} FP(s) accumulating toward the next shift. Call knit_reset_calibration to wipe.`,
+  });
+}
+
+/** v0.11 slice 4 — knit_reset_calibration. Wipes the per-project
+ *  calibration back to default zeros. Use when calibration drifted in a
+ *  bad direction (e.g., overzealous user reporting). Admin tier. */
+export function handleResetCalibration(_params: Record<string, string>, brain: BrainCache): string {
+  const fresh = resetCalibration(brain.rootPath);
+  return JSON.stringify({
+    status: 'reset',
+    scope_adjust: fresh.scopeAdjust,
+    risk_adjust: fresh.riskAdjust,
+    instruction: 'Calibration wiped. Classifier reverts to default thresholds.',
   });
 }
 

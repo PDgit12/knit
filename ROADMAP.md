@@ -129,17 +129,18 @@ until-loaded narrowing, async-contract mismatches).
 - [x] HOOKS_VERSION 9 → 10
 - [x] 4 new generator tests (549 total)
 
-### Slice 4 — Self-healing classifier (per-project calibration)
-**Implementation sketch.** Persist a per-project calibration sidecar that
-adjusts the risk/scope thresholds based on accumulated FP records.
-
-- [ ] New file `~/.knit/projects/<hash>/calibration.json` — `{ riskOffsets: { types: -1, auth: 0, ... }, scopeOffsets: { fileCountAdjust: 0 } }`
-- [ ] `inferRiskTier` / `inferScopeTier` accept an optional calibration arg; default no-op
-- [ ] When `knit_record_false_positive` is called with a `#classifier` tag → bump the calibration counter for the direction (e.g., `complex-but-was-trivial` → fileCountAdjust + 1)
-- [ ] After 3+ same-direction FPs → flip the threshold by 1 unit, log the adjustment to learnings
-- [ ] `knit_get_calibration` (Tier 2) shows current per-project tuning
-- [ ] Tests: feed 3 FPs in same direction → assert threshold adjusts; cross-project pool unchanged
-- **Gotcha:** This is the riskiest slice — a buggy calibration permanently miscalibrates. Add `knit_reset_calibration` admin tool so users can flush.
+### Slice 4 — Self-healing classifier (per-project calibration) ✅ shipped 2026-05-24
+- [x] `calibrationPath` in `paths.ts` + `Calibration` type
+- [x] New `src/engine/calibration.ts` with `loadCalibration`/`saveCalibration`/`parseDirection`/`recordClassifierFP`/`resetCalibration`
+- [x] `inferRiskTier` accepts optional `riskAdjust`; positive value requires more risky signals before high-risk
+- [x] `inferScopeTier` accepts optional `scopeAdjust`; positive value raises complex file-count threshold
+- [x] `handleRecordFalsePositive` parses direction tag and calls `recordClassifierFP`
+- [x] 3+ same-direction FPs trigger threshold shift +1 in the implied direction; counter resets
+- [x] `knit_get_calibration` (Tier 1) returns FP counts + current adjustments + actionable instruction
+- [x] `knit_reset_calibration` (Tier 3 admin) wipes back to default zeros
+- [x] HOOKS_VERSION unchanged (no new hook payload — pure handler work)
+- [x] 22 new tests in `tests/calibration.test.ts` (571 total)
+- [x] **Bug found + fixed:** `{ ...DEFAULT_CALIBRATION }` shallow-copies — `fpDirections` aliased across all callers, first mutation leaked into all subsequent "fresh" defaults. Replaced with `freshDefault()` factory.
 
 ---
 

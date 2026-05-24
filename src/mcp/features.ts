@@ -61,7 +61,9 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_get_suggestions', tier: 1, category: 'workflow', rationale: 'Adaptive warnings from past patterns' },
 
   // ── Tier 1 — False positives + reflection (3) ───────────────────
-  { tool: 'knit_record_false_positive', tier: 1, category: 'fp-reflection', rationale: 'Universal — reviewer agents flag FPs on any project' },
+  { tool: 'knit_record_false_positive', tier: 1, category: 'fp-reflection', rationale: 'Universal — reviewer agents flag FPs on any project. v0.11 slice 4: direction tags feed the self-healing classifier.' },
+  { tool: 'knit_get_calibration', tier: 1, category: 'fp-reflection', rationale: 'Per-project classifier calibration state. Pair with compounding_metrics for the self-healing view.' },
+  { tool: 'knit_reset_calibration', tier: 3, category: 'admin', rationale: 'Wipe classifier calibration. Admin because it discards accumulated tuning.', enable_via: 'knit_enable_feature("admin")' },
   { tool: 'knit_get_false_positives', tier: 1, category: 'fp-reflection', rationale: 'Universal' },
   { tool: 'knit_reflect', tier: 1, category: 'fp-reflection', rationale: 'Returns "not enough data" on sparse projects; always available' },
 

@@ -246,6 +246,26 @@ export interface TeamBoard {
   createdAt: string;
 }
 
+/** v0.11 slice 4 — per-project classifier calibration. Persisted to
+ *  `~/.knit/projects/<hash>/calibration.json`. Updated whenever
+ *  knit_record_false_positive is called with a #classifier tag; read by
+ *  the classifier when computing risk/scope thresholds. Default state
+ *  is all zeros (no adjustment). */
+export interface Calibration {
+  /** Counts per direction. Keys: "complex-was-trivial", "trivial-was-complex",
+   *  "complex-was-standard", "standard-was-complex", "high-risk-was-low",
+   *  "low-risk-was-high", etc. Values: total FP count. */
+  fpDirections: Record<string, number>;
+  /** File-count threshold adjustment. Positive = require more files to
+   *  classify as complex (less sensitive). Negative = more sensitive. */
+  scopeAdjust: number;
+  /** Risk-signal weight adjustment. Positive = downweight risky-file
+   *  signals. Negative = upweight. */
+  riskAdjust: number;
+  /** When this calibration was last updated. */
+  updatedAt: string;
+}
+
 /** ── Knowledge Base (structured learnings + metrics) ─────────── */
 
 /** Structured knowledge base — replaces flat markdown for retrieval */
