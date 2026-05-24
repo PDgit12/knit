@@ -10,17 +10,18 @@
  * unit tests trivial and lets the handler layer compose freely.
  */
 
+// v0.11.2 — turn-edit log helpers (appendTurnEdit/readTurnEdits/clearTurnEdits)
+// were removed: they had no callers. The actual writing/clearing happens inline
+// in the PostToolUse and UserPromptSubmit hook payloads emitted by
+// src/generators/settings.ts, so the TS helpers were dead exports.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-
-import { appendFileSync } from 'node:fs';
 
 import {
   claimMarkerPath,
   classificationMarkerPath,
   protocolConfigPath,
   sessionMarkerPath,
-  turnEditLogPath,
 } from './paths.js';
 import type {
   ClassificationMarker,
@@ -113,44 +114,3 @@ export function clearClaimMarker(rootPath: string): void {
   if (existsSync(path)) rmSync(path, { force: true });
 }
 
-/** v0.11 slice 3 — append a file path to this turn's edit log. Called
- *  programmatically when the MCP layer wants to track what was touched;
- *  in practice the PostToolUse hook does the writing inline because hooks
- *  fire on every Edit/Write while MCP handlers don't. */
-export function appendTurnEdit(rootPath: string, file: string): void {
-  const path = turnEditLogPath(rootPath);
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify({ file, ts: new Date().toISOString() }) + '\n', 'utf-8');
-}
-
-/** Read the current turn's edit log. Returns the unique set of files
- *  touched (in first-seen order). Empty array if log doesn't exist. */
-export function readTurnEdits(rootPath: string): string[] {
-  const path = turnEditLogPath(rootPath);
-  if (!existsSync(path)) return [];
-  try {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    const raw = readFileSync(path, 'utf-8');
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line) as { file?: string };
-        if (entry.file && !seen.has(entry.file)) {
-          seen.add(entry.file);
-          out.push(entry.file);
-        }
-      } catch {
-        // skip malformed lines
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-export function clearTurnEdits(rootPath: string): void {
-  const path = turnEditLogPath(rootPath);
-  if (existsSync(path)) rmSync(path, { force: true });
-}

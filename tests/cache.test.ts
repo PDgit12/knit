@@ -111,6 +111,86 @@ describe('malformed settings robustness', () => {
   });
 });
 
+describe('v0.11 HOOKS_VERSION migration (7 → current)', () => {
+  it('regenerates v0.11 hook payloads when version=7 is seen on disk', async () => {
+    // Pre-populate centralized data so autoInitialize skips and the upgrade path
+    // (maybeRefreshHooks) is what regenerates settings.local.json.
+    const { projectId } = await import('../src/engine/project-id.js');
+    const hash = projectId(projectRoot);
+    const projectData = join(knitHome, 'projects', hash);
+    mkdirSync(projectData, { recursive: true });
+    writeFileSync(
+      join(projectData, 'knowledge.json'),
+      JSON.stringify({ generatedAt: new Date().toISOString(), summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] }, files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] } }),
+      'utf-8',
+    );
+
+    // Seed an existing settings.local.json with stale v7 (pre-v0.11) hook stubs.
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true });
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
+    writeFileSync(
+      settingsPath,
+      JSON.stringify(
+        {
+          _knitHooks: { version: 7, generatedAt: '1970-01-01T00:00:00Z' },
+          hooks: {
+            SessionStart: [],
+            UserPromptSubmit: [],
+            PreToolUse: [],
+            PostToolUse: [],
+            Stop: [],
+          },
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
+
+    const cacheMod = await import('../src/mcp/cache.js');
+    const refreshBrain = (cacheMod as unknown as { refreshBrain: (p: string) => unknown }).refreshBrain;
+    refreshBrain(projectRoot);
+
+    const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+    expect(after._knitHooks.version).toBeGreaterThanOrEqual(10);
+    expect(after._knitHooks.version).toBe(HOOKS_VERSION);
+
+    // Pull every command string in any hook section and flatten — easier to
+    // assert against than walking the nested entry shape.
+    const allCommands: string[] = [];
+    for (const section of ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop'] as const) {
+      const entries = after.hooks?.[section] ?? [];
+      for (const entry of entries) {
+        for (const h of entry.hooks ?? []) {
+          if (typeof h.command === 'string') allCommands.push(h.command);
+        }
+      }
+    }
+
+    const userPromptCommands = (after.hooks?.UserPromptSubmit ?? [])
+      .flatMap((e: { hooks?: Array<{ command?: string }> }) => e.hooks ?? [])
+      .map((h: { command?: string }) => h.command ?? '')
+      .join('\n');
+    expect(userPromptCommands).toContain('.classified-current');
+    expect(userPromptCommands).toContain('.searched-current');
+    expect(userPromptCommands).toContain('.claim-verified-current');
+    expect(userPromptCommands).toContain('.turn-edits.jsonl');
+
+    const postToolUseCommands = (after.hooks?.PostToolUse ?? [])
+      .flatMap((e: { hooks?: Array<{ command?: string }> }) => e.hooks ?? [])
+      .map((h: { command?: string }) => h.command ?? '')
+      .join('\n');
+    expect(postToolUseCommands).toContain('verify: write landed');
+
+    const stopCommands = (after.hooks?.Stop ?? [])
+      .flatMap((e: { hooks?: Array<{ command?: string }> }) => e.hooks ?? [])
+      .map((h: { command?: string }) => h.command ?? '')
+      .join('\n');
+    expect(stopCommands).toContain('REVIEW gate');
+    expect(stopCommands).toContain('drift detector');
+  });
+});
+
 describe('detectProjectRoot fallback', () => {
   it('falls back to cwd when not inside a git repo', async () => {
     const cacheMod = await import('../src/mcp/cache.js');

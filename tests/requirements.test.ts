@@ -273,6 +273,50 @@ describe('integration via handleToolCall', () => {
     expect(scoped.context_chunks.every((c: { source_id: string }) => c.source_id === 'a')).toBe(true);
   });
 
+  it('knit_delete_requirements removes an indexed source; list reflects gone', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const reqPath = join(projectRoot, 'doomed.md');
+    writeFileSync(reqPath, 'Source about webhooks and idempotency keys to satisfy minimum chunk size for indexing.', 'utf-8');
+    const brain = buildBrain();
+
+    const indexRes = JSON.parse(handleToolCall('knit_index_requirements', { file_path: reqPath }, brain));
+    expect(indexRes.status).toBe('indexed');
+    const sourceId = indexRes.source_id;
+
+    const delRes = JSON.parse(handleToolCall('knit_delete_requirements', { source_id: sourceId }, brain));
+    expect(delRes.deleted).toBe(true);
+    expect(delRes.status).toBe('deleted');
+
+    const listRes = JSON.parse(handleToolCall('knit_list_requirements', {}, brain));
+    expect(listRes.count).toBe(0);
+  });
+
+  it('knit_delete_requirements on missing source returns deleted=false', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const res = JSON.parse(handleToolCall('knit_delete_requirements', { source_id: 'never-indexed' }, buildBrain()));
+    expect(res.deleted).toBe(false);
+    expect(res.status).toBe('not_found');
+  });
+
+  it('re-indexing the same source_id overwrites cleanly (count stays 1)', async () => {
+    const { handleToolCall } = await import('../src/mcp/tools.js');
+    const reqPath = join(projectRoot, 'spec.md');
+    writeFileSync(reqPath, 'First version of the spec discussing rate limiting and request quotas for the API surface.', 'utf-8');
+    const brain = buildBrain();
+
+    const first = JSON.parse(handleToolCall('knit_index_requirements', { file_path: reqPath }, brain));
+    expect(first.status).toBe('indexed');
+
+    // Update content + re-index with same path → slugified to same source_id.
+    writeFileSync(reqPath, 'Second version of the spec adds idempotency and webhook signature verification requirements throughout the document body.', 'utf-8');
+    const second = JSON.parse(handleToolCall('knit_index_requirements', { file_path: reqPath }, brain));
+    expect(second.status).toBe('indexed');
+    expect(second.source_id).toBe(first.source_id);
+
+    const listRes = JSON.parse(handleToolCall('knit_list_requirements', {}, brain));
+    expect(listRes.count).toBe(1);
+  });
+
   function buildBrain() {
     return {
       rootPath: projectRoot,
