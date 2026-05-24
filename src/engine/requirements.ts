@@ -105,7 +105,8 @@ export function loadSource(rootPath: string, sourceId: string): RequirementsSour
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(readFileSync(path, 'utf-8')) as RequirementsSource;
-  } catch {
+  } catch (err) {
+    process.stderr.write('[knit] requirements source unreadable at ' + path + ': ' + (err as Error).message + '\n');
     return null;
   }
 }
@@ -128,8 +129,8 @@ export function listSources(rootPath: string): Array<Omit<RequirementsSource, 'c
         label: s.label,
         chunkCount: Array.isArray(s.chunks) ? s.chunks.length : 0,
       });
-    } catch {
-      // skip malformed
+    } catch (err) {
+      process.stderr.write('[knit] requirements source unreadable at ' + `${dir}/${f}` + ': ' + (err as Error).message + '\n');
     }
   }
   return out;

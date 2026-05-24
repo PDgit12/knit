@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
+import { writeFileSync, mkdirSync, rmSync as rmSyncFn } from 'node:fs';
+import { dirname } from 'node:path';
+import { protocolConfigPath, classificationMarkerPath, claimMarkerPath } from '../src/engine/paths.js';
 import { generateClaudeMd } from '../src/generators/claude-md.js';
 import { generateSettings, generateSettingsLocal } from '../src/generators/settings.js';
 import { generateLearningsContent } from '../src/generators/learnings.js';
@@ -438,6 +441,64 @@ describe('generateSettings', () => {
       // Honors strictness: off → no-op, warn → stderr, block → exit 2.
       expect(cmd).toContain('process.exit(2)');
       expect(cmd).toContain('knit_verify_claim');
+    });
+
+    it('Stop-hook claim-gate runtime: block-strictness on standard scope exits non-zero', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const claimGate = (hooks.Stop as any[]).find((e) => {
+        const c = e.hooks?.[0]?.command || '';
+        return c.includes('.claim-verified-current') && c.includes('REVIEW gate');
+      });
+      expect(claimGate).toBeDefined();
+      const cmd: string = claimGate.hooks[0].command;
+
+      // Seed: block-level config + standard-scope classification marker, NO claim marker.
+      const cfgP = protocolConfigPath(TEST_ROOT);
+      const clsP = classificationMarkerPath(TEST_ROOT);
+      const claimP = claimMarkerPath(TEST_ROOT);
+      mkdirSync(dirname(cfgP), { recursive: true });
+      mkdirSync(dirname(clsP), { recursive: true });
+      mkdirSync(dirname(claimP), { recursive: true });
+      writeFileSync(cfgP, JSON.stringify({ level: 'block', updatedAt: new Date().toISOString() }));
+      writeFileSync(clsP, JSON.stringify({ scopeTier: 'standard', updatedAt: new Date().toISOString() }));
+      try { rmSyncFn(claimP, { force: true }); } catch { /* best effort */ }
+
+      let exitCode = 0;
+      let stderr = '';
+      try {
+        execSync(cmd, { input: '', stdio: ['pipe', 'ignore', 'pipe'], timeout: 10000 });
+      } catch (err: any) {
+        exitCode = err.status ?? 1;
+        stderr = (err.stderr || '').toString();
+      }
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain('[knit] BLOCKED');
+    });
+
+    it('Stop-hook claim-gate runtime: warn-strictness exits 0 but emits stderr reminder', () => {
+      const settings = generateSettings(testConfig, TEST_ROOT) as Record<string, unknown>;
+      const hooks = settings.hooks as Record<string, unknown[]>;
+      const claimGate = (hooks.Stop as any[]).find((e) => {
+        const c = e.hooks?.[0]?.command || '';
+        return c.includes('.claim-verified-current') && c.includes('REVIEW gate');
+      });
+      const cmd: string = claimGate.hooks[0].command;
+
+      const cfgP = protocolConfigPath(TEST_ROOT);
+      const clsP = classificationMarkerPath(TEST_ROOT);
+      const claimP = claimMarkerPath(TEST_ROOT);
+      mkdirSync(dirname(cfgP), { recursive: true });
+      mkdirSync(dirname(clsP), { recursive: true });
+      mkdirSync(dirname(claimP), { recursive: true });
+      writeFileSync(cfgP, JSON.stringify({ level: 'warn', updatedAt: new Date().toISOString() }));
+      writeFileSync(clsP, JSON.stringify({ scopeTier: 'standard', updatedAt: new Date().toISOString() }));
+      try { rmSyncFn(claimP, { force: true }); } catch { /* best effort */ }
+
+      // spawnSync gives reliable stderr capture even on exit 0.
+      const res = spawnSync('sh', ['-c', cmd], { input: '', timeout: 10000, encoding: 'utf-8' });
+      expect(res.status).toBe(0);
+      expect(res.stderr || '').toContain('[knit] reminder');
     });
   });
 

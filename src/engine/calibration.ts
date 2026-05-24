@@ -50,6 +50,7 @@ export function loadCalibration(rootPath: string): Calibration {
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString(),
     };
   } catch {
+    process.stderr.write('[knit] calibration.json parse failed — using defaults. Inspect: ' + path + '\n');
     return freshDefault();
   }
 }
@@ -84,7 +85,14 @@ export function parseDirection(tags: string[]): string | null {
 
 /** Record a classifier-direction FP. Bumps the counter, and if the count
  *  hits ADJUSTMENT_THRESHOLD, shifts scopeAdjust/riskAdjust by 1 in the
- *  direction implied by the FP. Returns the new calibration. */
+ *  direction implied by the FP. Returns the new calibration.
+ *
+ *  Concurrency note: this is a read-modify-write on disk and is NOT
+ *  atomic across processes. JS is single-threaded so two synchronous calls
+ *  within the same process are serialized by the event loop; in practice
+ *  the MCP server is a single process, so this is safe. If you ever run
+ *  multiple MCP processes against the same project root, wrap in a file
+ *  lock (proper-lockfile) before bumping. */
 export function recordClassifierFP(rootPath: string, direction: string): Calibration {
   const cal = loadCalibration(rootPath);
   const before = cal.fpDirections[direction] ?? 0;

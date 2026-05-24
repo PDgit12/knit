@@ -45,6 +45,7 @@ export function readProtocolConfig(rootPath: string): ProtocolConfig {
     const updatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString();
     return { level, updatedAt };
   } catch {
+    process.stderr.write('[knit] protocol-config.json parse failed — defaulting to warn. Inspect: ' + path + '\n');
     return { level: 'warn', updatedAt: new Date(0).toISOString() };
   }
 }
@@ -119,8 +120,13 @@ export function clearClaimMarker(rootPath: string): void {
  *  fire on every Edit/Write while MCP handlers don't. */
 export function appendTurnEdit(rootPath: string, file: string): void {
   const path = turnEditLogPath(rootPath);
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify({ file, ts: new Date().toISOString() }) + '\n', 'utf-8');
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify({ file, ts: new Date().toISOString() }) + '\n', 'utf-8');
+  } catch (err) {
+    // Best-effort: never break the caller on log-write failure.
+    process.stderr.write('[knit] turn-edit append failed at ' + path + ': ' + (err as Error).message + '\n');
+  }
 }
 
 /** Read the current turn's edit log. Returns the unique set of files
@@ -145,7 +151,8 @@ export function readTurnEdits(rootPath: string): string[] {
       }
     }
     return out;
-  } catch {
+  } catch (err) {
+    process.stderr.write('[knit] turn-edits log read failed at ' + path + ': ' + (err as Error).message + '\n');
     return [];
   }
 }

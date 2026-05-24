@@ -921,10 +921,15 @@ function maybeAppendMetricsSnapshot(rootPath: string, snapshot: MetricsSnapshot)
       }
     } catch {
       // Corrupt file → append a fresh snapshot. We don't try to repair history.
+      process.stderr.write('[knit] metrics-history.jsonl parse failed — appending fresh snapshot, prior history may be unreadable\n');
     }
   }
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(snapshot) + '\n');
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify(snapshot) + '\n');
+  } catch (err) {
+    process.stderr.write('[knit] metrics-history.jsonl append failed at ' + path + ': ' + (err as Error).message + '\n');
+  }
 }
 
 /** v0.10 slice 3 — knit_get_metrics_history.

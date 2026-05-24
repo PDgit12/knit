@@ -111,7 +111,10 @@ function computeCoChangeRanking(rootPath: string, days: number): string[] {
       `git -C ${shellQuote(rootPath)} log --since="${days} days ago" --name-only --pretty=format:"--commit--"`,
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 },
     );
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      process.stderr.write('[knit] git co-change exec failed: ' + String(err) + '\n');
+    }
     return [];
   }
   const commits = output.split('--commit--').filter((c) => c.trim());
