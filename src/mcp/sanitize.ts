@@ -31,6 +31,12 @@ const PATTERNS: SecretPattern[] = [
   // JWT: header.payload.signature, base64url segments. Reasonably tight to
   // avoid false-positives on arbitrary dotted strings.
   { name: 'jwt', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
+  // Connection strings — contain credentials in the URL authority component.
+  { name: 'connection-string-postgres', regex: /postgres(?:ql)?:\/\/[^\s'"<>]+/g },
+  { name: 'connection-string-mysql', regex: /mysql:\/\/[^\s'"<>]+/g },
+  { name: 'connection-string-mongo', regex: /mongodb(?:\+srv)?:\/\/[^\s'"<>]+/g },
+  // Bearer tokens in Authorization header values.
+  { name: 'bearer-token', regex: /Bearer\s+[A-Za-z0-9_\-.~+/]{20,}/g },
 ];
 
 export function redactSecrets(input: string): string {

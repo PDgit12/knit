@@ -521,7 +521,7 @@ export function handleToolCall(
   if (params.file_path) {
     const decoded = decodeURIComponent(params.file_path).replace(/\\/g, '/');
     const allowAbsolute = toolName === 'knit_index_requirements';
-    const bad = decoded.includes('..') || decoded.includes('\0') || (!allowAbsolute && decoded.startsWith('/'));
+    const bad = decoded.includes('..') || decoded.includes('\0') || (!allowAbsolute && (decoded.startsWith('/') || /^[A-Za-z]:\//.test(decoded)));
     if (bad) {
       return JSON.stringify({ error: 'Invalid file path — no traversal or absolute paths allowed' });
     }

@@ -1864,6 +1864,14 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   if (!existsSync(filePath)) {
     return JSON.stringify({ error: `file not found: ${filePath}`, status: 'error' });
   }
+  // H1: Reject non-regular-files and files exceeding 5 MB before reading.
+  const stat = statSync(filePath);
+  if (!stat.isFile()) {
+    return JSON.stringify({ status: 'error', error: 'Not a regular file' });
+  }
+  if (stat.size > 5 * 1024 * 1024) {
+    return JSON.stringify({ status: 'error', error: 'File exceeds 5MB limit; chunk-index your spec in pieces or contact maintainer' });
+  }
   let content: string;
   try {
     content = readFileSync(filePath, 'utf-8');
@@ -1880,7 +1888,14 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
       error: 'No chunks produced — every paragraph was shorter than min_chars. Lower min_chars or check the input.',
     });
   }
-  const sourceId = (params.source_id || '').trim() || slugifySourceId(filePath);
+  // H2: Redact secrets from each chunk before persisting.
+  for (const c of chunks) { c.text = redactSecrets(c.text); }
+  // C1: Validate user-supplied source_id before using it.
+  const userSourceId = (params.source_id || '').trim();
+  if (userSourceId && !/^[A-Za-z0-9._-]{1,80}$/.test(userSourceId)) {
+    return JSON.stringify({ status: 'error', error: 'Invalid source_id — must be 1-80 chars, alphanumeric + . _ - only' });
+  }
+  const sourceId = userSourceId || slugifySourceId(filePath);
   const label = (params.label || '').trim() || undefined;
   const source: RequirementsSource = {
     sourceId,

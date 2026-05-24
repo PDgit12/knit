@@ -372,8 +372,9 @@ describe('generateSettings', () => {
       expect(cmd).toContain('tsconfig.json');
       // Walks up the file tree to find project root:
       expect(cmd).toContain('depth < 10');
-      // Falls back to npx when local tsc is missing:
-      expect(cmd).toContain('npx --no-install tsc');
+      // Falls back to npx when local tsc is missing (execFileSync, no shell):
+      expect(cmd).toContain('execFileSync');
+      expect(cmd).toContain('"--no-install"');
       // Output filtered to errors mentioning the touched file:
       expect(cmd).toContain('error TS');
       expect(cmd).toContain('cross-file ripple');
