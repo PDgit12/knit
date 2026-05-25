@@ -14,7 +14,7 @@ import { Command } from 'commander';
 import { VERSION } from './version.js';
 
 const args = process.argv.slice(2);
-const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', '--help', '-h', '--version', '-V'].includes(args[0]);
+const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', 'doctor', '--help', '-h', '--version', '-V'].includes(args[0]);
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
@@ -37,6 +37,7 @@ async function runCLI() {
   const { refreshCommand } = await import('./commands/refresh.js');
   const { installAgentsCommand } = await import('./commands/install-agents.js');
   const { exportCommand } = await import('./commands/export.js');
+  const { doctorCommand } = await import('./commands/doctor.js');
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -114,6 +115,19 @@ async function runCLI() {
     .action(async (directory: string, options: { refresh?: boolean; all?: boolean }) => {
       try {
         await installAgentsCommand(directory, options);
+      } catch (error) {
+        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('doctor')
+    .description('Install health check: version, MCP registration, HOOKS_VERSION drift, knowledgebase, dangling symlinks')
+    .argument('[directory]', 'Project directory', '.')
+    .action(async (directory: string) => {
+      try {
+        await doctorCommand(directory);
       } catch (error) {
         console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
         process.exit(1);
