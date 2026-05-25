@@ -2043,7 +2043,7 @@ export function handleGenerateTestCases(params: Record<string, string>, brain: B
     }
   }
   const MAX_RESPONSE_BYTES = 100 * 1024; // 100 KB ceiling — prevents multi-MB MCP responses
-  let hits = retrieveTopChunks(sourcesToSearch, feature, topN);
+  const hits = retrieveTopChunks(sourcesToSearch, feature, topN);
   // Enforce byte cap: drop trailing chunks until total fits within MAX_RESPONSE_BYTES.
   let contextBytes = hits.reduce((s, h) => s + Buffer.byteLength(h.chunk.text, 'utf-8'), 0);
   while (contextBytes > MAX_RESPONSE_BYTES && hits.length > 1) {

@@ -395,9 +395,9 @@ describe('chunkRequirements — edge cases', () => {
   });
 
   it('BOM-prefixed UTF-8 content — BOM stays in chunk text but chunking succeeds', () => {
-    // ﻿ is a BOM. chunkRequirements does not strip it — this test pins the actual
-    // behavior so a future strip-BOM refactor is caught.
-    const bomContent = '﻿' + 'This is a long enough paragraph to survive the minimum char filter in chunking code.\n\nSecond paragraph is also long enough to survive the default minimum character threshold.';
+    // U+FEFF is a BOM. chunkRequirements does not strip it — this test pins the
+    // actual behavior so a future strip-BOM refactor is caught.
+    const bomContent = '\uFEFF' + 'This is a long enough paragraph to survive the minimum char filter in chunking code.\n\nSecond paragraph is also long enough to survive the default minimum character threshold.';
     const chunks = chunkRequirements(bomContent);
     expect(chunks.length).toBeGreaterThanOrEqual(1);
     // The BOM may appear in the first chunk (current behavior — no stripping)
