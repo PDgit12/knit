@@ -2,6 +2,52 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.3] — 2026-05-25
+
+**Propagation patch.** Strengthens the upgrade-notification reach so future
+Knit versions land on existing installs faster. v0.11.2 published cleanly
+to npm but the only in-band upgrade signal was `knit_brain_status`'s
+`update_available` flag — and most agents don't call brain_status. v0.11.3
+adds two stronger signal channels.
+
+### Added
+
+- **`update_available` in `knit_load_session` response.** `knit_load_session`
+  is the agent's first call per the Knit protocol — close to 100% of
+  sessions hit it. When the cached `latest` tag from npm exceeds the
+  installed VERSION, the response now includes:
+  ```json
+  "update_available": {
+    "current": "0.11.2",
+    "latest": "0.11.4",
+    "upgrade": "Restart Claude Code (quit fully + reopen)...",
+    "changelog": "https://github.com/PDgit12/knit/blob/main/CHANGELOG.md"
+  }
+  ```
+- **Startup stderr nag in `runMCP`.** When the MCP server boots and detects
+  a newer version on npm, it writes one stderr line:
+  `[knit] update available: vX installed, vY on npm — restart Claude Code to upgrade...`
+  Stderr is captured by Claude Code (visible in transcripts + `engram doctor`).
+
+### Honest scope
+
+This release does NOT help users currently on v0.10.0 or earlier upgrade
+faster — they only see what their installed version's code surfaces. The
+new signals are for **future** propagation cycles: once a user is on
+v0.11.3+, subsequent updates reach them via two paths instead of one.
+
+For the v0.10 → v0.11.x propagation we already shipped:
+- `npx -y knit-mcp@latest` in the recommended setup forces npm to check
+  the registry on each Claude Code restart
+- v0.10's existing `brain_status` flag remains the in-band signal
+- For users where npx serves stale cache, manual cache clear is the
+  reliable upgrade: `rm -rf ~/.npm/_npx/<hash>` then reopen
+
+### Stats
+
+- 665/665 tests pass (was 664)
+- 53 tools, HOOKS_VERSION 11 (both unchanged — no new hook payload)
+
 ## [0.11.2] — 2026-05-25
 
 **The pre-publish polish release.** Closes the last yellows from the

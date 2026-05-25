@@ -162,9 +162,25 @@ async function runMCP() {
   const { buildInstructions } = await import('./mcp/instructions.js');
   const { registerToolsListChangedNotifier } = await import('./mcp/notifier.js');
   const { loadScanResult } = await import('./engine/integration-scanner.js');
+  const { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } = await import('./mcp/update-check.js');
 
   const ROOT_PATH = detectProjectRoot();
   const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH));
+
+  // v0.11.3 — pre-warm + nag if stale. The update-check module already
+  // pre-warms via getBrain → cache.ts, but firing it explicitly here +
+  // re-checking ~250ms later catches more session-starts. The nag goes
+  // to stderr (Claude Code captures it; doesn't render in the UI but
+  // surfaces in transcripts + the doctor's recent-stderr tail).
+  prewarmLatestVersion();
+  setTimeout(() => {
+    const latest = getCachedLatestVersion();
+    if (latest && isNewerVersion(latest, VERSION)) {
+      process.stderr.write(
+        `[knit] update available: v${VERSION} installed, v${latest} on npm — restart Claude Code to upgrade (clear npx cache if needed: \`rm -rf ~/.npm/_npx/\`). Changelog: https://github.com/PDgit12/knit/blob/main/CHANGELOG.md\n`,
+      );
+    }
+  }, 250);
 
   const server = new Server(
     { name: 'knit-brain', version: VERSION },

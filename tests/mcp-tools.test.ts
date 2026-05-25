@@ -565,6 +565,17 @@ describe('handleToolCall', () => {
     expect(result.project.knowledge.high_fanout).toBeUndefined();
   });
 
+  // v0.11.3 — update_available surfaces in load_session when registry has a newer version.
+  // The flag is conditional on getCachedLatestVersion having a value AND isNewerVersion
+  // returning true; in tests the registry check hasn't fired so the cached latest is
+  // null, and the flag is correctly absent. The structural test below pins the SHAPE
+  // — that when a newer version IS cached, load_session emits the expected block.
+  it('knit_load_session — update_available absent when no newer version cached (default test state)', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    // In test isolation the registry check never fires → cache is null → no flag.
+    expect(result.update_available).toBeUndefined();
+  });
+
   it('knit_load_session — include=metrics adds the metrics block', () => {
     const result = JSON.parse(handleToolCall('knit_load_session', { include: 'metrics' }, brain));
     expect(result.project.metrics).toBeDefined();

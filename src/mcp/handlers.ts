@@ -2590,6 +2590,22 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
       .map((p: any) => ({ type: p.type, description: p.description, confidence: p.confidence }));
   }
 
+  // v0.11.3 — surface update_available in knit_load_session response so
+  // EVERY Knit session sees the upgrade notice on the first MCP call
+  // (per protocol, knit_load_session is the agent's first action).
+  // brain_status had this flag since earlier but agents rarely called it;
+  // load_session reaches ~100% of sessions.
+  let updateAvailable: { current: string; latest: string; upgrade: string; changelog: string } | undefined;
+  const cachedLatest = getCachedLatestVersion();
+  if (cachedLatest && isNewerVersion(cachedLatest, VERSION)) {
+    updateAvailable = {
+      current: VERSION,
+      latest: cachedLatest,
+      upgrade: 'Restart Claude Code (quit fully + reopen) to spawn a fresh MCP. If npx serves cache, run: rm -rf ~/.npm/_npx/$(ls ~/.npm/_npx | head -1) then reopen.',
+      changelog: 'https://github.com/PDgit12/knit/blob/main/CHANGELOG.md',
+    };
+  }
+
   const response: Record<string, unknown> = {
     session_context: {
       last_session: lastSession,
@@ -2607,6 +2623,7 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
       ...(metrics !== undefined ? { metrics } : {}),
       ...(recentSessions !== undefined ? { recent_sessions: recentSessions } : {}),
     },
+    ...(updateAvailable ? { update_available: updateAvailable } : {}),
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : topLearnings.length > 0
