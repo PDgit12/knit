@@ -50,32 +50,32 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Query (read the brain) ───────────────────────────────────
     {
       name: 'knit_query_imports',
-      description: 'Reverse deps for a file — who imports it.',
+      description: '[GRAPH] Reverse deps — WHO IMPORTS this file. Use to find blast radius before editing.',
       inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_dependents',
-      description: 'Forward deps for a file — what it imports.',
+      description: '[GRAPH] Forward deps — WHAT THIS FILE IMPORTS. Opposite of knit_query_imports (who imports it).',
       inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_exports',
-      description: 'Exports from a file: functions, classes, types, constants.',
+      description: '[GRAPH] Exports from a file: functions, classes, types, constants. Use when verifying a claim or finding the canonical definition.',
       inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_tests',
-      description: 'Tests for a file, or list all untested files with filter="untested".',
+      description: '[GRAPH] Tests covering a file, OR list all untested files with filter="untested". Use before declaring "tested" on changed code.',
       inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path (optional).' }, filter: { type: 'string', description: '"untested" to list all untested files.' } } },
     },
     {
       name: 'knit_find_fanout',
-      description: 'High-fanout files — imported by many others.',
+      description: '[GRAPH] High-fanout files — imported by many others. Editing these is high-risk; surfaces in classify_task risk_tier.',
       inputSchema: { type: 'object', properties: { min_importers: { type: 'string', description: 'Minimum importers to qualify (default: 3).' } } },
     },
     {
       name: 'knit_search_learnings',
-      description: 'BM25 + import-graph hybrid. Pass query="text" for BM25, domains="#tag" filter, files="src/a.ts,src/b.ts" for graph boost on learnings about neighbors. All combinable.',
+      description: '[MEMORY] Search THIS PROJECT\'s learnings. Use BEFORE re-investigating. Companions: knit_search_global_learnings (cross-project), knit_search_sessions (past tasks). BM25 + graph boost via files=.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -100,7 +100,7 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Update (write to the brain) ──────────────────────────────
     {
       name: 'knit_classify_task',
-      description: 'Call first. Returns risk_tier (drives plan mode), scope_tier (drives phases), change_kind, phases, auto_plan_mode, tier. Optional context_budget_remaining (0-100) downgrades gracefully.',
+      description: '[PROTOCOL] BEFORE any Edit/Write. Returns risk_tier (drives plan mode), scope_tier (drives phases), change_kind, auto_plan_mode. Optional context_budget_remaining (0-100) downgrades gracefully.',
       inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' }, verbose: { type: 'string', description: '"true" to include reasoning + cross_domain_ripple + files_count (debug fields).' }, context_budget_remaining: { type: 'string', description: 'Integer 0–100 — percent of host agent context window remaining. <30 triggers scope downgrade + skips OPTIMIZE phase. Defaults to 100.' } }, required: ['files_to_touch'] },
     },
     {
@@ -110,7 +110,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_record_learning',
-      description: 'Record a non-obvious, reusable insight. Skip if a future search wouldn\'t be glad it exists.',
+      description: '[MEMORY-WRITE] Record a non-obvious THIS-PROJECT insight. Skip substring repeats. For cross-project: knit_record_global_learning. For FPs: knit_record_false_positive.',
       inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'One-line summary.' }, domains: { type: 'string', description: 'Comma-separated domains.' }, approach: { type: 'string', description: 'What approach was taken.' }, outcome: { type: 'string', description: 'success | partial | failure.' }, lesson: { type: 'string', description: 'What to repeat or avoid.' }, tags: { type: 'string', description: 'Space-separated tags (e.g. "#api #auth").' } }, required: ['summary', 'lesson', 'tags'] },
     },
     {
@@ -165,7 +165,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_save_handoff',
-      description: 'Save state for the next session. failed_attempts is the load-bearing field.',
+      description: '[END OF SESSION — UNFINISHED] Save state when work is incomplete or context degraded. failed_attempts is the load-bearing field. For finished work use knit_save_session_summary.',
       inputSchema: { type: 'object', properties: { goal: { type: 'string', description: 'What we\'re trying to accomplish.' }, current_state: { type: 'string', description: 'Where we are now.' }, files_in_flight: { type: 'string', description: 'Files being modified.' }, what_changed: { type: 'string', description: 'Commits and edits.' }, failed_attempts: { type: 'string', description: 'What was tried and why it failed.' }, decisions_made: { type: 'string', description: 'Important choices.' }, next_step: { type: 'string', description: 'ONE most important next thing.' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
     },
     {
@@ -218,12 +218,12 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Session memory ───────────────────────────────────────────
     {
       name: 'knit_load_session',
-      description: 'Call at session start. Returns handoff, top learnings, false positives by default. Opt in to more via include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge,all.',
+      description: '[PROTOCOL FIRST] Call once at session start. Returns handoff, top learnings, FPs, update_available. Opt in via include=patterns,teams,metrics,recent_sessions,full_learnings,all.',
       inputSchema: { type: 'object', properties: { include: { type: 'string', description: 'Comma-separated optional sections.' } } },
     },
     {
       name: 'knit_save_session_summary',
-      description: 'Opt-in. Record a session summary a future search would want to find.',
+      description: '[END OF SESSION] Record a session summary so future knit_search_sessions can find this work. Pair with knit_save_handoff when work is unfinished.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -248,7 +248,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_search_sessions',
-      description: 'Search past sessions by free text. "Have I done this before?"',
+      description: '[MEMORY] "Have I done this task before?" — search past SESSION summaries. Different from knit_search_learnings (lessons) and knit_search_global_learnings (cross-project).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -297,7 +297,7 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Cross-project learnings (Model C — global pool) ─────────
     {
       name: 'knit_record_global_learning',
-      description: 'Opt-in. Record a learning to the cross-project pool when it generalizes beyond this project.',
+      description: '[MEMORY-WRITE] Record a learning that generalizes across MULTIPLE projects. Sparingly — most learnings are project-specific. Companion: knit_record_learning (this project only).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -311,7 +311,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_search_global_learnings',
-      description: 'Search the cross-project learnings pool across all projects on this machine.',
+      description: '[MEMORY] Search learnings ACROSS ALL projects on this machine. Use when starting a new domain. Companion: knit_search_learnings (this project only).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -412,12 +412,12 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_verify_claim',
-      description: 'Fact-check one claim against the knowledge graph. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: verified | contradicted | unparseable.',
+      description: '[REVIEW] Fact-check one claim before LEARN on standard/complex scope. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: verified | contradicted | unparseable.',
       inputSchema: { type: 'object', properties: { claim: { type: 'string', description: 'One claim about the codebase to verify.' } }, required: ['claim'] },
     },
     {
       name: 'knit_get_learning',
-      description: 'Fetch one full learning by id. Pair with knit_search_learnings (default returns headlines) for hierarchical retrieval — expand only what you need.',
+      description: '[MEMORY] Expand ONE learning by id (from a prior knit_search_learnings hit). Hierarchical retrieval — search returns headlines, this fetches details. Saves tokens vs. dumping full bodies.',
       inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Learning id from a prior knit_search_learnings result.' } }, required: ['id'] },
     },
     {
