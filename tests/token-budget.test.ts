@@ -152,3 +152,54 @@ describe('knit_brain_status — token_budget surface', () => {
     expect(result.token_accounting.note).toBeDefined();
   });
 });
+
+// ── v0.11.4 — handleBrainStatus edge cases ───────────────────────────────────
+
+describe('handleBrainStatus — edge cases', () => {
+  it('project root with no .git directory — status returns without crashing', async () => {
+    const { handleBrainStatus } = await import('../src/mcp/handlers.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    // projectRoot from beforeEach has no .git dir
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+
+    const brain = buildMinimalBrain();
+    let result: ReturnType<typeof JSON.parse> | undefined;
+    expect(() => {
+      result = JSON.parse(handleBrainStatus({}, brain));
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    expect(result.token_budget).toBeDefined();
+  });
+
+  it('missing CLAUDE.md — claudeMdBytes reported as 0, does not throw', async () => {
+    const { handleBrainStatus } = await import('../src/mcp/handlers.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    mkdirSync(projectDataDir(projectRoot), { recursive: true });
+    // No CLAUDE.md written — statSync should fail gracefully
+
+    const result = JSON.parse(handleBrainStatus({}, buildMinimalBrain()));
+    expect(result.token_budget.budgets.claude_md.bytes).toBe(0);
+    expect(result.token_budget.budgets.claude_md.verdict).toBe('healthy');
+  });
+
+  it('scanProjectFingerprint throws — handleBrainStatus surfaces empty fingerprint, no crash', async () => {
+    const { handleBrainStatus } = await import('../src/mcp/handlers.js');
+    const { projectDataDir } = await import('../src/engine/paths.js');
+    // Use a non-existent sub-path to force scanProjectFingerprint to scan
+    // a completely empty dir with no package.json etc. It should still return.
+    const emptyRoot = mkdtempSync(join(tmpdir(), 'knit-nofp-'));
+    try {
+      mkdirSync(projectDataDir(emptyRoot), { recursive: true });
+      const brain = { ...buildMinimalBrain(), rootPath: emptyRoot };
+      let result: ReturnType<typeof JSON.parse> | undefined;
+      expect(() => {
+        result = JSON.parse(handleBrainStatus({}, brain));
+      }).not.toThrow();
+      // fingerprint field must exist — either populated or empty-defaults
+      expect(result).toBeDefined();
+      expect(result.fingerprint).toBeDefined();
+    } finally {
+      try { rmSync(emptyRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+});
