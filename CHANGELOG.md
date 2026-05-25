@@ -2,6 +2,92 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.4] — 2026-05-25
+
+**Dogfood audit.** Knit ran a full audit of its own codebase using its
+own `knit_spawn_team_worktree` primitive — 4 parallel teams (Core Logic,
+Infrastructure, UI, Quality Assurance) on isolated git worktrees, each
+focused on one domain. Ships the resulting fixes plus a tool-description
+classification pass so any connected agent (Claude Code, Cursor, Codex)
+picks the right tool reliably.
+
+### Added
+
+- **22 new edge-case tests** (Quality Assurance team) covering: BM25 mutation
+  + tokenizer edges, `chunkRequirements` paragraph splitting + atomicity,
+  `handleBrainStatus` survival on missing `.git` / missing CLAUDE.md /
+  empty fingerprint, `errorResponse` envelope shape across handlers.
+  Test count: 665 → 687.
+- **Expanded MCP tool reference** in `workflow-protocol.ts`. The `tools()`
+  generator was frozen at the v0.4 tool surface (~22 tools listed). Now
+  documents the full v0.11 surface across 5 sections — query, update, team
+  orchestration, cross-project memory, feature/protocol-guard, self-healing
+  classifier, requirements ingestion (most of the 53 v0.11 tools). Any agent fetching
+  the workflow now sees what's actually available.
+
+### Fixed
+
+- **HIGH — `engram refresh` no longer clobbers user-curated CLAUDE.md.**
+  `src/commands/refresh.ts` used to call `writeFileSync(claudeMdPath, …)`
+  unconditionally, overwriting any user content alongside Knit's block.
+  Now uses the same `spliceKnitBlock` + marker-detection pattern as
+  `cache.ts:writeProjectClaudeMd` — splices the marker block in place,
+  warns + skips when no markers exist, writes fresh when no file exists.
+  Matches the no-clobber promise documented in `claude-md.ts`.
+- **`saveSource` + `loadSource` validate `sourceId`** (Core Logic team).
+  Invalid sourceIds now throw on save with a clear error and return null
+  on load — prevents path-traversal and silent index corruption.
+- **`appendGlobalLearning` propagates write failures** (Core Logic team).
+  Now wraps `appendFileSync` in try/catch with stderr log + rethrow so
+  silent disk-full / permission errors surface immediately.
+- **`refresh` cache contract restored in agent-fetcher** (Core Logic team).
+  `FetcherOptions` now includes a `refresh` field; tier-2 cache check
+  honors it correctly so `--refresh` actually re-fetches.
+- **`redactSecrets` applied across all persistence boundaries**
+  (Infrastructure team). Adds secret scrubbing to `label`, `tags`,
+  `domains` params in `handleRecordLearning`, `handleRecordFalsePositive`,
+  `handleSaveSessionSummary` — closes the last gaps where a pasted
+  `sk-…` / `ghp_…` token could land in learnings.
+- **`handleGenerateTestCases` enforces a 100KB response ceiling**
+  (Infrastructure team). Trailing chunks dropped until the response
+  fits — prevents multi-MB MCP envelopes when a broad query matches
+  most of a long spec.
+- **Drop dead branch in `classifyOrigin`** (Core Logic team).
+
+### Changed
+
+- **Tool descriptions reclassified with explicit prefixes**
+  (`[PROTOCOL]`, `[REVIEW]`, `[MEMORY]`, `[MEMORY-WRITE]`, `[GRAPH]`)
+  on 14 key tools. Each description now states what the tool does in
+  one sentence + names the companion tool when ambiguity exists
+  (e.g. `knit_search_learnings` → `knit_search_global_learnings`
+  for cross-project). Removes the "only 1-2 tools get called" failure
+  mode where the LLM couldn't tell which tool to reach for.
+- **TODO annotations** added at queryByDomains mutation contract,
+  scanner unknown-package-manager path, scanner package-shape validation —
+  so the next refactor pass has clear pointers.
+
+### Audit methodology
+
+This release exercised Knit's own team-worktree primitive end-to-end:
+
+```bash
+# 4 parallel teams, each on its own branch + worktree
+knit_spawn_team_worktree("Core Logic")        # engine/
+knit_spawn_team_worktree("Infrastructure")    # mcp/
+knit_spawn_team_worktree("UI")                # cli + generators (read-only audit)
+knit_spawn_team_worktree("Quality Assurance") # tests/
+
+# each team works in isolation, commits to its branch
+# orchestrator merges sequentially with conflict resolution
+knit_finalize_team_worktree("Core Logic", "merge")
+knit_finalize_team_worktree("Infrastructure", "merge")
+knit_finalize_team_worktree("Quality Assurance", "merge")
+# UI findings applied on main (read-only audit → orchestrator-driven fixes)
+```
+
+53 MCP tools (unchanged from v0.11.3), 687 tests (665 → 687, +22).
+
 ## [0.11.3] — 2026-05-25
 
 **Propagation patch.** Strengthens the upgrade-notification reach so future

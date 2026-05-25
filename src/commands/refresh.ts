@@ -5,7 +5,7 @@ import ora from 'ora';
 import { scanProject } from '../engine/scanner.js';
 import { buildKnowledge } from '../engine/knowledge.js';
 import { findFalsePositives } from '../engine/learnings.js';
-import { generateClaudeMd } from '../generators/claude-md.js';
+import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { knowledgePath, learningsDir, projectDataDir } from '../engine/paths.js';
 import type { KnitConfig } from '../engine/types.js';
 
@@ -61,11 +61,22 @@ export async function refreshCommand(targetDir: string): Promise<void> {
     tokenOptimization: 'standard',
   };
 
-  // Regenerate CLAUDE.md
+  // Regenerate CLAUDE.md — splice marker-block in place so user-curated content survives.
   const genSpinner = ora({ text: chalk.dim('Regenerating CLAUDE.md...'), spinner: 'dots' }).start();
-  writeFileSync(join(rootPath, 'CLAUDE.md'), generateClaudeMd(config, knowledge, falsePositives), 'utf-8');
+  const claudeMdPath = join(rootPath, 'CLAUDE.md');
+  const newBlock = generateClaudeMd(config, knowledge, falsePositives);
+  const existing = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf-8') : '';
+  if (existing && existing.includes(KNIT_MARKER_START)) {
+    const { content } = spliceKnitBlock(existing, newBlock);
+    writeFileSync(claudeMdPath, content, 'utf-8');
+  } else if (!existing) {
+    writeFileSync(claudeMdPath, newBlock, 'utf-8');
+  } else {
+    // User-curated CLAUDE.md without Knit markers — never clobber.
+    genSpinner.warn(chalk.yellow('CLAUDE.md is user-curated (no Knit markers). Skipping write to avoid clobber.'));
+  }
   writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
-  genSpinner.succeed(chalk.dim('CLAUDE.md + knowledge.json updated'));
+  if (genSpinner.isSpinning) genSpinner.succeed(chalk.dim('CLAUDE.md + knowledge.json updated'));
 
   // Report
   console.log();

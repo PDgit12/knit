@@ -385,5 +385,46 @@ function tools(_: WorkflowContext): string {
 | \`knit_define_team\` | Create a custom team. |
 | \`knit_start_team_review\` | Start a parallel review board. |
 | \`knit_post_team_findings\` | Each team posts to the shared board. |
-| \`knit_get_board_summary\` | Cross-team findings, severity-gated. |`;
+| \`knit_get_board_summary\` | Cross-team findings, severity-gated. |
+| \`knit_spawn_team_worktree\` | Spawn a git worktree for a team to do isolated parallel writes. |
+| \`knit_list_team_worktrees\` | List active team worktrees. |
+| \`knit_finalize_team_worktree\` | Merge or discard a team worktree branch. |
+
+**Cross-project memory** (v0.4+):
+| Tool | Use when |
+|------|----------|
+| \`knit_record_global_learning\` | Cross-project insight (applies beyond current repo). |
+| \`knit_search_global_learnings\` | Search learnings across all your projects. |
+| \`knit_reflect\` | Surface candidate patterns from session history. |
+| \`knit_get_suggestions\` | Adaptive warnings derived from past patterns for given domains. |
+| \`knit_install_agent\` | Fetch a specialized VoltAgent on demand. |
+| \`knit_prune_sessions\` | Garbage-collect old session log entries. |
+| \`knit_consolidate_learnings\` | Promote stable patterns to consolidated tier. |
+| \`knit_get_learning\` | Fetch a single learning by id. |
+
+**Feature gating + protocol guard** (v0.5+):
+| Tool | Use when |
+|------|----------|
+| \`knit_list_features\` | See which tools are hidden behind tier gates and how to enable them. |
+| \`knit_enable_feature\` / \`knit_disable_feature\` | Toggle a feature on/off for this project. |
+| \`knit_set_protocol_strictness\` / \`knit_get_protocol_strictness\` | off / warn / block — controls Protocol Guard hook. |
+| \`knit_scan_integrations\` | Detect external integrations the project uses. |
+| \`knit_compounding_metrics\` | Per-session token + hit-rate metrics. |
+| \`knit_get_metrics_history\` | History of compounding metrics for trend lines. |
+| \`knit_verify_claim\` | Cheap fact-check against the knowledge graph before quoting code. |
+
+**Self-healing classifier** (v0.11):
+| Tool | Use when |
+|------|----------|
+| \`knit_get_calibration\` / \`knit_reset_calibration\` | Inspect or reset per-project classifier tuning. |
+| \`knit_get_fingerprint\` | Project fingerprint used for shape-aware tier gating. |
+| \`knit_infer_domains\` | Auto-derive domain tags from files. |
+| \`knit_compose_template\` | Compose a generated artifact from a template. |
+
+**Requirements ingestion** (v0.11):
+| Tool | Use when |
+|------|----------|
+| \`knit_index_requirements\` | Chunk + BM25-index a long spec for retrieval. |
+| \`knit_generate_test_cases\` | Retrieve relevant chunks for a feature query (token-bounded). |
+| \`knit_list_requirements\` / \`knit_delete_requirements\` | Manage indexed sources. |`;
 }
