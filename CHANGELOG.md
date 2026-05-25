@@ -57,8 +57,9 @@ picks the right tool reliably.
 ### Changed
 
 - **Tool descriptions reclassified with explicit prefixes**
-  (`[PROTOCOL]`, `[REVIEW]`, `[MEMORY]`, `[MEMORY-WRITE]`, `[GRAPH]`)
-  on 14 key tools. Each description now states what the tool does in
+  (`[PROTOCOL]`, `[REVIEW]`, `[MEMORY]`, `[MEMORY-WRITE]`, `[GRAPH]`,
+  `[END OF SESSION]`, `[PROTOCOL FIRST]`) on 16 key tools. Each
+  description now states what the tool does in
   one sentence + names the companion tool when ambiguity exists
   (e.g. `knit_search_learnings` → `knit_search_global_learnings`
   for cross-project). Removes the "only 1-2 tools get called" failure
