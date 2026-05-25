@@ -425,7 +425,16 @@ The mem0 / Letta / agentmemory comparison deserves a separate section because th
 
 ### What's honest about this
 
-**On pure retrieval quality, agentmemory's published 95.2% R@5 on LongMemEval-S is likely the ceiling Knit's BM25+RRF+graph would hit** (same architecture, same fusion constant). But Knit hasn't run the benchmark yet, so we don't claim parity — only that the underlying primitives are the same.
+**Knit's measured retrieval on a 50-question synthetic harness (v0.11.2):**
+
+| Metric | Knit (v0.11.2 synthetic) | agentmemory (LongMemEval-S, published) |
+|---|---|---|
+| Top-1 accuracy | **86.0%** | not published in that form |
+| Recall@5 | **96.0%** | **95.2%** |
+
+Run it yourself: `npm run bench`. Source: [`benchmarks/retrieval-synthetic.ts`](./benchmarks/retrieval-synthetic.ts).
+
+**These numbers are NOT apples-to-apples with agentmemory's.** Their benchmark is 1,500 questions from real long conversations; Knit's is 50 hand-authored questions on a 7KB synthetic corpus. The numbers are close because the architecture is similar (BM25 + RRF), not because we've proven parity at scale. **Real comparison requires running LongMemEval-S on Knit** — on the roadmap for v0.13.
 
 **Knit isn't trying to be a better mem0.** It's a different product:
 - **MCP-native + zero-glue install** — mem0/Letta require SDK integration; Knit drops into any MCP host (Claude Code, Cursor, Codex) with one command.
