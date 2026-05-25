@@ -10,10 +10,16 @@
  * unit tests trivial and lets the handler layer compose freely.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// v0.11.1 — turn-edit log helpers (appendTurnEdit/readTurnEdits/clearTurnEdits)
+// are kept as exports despite having no MCP-handler callers TODAY. Reasoning:
+// (1) the silent-failures team made them robust with stderr-logging in
+// v0.11.1, so they're production-ready; (2) future MCP handlers (e.g., a
+// programmatic re-classify-turn surface in v0.12 phase 3) will want direct
+// access without re-deriving the inline-hook implementation. The runtime
+// writing still happens inline in src/generators/settings.ts; these are the
+// engine-level mirrors.
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-
-import { appendFileSync } from 'node:fs';
 
 import {
   claimMarkerPath,
@@ -116,8 +122,12 @@ export function clearClaimMarker(rootPath: string): void {
 
 /** v0.11 slice 3 — append a file path to this turn's edit log. Called
  *  programmatically when the MCP layer wants to track what was touched;
- *  in practice the PostToolUse hook does the writing inline because hooks
- *  fire on every Edit/Write while MCP handlers don't. */
+ *  in practice the PostToolUse hook in src/generators/settings.ts does
+ *  the writing inline since hooks fire on every Edit/Write while MCP
+ *  handlers don't. The QA-team audit (v0.11.1) flagged these as
+ *  "dead exports" — kept anyway because future MCP handlers (e.g., a
+ *  programmatic re-classify-turn handler) may need direct access, and
+ *  the silent-failures team made them robust with stderr logging. */
 export function appendTurnEdit(rootPath: string, file: string): void {
   const path = turnEditLogPath(rootPath);
   try {

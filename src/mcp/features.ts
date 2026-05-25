@@ -67,6 +67,7 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_index_requirements', tier: 1, category: 'memory', rationale: 'Ingest long-form requirements/specs into a BM25-indexed per-project store. Enables the 200KB-doc → relevant-chunks-only retrieval pattern.' },
   { tool: 'knit_generate_test_cases', tier: 1, category: 'memory', rationale: 'Query indexed requirements; returns top-N relevant chunks + test-generation template. Companion to knit_index_requirements.' },
   { tool: 'knit_list_requirements', tier: 1, category: 'memory', rationale: 'List indexed requirements sources (header info only). Cheap discovery tool.' },
+  { tool: 'knit_delete_requirements', tier: 1, category: 'memory', rationale: 'Cleanup tool — remove an outdated/wrong indexed source by id. Companion to knit_list_requirements + knit_index_requirements.' },
   { tool: 'knit_get_fingerprint', tier: 1, category: 'diagnostics', rationale: 'v0.12 — project fingerprint (lang/framework/test/lint/build/CI). Foundation for auto-config and per-project template generation.' },
   { tool: 'knit_infer_domains', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 1 — ranks candidate domains via RRF fusion of git co-change + import-graph centrality + test colocation. Feeds template composition.' },
   { tool: 'knit_compose_template', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 2 — generates CLAUDE.md sections (Project Identity, Build & Verify, Domain Architecture) from fingerprint + domains. Preview only; user accepts manually.' },

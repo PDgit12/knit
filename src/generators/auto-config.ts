@@ -36,7 +36,12 @@ export function composeAutoConfiguredSections(
 }
 
 function buildProjectIdentity(projectName: string, fp: ProjectFingerprint): string {
-  const lines = [`## ${projectName}`, ''];
+  // Strip backticks from the heading — embedded backticks in a markdown
+  // heading turn fragments into inline code spans and break the heading
+  // visually. We just drop them rather than escape so the rendered
+  // anchor stays clean.
+  const safeName = projectName.replace(/`/g, '');
+  const lines = [`## ${safeName}`, ''];
   const stack: string[] = [];
   if (fp.languages.length > 0) stack.push(`**Stack:** ${fp.languages.join(' + ')}`);
   if (fp.framework) stack.push(`**Framework:** ${fp.framework}`);

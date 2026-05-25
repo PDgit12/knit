@@ -24,8 +24,8 @@ const allEnabled: ProjectShape = {
 };
 
 describe('TOOL_REGISTRY', () => {
-  it('declares 52 tools (v0.12 phase 2 adds knit_compose_template)', () => {
-    expect(TOOL_REGISTRY.length).toBe(52);
+  it('declares 53 tools (v0.11.2 adds knit_delete_requirements)', () => {
+    expect(TOOL_REGISTRY.length).toBe(53);
   });
 
   it('every tool has a unique name', () => {
@@ -45,9 +45,9 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
-  it('Tier 1 contains exactly 39 universal tools (v0.12 phase 2 adds knit_compose_template)', () => {
+  it('Tier 1 contains exactly 40 universal tools (v0.11.2 adds knit_delete_requirements)', () => {
     const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
-    expect(tier1.length).toBe(39);
+    expect(tier1.length).toBe(40);
   });
 
   it('Tier 2 contains exactly 10 conditional tools', () => {
@@ -130,16 +130,16 @@ describe('isToolActive — gating rules', () => {
 });
 
 describe('computeFeatureListing', () => {
-  it('empty project shape exposes only Tier 1 (39 tools after v0.12 phase 2 adds knit_compose_template)', () => {
+  it('empty project shape exposes only Tier 1 (40 tools — v0.11.2 adds knit_delete_requirements)', () => {
     const listing = computeFeatureListing(emptyShape);
-    expect(listing.active.length).toBe(39);
+    expect(listing.active.length).toBe(40);
     expect(listing.available.length).toBe(13);
-    expect(listing.totals).toEqual({ active: 39, available: 13, total: 52 });
+    expect(listing.totals).toEqual({ active: 40, available: 13, total: 53 });
   });
 
-  it('fully-enabled project shape exposes everything (52)', () => {
+  it('fully-enabled project shape exposes everything (53)', () => {
     const listing = computeFeatureListing(allEnabled);
-    expect(listing.active.length).toBe(52);
+    expect(listing.active.length).toBe(53);
     expect(listing.available.length).toBe(0);
   });
 

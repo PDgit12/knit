@@ -51,7 +51,7 @@ import {
   isValidStrictness, readProtocolConfig, writeClassificationMarker, writeClaimMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
 import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration } from '../engine/calibration.js';
-import { chunkRequirements, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
+import { chunkRequirements, deleteSource, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
 import type { RequirementsSource } from '../engine/requirements.js';
 import { inferDomains } from '../engine/domain-inference.js';
 import { composeAutoConfiguredSections } from '../generators/auto-config.js';
@@ -470,7 +470,57 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
         },
       };
     })(),
-    instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases.',
+    ...(() => {
+      // v0.11 — calibration snapshot. Best-effort: never let a malformed
+      // calibration file break status.
+      try {
+        const cal = loadCalibration(brain.rootPath);
+        const pendingFp = Object.values(cal.fpDirections || {}).reduce<number>(
+          (acc, v) => acc + (typeof v === 'number' ? v : 0),
+          0,
+        );
+        return {
+          calibration: {
+            scope_adjust: cal.scopeAdjust ?? 0,
+            risk_adjust: cal.riskAdjust ?? 0,
+            pending_fp_count: pendingFp,
+          },
+        };
+      } catch {
+        return { calibration: { scope_adjust: 0, risk_adjust: 0, pending_fp_count: 0 } };
+      }
+    })(),
+    ...(() => {
+      // v0.11 — requirements index snapshot.
+      try {
+        const sources = listSources(brain.rootPath);
+        const totalChunks = sources.reduce((acc, s) => acc + (s.chunkCount ?? 0), 0);
+        return {
+          requirements: {
+            source_count: sources.length,
+            total_chunks: totalChunks,
+          },
+        };
+      } catch {
+        return { requirements: { source_count: 0, total_chunks: 0 } };
+      }
+    })(),
+    ...(() => {
+      // v0.11 — project fingerprint (slim).
+      try {
+        const fp = scanProjectFingerprint(brain.rootPath);
+        return {
+          fingerprint: {
+            languages: fp.languages ?? [],
+            framework: fp.framework ?? null,
+            test_runner: fp.testRunner ?? null,
+          },
+        };
+      } catch {
+        return { fingerprint: { languages: [], framework: null, test_runner: null } };
+      }
+    })(),
+    instruction: 'Brain is ready. Next: call knit_classify_task with the files you plan to touch to get your tier and phases. Call knit_get_calibration / knit_list_requirements / knit_get_fingerprint for details.',
   });
 }
 
@@ -2001,6 +2051,20 @@ export function handleListRequirements(_params: Record<string, string>, brain: B
     instruction: summaries.length === 0
       ? 'No requirements indexed yet. Call knit_index_requirements with a file_path to ingest one.'
       : 'Use source_id with knit_generate_test_cases to scope retrieval to one doc, or omit it to search across all.',
+  });
+}
+
+export function handleDeleteRequirements(params: Record<string, string>, brain: BrainCache): string {
+  const rawId = (params.source_id || '').toString();
+  const sourceId = slugifySourceId(rawId);
+  const deleted = deleteSource(brain.rootPath, sourceId);
+  return JSON.stringify({
+    status: deleted ? 'deleted' : 'not_found',
+    deleted,
+    source_id: sourceId,
+    instruction: deleted
+      ? 'Source removed. Call knit_list_requirements to see what remains.'
+      : 'No source with that id. Call knit_list_requirements to see indexed source ids.',
   });
 }
 

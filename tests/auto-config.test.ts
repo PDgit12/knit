@@ -98,6 +98,20 @@ describe('composeAutoConfiguredSections — fallbacks', () => {
     expect(domainArchitecture).toMatch(/knit_infer_domains/);
   });
 
+  it('strips backticks from projectName so headings stay intact', () => {
+    const weirdName = 'my-`tool`';
+    const { projectIdentity } = composeAutoConfiguredSections(weirdName, FULL_FP, []);
+    // First line is the H2. It must NOT contain any backticks — embedded
+    // backticks in a markdown heading turn pieces into inline code spans
+    // and break the rendered title.
+    const headingLine = projectIdentity.split('\n')[0];
+    expect(headingLine.startsWith('## ')).toBe(true);
+    expect(headingLine.includes('`')).toBe(false);
+    // And whole-section backtick count stays even (zero here).
+    const totalBackticks = (projectIdentity.match(/`/g) ?? []).length;
+    expect(totalBackticks % 2).toBe(0);
+  });
+
   it('truncates anchor files to first 3 + count of remainder', () => {
     const many: DomainCandidate[] = [{
       name: 'big', confidence: 1.0, signals: ['centrality'],

@@ -26,7 +26,7 @@ import {
   handleListFeatures, handleEnableFeature, handleDisableFeature,
   handleScanIntegrations, handleCompoundingMetrics, handleGetMetricsHistory, handleVerifyClaim,
   handleGetCalibration, handleResetCalibration,
-  handleIndexRequirements, handleGenerateTestCases, handleListRequirements,
+  handleIndexRequirements, handleGenerateTestCases, handleListRequirements, handleDeleteRequirements,
   handleGetFingerprint, handleInferDomains, handleComposeTemplate,
   handleGetLearning, handleConsolidateLearnings,
   detectProjectShape,
@@ -142,6 +142,11 @@ export function getToolDefinitions(): ToolDef[] {
       name: 'knit_list_requirements',
       description: 'List all indexed requirements sources (header info only — no chunks). Cheap. Call before knit_generate_test_cases to see what is available.',
       inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'knit_delete_requirements',
+      description: 'Delete an indexed requirements source by id. Returns {deleted: bool}. Use knit_list_requirements first to see source ids.',
+      inputSchema: { type: 'object', properties: { source_id: { type: 'string', description: 'Source id to delete (as shown by knit_list_requirements).' } }, required: ['source_id'] },
     },
     {
       name: 'knit_get_fingerprint',
@@ -498,6 +503,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_index_requirements: handleIndexRequirements,
   knit_generate_test_cases: handleGenerateTestCases,
   knit_list_requirements: handleListRequirements,
+  knit_delete_requirements: handleDeleteRequirements,
   knit_get_fingerprint: handleGetFingerprint,
   knit_infer_domains: handleInferDomains,
   knit_compose_template: handleComposeTemplate,

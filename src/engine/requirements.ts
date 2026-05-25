@@ -16,7 +16,7 @@
  * audience.
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname } from 'node:path';
 
 import { BM25Index, type BM25Document } from './retrieval/bm25.js';
@@ -134,6 +134,22 @@ export function listSources(rootPath: string): Array<Omit<RequirementsSource, 'c
     }
   }
   return out;
+}
+
+/** Delete a single indexed source by id. Returns true if a file existed
+ *  and was removed; false on missing file, invalid id, or I/O error.
+ *  Validates the source id with the same pattern as the index handler so
+ *  callers can't escape requirementsDir via traversal-style ids. */
+export function deleteSource(rootPath: string, sourceId: string): boolean {
+  if (typeof sourceId !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(sourceId)) return false;
+  const path = requirementSourcePath(rootPath, sourceId);
+  if (!existsSync(path)) return false;
+  try {
+    rmSync(path, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Build a BM25 index over a single source's chunks. */
