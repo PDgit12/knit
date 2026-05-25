@@ -100,7 +100,15 @@ function generateSessionStartup(): string {
 
 First action: call \`knit_load_session\`. One MCP call returns last sessions, handoff, learnings, false positives. If \`handoff.md\` exists at the repo root, resume that work first.
 
-Protocol Guard runs in \`warn\` mode by default — adjust with \`knit_set_protocol_strictness\`.`;
+Protocol Guard runs in \`warn\` mode by default — adjust with \`knit_set_protocol_strictness\`.
+
+## v0.11 tool surface (in addition to query/search/record)
+
+- **\`knit_verify_claim\`** — fact-check one claim against the knowledge graph before LEARN. Stop-hook enforces on standard/complex scope.
+- **\`knit_index_requirements\` + \`knit_generate_test_cases\` + \`knit_list_requirements\` + \`knit_delete_requirements\`** — long-form spec / RFC ingestion (200KB doc → relevant 5–7KB chunks per feature query).
+- **\`knit_get_fingerprint\` + \`knit_infer_domains\` + \`knit_compose_template\`** — auto-config primitives: detected stack → ranked domains → composed CLAUDE.md sections (preview only; you paste to accept).
+- **\`knit_get_calibration\` + tag your false-positives** (e.g. \`#complex-was-trivial\`) — the per-project self-healing classifier tunes thresholds after 3 same-direction FPs.
+- **\`knit_brain_status\`** surfaces calibration / requirements / fingerprint state so you can discover all of the above from one health check.`;
 }
 
 function generateProjectMap(knowledge: ProjectKnowledge): string {

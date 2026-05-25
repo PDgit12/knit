@@ -56,9 +56,19 @@ export function slugifySourceId(filePath: string): string {
     .slice(0, 80) || 'requirements';
 }
 
+/** v0.11.2 — Cap on chunks per source. Prevents adversarial input
+ *  (100K one-sentence paragraphs each above min_chars) from producing
+ *  an unbounded chunks array. 2000 is comfortably above any real spec
+ *  (a 200KB doc with ~100-char paragraphs is ~2000 chunks; a 50KB Jira
+ *  export is ~500). Beyond the cap, chunks stop being appended — callers
+ *  detect truncation by comparing returned length to MAX_CHUNKS. */
+export const MAX_CHUNKS_PER_SOURCE = 2000;
+
 /** Chunk a requirements doc on paragraph boundaries (blank line). Drops
  *  chunks shorter than `minChars` (default 50) since they're usually noise
- *  (section markers, page numbers). Tracks line ranges for traceability. */
+ *  (section markers, page numbers). Tracks line ranges for traceability.
+ *  Hard-capped at MAX_CHUNKS_PER_SOURCE so pathological input can't blow
+ *  up memory or downstream BM25 index size. */
 export function chunkRequirements(content: string, minChars = 50): RequirementChunk[] {
   const lines = content.split('\n');
   const chunks: RequirementChunk[] = [];
@@ -69,6 +79,11 @@ export function chunkRequirements(content: string, minChars = 50): RequirementCh
 
   const flush = (endLine: number): void => {
     if (bufLines.length === 0) return;
+    if (chunks.length >= MAX_CHUNKS_PER_SOURCE) {
+      bufLines = [];
+      bufStart = 0;
+      return;
+    }
     const text = bufLines.join('\n').trim();
     if (text.length >= minChars) {
       id += 1;
@@ -80,6 +95,7 @@ export function chunkRequirements(content: string, minChars = 50): RequirementCh
 
   for (const line of lines) {
     lineNum += 1;
+    if (chunks.length >= MAX_CHUNKS_PER_SOURCE) break;
     if (line.trim() === '') {
       flush(lineNum - 1);
     } else {

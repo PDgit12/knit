@@ -51,11 +51,20 @@ import {
   isValidStrictness, readProtocolConfig, writeClassificationMarker, writeClaimMarker, writeProtocolConfig,
 } from '../engine/protocol-guard.js';
 import { loadCalibration, parseDirection, recordClassifierFP, resetCalibration } from '../engine/calibration.js';
-import { chunkRequirements, deleteSource, listSources, loadSource, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
+import { chunkRequirements, deleteSource, listSources, loadSource, MAX_CHUNKS_PER_SOURCE, retrieveTopChunks, saveSource, slugifySourceId } from '../engine/requirements.js';
 import type { RequirementsSource } from '../engine/requirements.js';
 import { inferDomains } from '../engine/domain-inference.js';
 import { composeAutoConfiguredSections } from '../generators/auto-config.js';
 import type { TaskTier, RiskTier, ScopeTier, ChangeKind } from '../engine/types.js';
+
+/** v0.11.2 — Standard error envelope. Every handler error path should go
+ *  through this so callers can pattern-match on `status === 'error'`
+ *  uniformly. `extra` is for domain-specific fields callers expect on
+ *  error (e.g. `results: []` for search tools so the response shape
+ *  stays stable). */
+export function errorResponse(error: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ status: 'error', error, ...extra });
+}
 
 
 export function detectDomainsFromFiles(files: string[]): Set<string> {
@@ -1692,7 +1701,7 @@ function computeSuggestedReads(
  *  instead of paying for full bodies upfront. */
 export function handleGetLearning(params: Record<string, string>, brain: BrainCache): string {
   const id = (params.id || '').trim();
-  if (!id) return JSON.stringify({ error: 'id parameter is required' });
+  if (!id) return errorResponse('id parameter is required');
   const entry = brain.knowledgeBase.entries.find((e) => e.id === id);
   if (!entry) {
     return JSON.stringify({
@@ -1715,7 +1724,7 @@ export function handleGetLearning(params: Record<string, string>, brain: BrainCa
 
 export function handleRecordLearning(params: Record<string, string>, brain: BrainCache): string {
   if (!params.summary?.trim() && !params.lesson?.trim()) {
-    return JSON.stringify({ error: 'summary and lesson are required — cannot record empty learning' });
+    return errorResponse('summary and lesson are required — cannot record empty learning');
   }
   const date = new Date().toISOString().split('T')[0];
   const entry = {
@@ -1914,10 +1923,10 @@ export function handleGetFingerprint(_params: Record<string, string>, brain: Bra
 export function handleIndexRequirements(params: Record<string, string>, brain: BrainCache): string {
   const filePath = (params.file_path || '').trim();
   if (!filePath) {
-    return JSON.stringify({ error: 'file_path is required', status: 'error' });
+    return errorResponse('file_path is required');
   }
   if (!existsSync(filePath)) {
-    return JSON.stringify({ error: `file not found: ${filePath}`, status: 'error' });
+    return errorResponse(`file not found: ${filePath}`);
   }
   // H1: Reject non-regular-files and files exceeding 5 MB before reading.
   const stat = statSync(filePath);
@@ -1931,7 +1940,7 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   try {
     content = readFileSync(filePath, 'utf-8');
   } catch (err) {
-    return JSON.stringify({ error: `read failed: ${(err as Error).message}`, status: 'error' });
+    return errorResponse(`read failed: ${(err as Error).message}`);
   }
   const sourceBytes = Buffer.byteLength(content, 'utf-8');
   const minCharsRaw = parseInt(params.min_chars || '50', 10);
@@ -1963,15 +1972,20 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   try {
     saveSource(brain.rootPath, source);
   } catch (err) {
-    return JSON.stringify({ error: `save failed: ${(err as Error).message}`, status: 'error' });
+    return errorResponse(`save failed: ${(err as Error).message}`);
   }
+  const chunksTruncated = chunks.length >= MAX_CHUNKS_PER_SOURCE;
   return JSON.stringify({
     status: 'indexed',
     source_id: sourceId,
     chunks_indexed: chunks.length,
+    chunks_truncated: chunksTruncated,
+    max_chunks_per_source: MAX_CHUNKS_PER_SOURCE,
     source_bytes: sourceBytes,
     avg_chunk_chars: Math.round(chunks.reduce((s, c) => s + c.text.length, 0) / chunks.length),
-    instruction: `Indexed ${chunks.length} chunks from ${filePath}. Call knit_generate_test_cases with feature="<your topic>" to retrieve only the relevant chunks for a specific feature.`,
+    instruction: chunksTruncated
+      ? `Indexed ${chunks.length} chunks from ${filePath} (HIT THE ${MAX_CHUNKS_PER_SOURCE}-CHUNK CAP — input is likely too long or paragraph-dense; split it). Call knit_generate_test_cases with feature="<your topic>" to retrieve only the relevant chunks for a specific feature.`
+      : `Indexed ${chunks.length} chunks from ${filePath}. Call knit_generate_test_cases with feature="<your topic>" to retrieve only the relevant chunks for a specific feature.`,
   });
 }
 
@@ -1988,7 +2002,7 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
 export function handleGenerateTestCases(params: Record<string, string>, brain: BrainCache): string {
   const feature = (params.feature || '').trim();
   if (!feature) {
-    return JSON.stringify({ error: 'feature is required (the topic / feature name to retrieve context for)', status: 'error' });
+    return errorResponse('feature is required (the topic / feature name to retrieve context for)');
   }
   const topNRaw = parseInt(params.top_n || '5', 10);
   const topN = Number.isFinite(topNRaw) && topNRaw > 0 && topNRaw <= 30 ? topNRaw : 5;
@@ -2244,7 +2258,7 @@ export function handleGetTeamPrompt(params: Record<string, string>, brain: Brain
     { name: params.team_name, description: '', filePatterns: ['src/**'], agents: ['code-reviewer'] },
   ]);
   const team = teams.find((t) => t.name === params.team_name);
-  if (!team) return JSON.stringify({ error: `Team "${params.team_name}" not found` });
+  if (!team) return errorResponse(`Team "${params.team_name}" not found`);
 
   markTeamWorking(params.team_name);
   const files = (params.files_to_review || '').split(',').map((f) => f.trim()).filter(Boolean);
@@ -2291,7 +2305,7 @@ export function handlePostTeamFindings(params: Record<string, string>, _brain: B
 
 export function handleGetBoardSummary(_params: Record<string, string>, _brain: BrainCache): string {
   const board = getTeamBoard();
-  if (!board) return JSON.stringify({ error: 'No active review board. Call knit_start_team_review first.' });
+  if (!board) return errorResponse('No active review board. Call knit_start_team_review first.');
 
   const summary = getBoardSummary();
   const criticals = board.findings.filter((f) => f.severity === 'CRITICAL');
@@ -2341,7 +2355,7 @@ export function handleReflect(_params: Record<string, string>, brain: BrainCache
 export function handleGetSuggestions(params: Record<string, string>, brain: BrainCache): string {
   const domains = (params.domains || '').split(',').map((d) => d.trim()).filter(Boolean);
   if (domains.length === 0) {
-    return JSON.stringify({ error: 'domains parameter required', suggestions: [] });
+    return errorResponse('domains parameter required', { suggestions: [] });
   }
 
   const suggestions = getAdaptiveSuggestions(brain.knowledgeBase, domains);
@@ -2369,7 +2383,7 @@ export function handleRecordGlobalLearning(params: Record<string, string>, brain
     : undefined;
 
   if (!summary || !lesson || tags.length === 0) {
-    return JSON.stringify({ error: 'summary, lesson, and tags are all required' });
+    return errorResponse('summary, lesson, and tags are all required');
   }
 
   const entry = buildGlobalLearning(brain.rootPath, { summary, lesson, tags, outcome });
@@ -2394,7 +2408,7 @@ export function handleSearchGlobalLearnings(params: Record<string, string>, brai
   const query = (params.query || '').trim();
   const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
   if (!query) {
-    return JSON.stringify({ error: 'query is required', results: [] });
+    return errorResponse('query is required', { results: [] });
   }
 
   // BM25 over the full pool.
@@ -2708,7 +2722,7 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
 export function handleInstallAgent(params: Record<string, string>, brain: BrainCache): string {
   const name = (params.name || '').trim();
   const refresh = (params.refresh || '').toLowerCase() === 'true';
-  if (!name) return JSON.stringify({ error: 'name is required' });
+  if (!name) return errorResponse('name is required');
 
   // Fire-and-forget install. Callers get an immediate ack.
   installAgentsForProject(
@@ -2738,10 +2752,10 @@ export function handleSpawnTeamWorktree(params: Record<string, string>, brain: B
   const taskDescription = (params.task_description || '').trim();
 
   if (!teamName) {
-    return JSON.stringify({ error: 'team_name is required' });
+    return errorResponse('team_name is required');
   }
   if (!taskDescription) {
-    return JSON.stringify({ error: 'task_description is required' });
+    return errorResponse('task_description is required');
   }
 
   try {
@@ -2757,7 +2771,7 @@ export function handleSpawnTeamWorktree(params: Record<string, string>, brain: B
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return JSON.stringify({ error: msg });
+    return errorResponse(msg);
   }
 }
 
@@ -2785,10 +2799,10 @@ export function handleFinalizeTeamWorktree(params: Record<string, string>, brain
   const action = (params.action || '').trim().toLowerCase();
 
   if (!teamName) {
-    return JSON.stringify({ error: 'team_name is required' });
+    return errorResponse('team_name is required');
   }
   if (action !== 'merge' && action !== 'discard') {
-    return JSON.stringify({ error: 'action must be "merge" or "discard"' });
+    return errorResponse('action must be "merge" or "discard"');
   }
 
   try {
@@ -2807,7 +2821,7 @@ export function handleFinalizeTeamWorktree(params: Record<string, string>, brain
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return JSON.stringify({ error: msg });
+    return errorResponse(msg);
   }
 }
 
@@ -2824,7 +2838,7 @@ export function handleSearchSessions(params: Record<string, string>, brain: Brai
   const limit = Math.max(1, Math.min(50, parseInt(params.limit || '10', 10) || 10));
 
   if (!query) {
-    return JSON.stringify({ error: 'query is required', results: [] });
+    return errorResponse('query is required', { results: [] });
   }
 
   const sessions = loadAllSessions(brain.rootPath);
