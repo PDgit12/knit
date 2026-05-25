@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getToolDefinitions, getActiveToolDefinitions, handleToolCall } from '../src/mcp/tools.js';
@@ -729,6 +729,166 @@ describe('getActiveToolDefinitions — filters by ProjectShape', () => {
       expect(names.has('knit_list_features')).toBe(true);
       expect(names.has('knit_enable_feature')).toBe(true);
       expect(names.has('knit_disable_feature')).toBe(true);
+    }
+  });
+});
+
+// ── v0.11.4 — knit_classify_task edge cases ─────────────────────────────────
+
+describe('knit_classify_task — edge cases', () => {
+  const brain = createMockBrain();
+
+  it('empty description + non-trivial file count classifies without crash', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      description: '',
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+    }, brain));
+    expect(result.tier).toBeDefined();
+    expect(['trivial', 'standard', 'complex', 'inquiry']).toContain(result.tier);
+    expect(result.phases).toBeDefined();
+    expect(Array.isArray(result.phases)).toBe(true);
+  });
+
+  it('1000 files_to_touch — returns in under 500ms, verbose mode reports files_count=1000', () => {
+    const files = Array.from({ length: 1000 }, (_, i) => `src/module${i}.ts`).join(',');
+    const start = Date.now();
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: files,
+      verbose: 'true',
+    }, brain));
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(500);
+    expect(result.files_count).toBe(1000);
+    expect(result.tier).toBeDefined();
+  });
+
+  it('Unicode in description (Cyrillic, Chinese, emoji) — no crash, returns valid tier', () => {
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      description: 'Исправить ошибку 修复漏洞 🚀 fix the bug',
+      files_to_touch: 'src/utils.ts',
+    }, brain));
+    expect(result.tier).toBeDefined();
+    expect(['trivial', 'standard', 'complex', 'inquiry']).toContain(result.tier);
+  });
+
+  it('10KB description — no slow regex, returns valid result shape', () => {
+    const bigDescription = 'fix the authentication module so that '.repeat(300); // ~11KB
+    const start = Date.now();
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      description: bigDescription,
+      files_to_touch: 'src/api.ts',
+    }, brain));
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(500);
+    expect(result.tier).toBeDefined();
+    expect(result.phases).toBeDefined();
+  });
+
+  it('context_budget_remaining="-5" defaults to 100 (no penalty)', () => {
+    const withNegative = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+      context_budget_remaining: '-5',
+    }, brain));
+    const withDefault = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+    }, brain));
+    // Both should treat budget as 100 (no degradation) — phases and tier match
+    expect(withNegative.tier).toBe(withDefault.tier);
+    expect(withNegative.phases).toEqual(withDefault.phases);
+  });
+
+  it('context_budget_remaining="999" (out of range) defaults to 100 — no degradation', () => {
+    const withOver = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+      context_budget_remaining: '999',
+    }, brain));
+    const withDefault = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+    }, brain));
+    expect(withOver.tier).toBe(withDefault.tier);
+    expect(withOver.phases).toEqual(withDefault.phases);
+  });
+
+  it('context_budget_remaining="abc" (non-numeric) defaults to 100 — no degradation', () => {
+    const withAlpha = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+      context_budget_remaining: 'abc',
+    }, brain));
+    const withDefault = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+    }, brain));
+    expect(withAlpha.tier).toBe(withDefault.tier);
+    expect(withAlpha.phases).toEqual(withDefault.phases);
+  });
+
+  it('context_budget_remaining="" (empty) defaults to 100 — no degradation', () => {
+    const withEmpty = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+      context_budget_remaining: '',
+    }, brain));
+    const withDefault = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts,src/utils.ts,src/types.ts',
+    }, brain));
+    expect(withEmpty.tier).toBe(withDefault.tier);
+    expect(withEmpty.phases).toEqual(withDefault.phases);
+  });
+
+  it('files_to_touch with embedded NUL byte — classifies without crash, NUL treated as part of filename', () => {
+    // There is no NUL guard on files_to_touch (only file_path gets the guard).
+    // The file gets split and processed; classification returns a valid shape.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/util\x00s.ts',
+    }, brain));
+    expect(result.tier).toBeDefined();
+    expect(['trivial', 'standard', 'complex', 'inquiry']).toContain(result.tier);
+  });
+
+  it('files_to_touch with path traversal — classifies without crash (no guard on files_to_touch)', () => {
+    // files_to_touch is not subject to the file_path traversal guard.
+    // The path goes into domain detection / fanout lookup and is treated as
+    // a plain string; no crash expected.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: '../../etc/passwd',
+    }, brain));
+    expect(result.tier).toBeDefined();
+    expect(['trivial', 'standard', 'complex', 'inquiry']).toContain(result.tier);
+  });
+});
+
+// ── v0.11.4 — knit_load_session edge cases ──────────────────────────────────
+
+describe('knit_load_session — edge cases', () => {
+  const freshBrain = createMockBrain();
+
+  it('include=all on a fresh project — returns without error, session_context and intelligence present', () => {
+    const result = JSON.parse(handleToolCall('knit_load_session', { include: 'all' }, freshBrain));
+    expect(result).toBeDefined();
+    // Response is nested under session_context / intelligence
+    expect(result.session_context).toBeDefined();
+    expect(result.session_context.has_unfinished_work).toBe(false);
+    expect(result.intelligence).toBeDefined();
+    expect(result.intelligence.top_learnings).toBeDefined();
+    expect(Array.isArray(result.intelligence.top_learnings)).toBe(true);
+    expect(result.intelligence.false_positives).toBeDefined();
+    expect(Array.isArray(result.intelligence.false_positives)).toBe(true);
+  });
+
+  it('handoff.md with 1MB content — returns truncated handoff (not full content), no crash', () => {
+    // Create a temp dir as a fake project root and write a large handoff.
+    // Using 1MB (not 100MB) to stay within 500ms budget while still proving truncation behavior.
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-handoff-test-'));
+    try {
+      writeFileSync(join(tmpRoot, 'handoff.md'), 'X'.repeat(1_000_000), 'utf-8');
+      const largeBrain = { ...freshBrain, rootPath: tmpRoot };
+      const start = Date.now();
+      const result = JSON.parse(handleToolCall('knit_load_session', {}, largeBrain));
+      const elapsed = Date.now() - start;
+      expect(elapsed).toBeLessThan(500);
+      expect(result.session_context.has_unfinished_work).toBe(true);
+      // Handoff is truncated to 1500 chars
+      expect(result.session_context.handoff.length).toBeLessThanOrEqual(1500);
+    } finally {
+      try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   });
 });

@@ -310,6 +310,46 @@ describe('diversifyByBranch — session-branch capper', () => {
   });
 });
 
+// ── v0.11.4 — BM25 retrieval edge cases ─────────────────────────────────────
+
+describe('BM25Index — additional edge cases (v0.11.4)', () => {
+  it('1-char query — no crash (tokenizer drops short tokens; returns empty gracefully)', () => {
+    const idx = new BM25Index([
+      { id: '1', text: 'auth fix bug' },
+    ]);
+    // Single char 'a' is shorter than 2-char min — tokenizer drops it → empty query → []
+    expect(() => idx.search('a')).not.toThrow();
+    const results = idx.search('a');
+    expect(Array.isArray(results)).toBe(true);
+  });
+
+  it('query >1000 chars — no slowdown, no crash', () => {
+    const docs = Array.from({ length: 10 }, (_, i) => ({
+      id: String(i),
+      text: `auth fix bug module${i} payment webhook stripe`,
+    }));
+    const idx = new BM25Index(docs);
+    const longQuery = 'auth '.repeat(210); // ~1050 chars
+    const start = Date.now();
+    expect(() => idx.search(longQuery)).not.toThrow();
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  it('corpus with one document — BM25 IDF math does not divide by zero, returns result', () => {
+    // N=1, df=1 → IDF = ln((1 - 1 + 0.5)/(1 + 0.5) + 1) = ln(0.5/1.5 + 1) = ln(1.333) > 0
+    // avgDocLength guard uses || 1 — no division by zero.
+    const idx = new BM25Index([
+      { id: 'only', text: 'payment idempotency webhook retry logic is important' },
+    ]);
+    const results = idx.search('payment');
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('only');
+    expect(Number.isFinite(results[0].score)).toBe(true);
+    expect(results[0].score).toBeGreaterThan(0);
+  });
+});
+
 describe('diversifyByProject — global-learnings project capper', () => {
   function fakeHit(id: string, projectName: string | null) {
     return { id, score: 1, document: { id, text: '', metadata: { entry: { projectName } } } };
