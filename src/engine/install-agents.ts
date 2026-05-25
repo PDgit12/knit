@@ -84,7 +84,7 @@ export async function installAgentsForProject(
     }
 
     try {
-      const baseMd = await fetchAgent(name, opts.refresh ? { ref: undefined } : {});
+      const baseMd = await fetchAgent(name, opts.refresh ? { ref: undefined, refresh: true } : {});
       const relevant: KBEntry[] = knowledgeBase
         ? selectRelevantLearnings(knowledgeBase.entries, name)
         : [];

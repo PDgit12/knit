@@ -109,6 +109,10 @@ export function chunkRequirements(content: string, minChars = 50): RequirementCh
 
 /** Persist an indexed source atomically. */
 export function saveSource(rootPath: string, source: RequirementsSource): void {
+  // Validate sourceId to prevent path traversal — throws rather than silently losing data.
+  if (typeof source.sourceId !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(source.sourceId)) {
+    throw new Error(`[knit] saveSource: invalid sourceId "${source.sourceId}"`);
+  }
   const path = requirementSourcePath(rootPath, source.sourceId);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp`;
@@ -117,6 +121,8 @@ export function saveSource(rootPath: string, source: RequirementsSource): void {
 }
 
 export function loadSource(rootPath: string, sourceId: string): RequirementsSource | null {
+  // Validate sourceId — defense-in-depth against path traversal from raw user input.
+  if (typeof sourceId !== 'string' || !/^[A-Za-z0-9._-]{1,80}$/.test(sourceId)) return null;
   const path = requirementSourcePath(rootPath, sourceId);
   if (!existsSync(path)) return null;
   try {

@@ -71,6 +71,8 @@ export interface FetcherOptions {
   ref?: string;
   /** Override the bundled-core lookup dir. Useful for tests. */
   bundledCoreDir?: string;
+  /** Force re-fetch from network even if locally cached (tier 2). Bundled-core (tier 1) still wins. */
+  refresh?: boolean;
 }
 
 export class AgentFetchError extends Error {
@@ -100,9 +102,9 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
     throw new AgentFetchError(`Unknown agent: "${name}". Not in engram's registry.`);
   }
 
-  // Tier 2 — local cache
+  // Tier 2 — local cache (skip if refresh requested)
   const cachePath = agentsCacheFile(ref, cat, bare);
-  if (existsSync(cachePath)) {
+  if (!opts.refresh && existsSync(cachePath)) {
     return readFileSync(cachePath, 'utf-8');
   }
 

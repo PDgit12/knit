@@ -22,8 +22,15 @@ import type { GlobalLearning } from './types.js';
 /** Append a global learning. Caller has already passed the agent's quality gate. */
 export function appendGlobalLearning(entry: GlobalLearning): void {
   const path = globalLearningsPath();
-  mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch (err) {
+    process.stderr.write(
+      `[knit] global learning append failed at ${path}: ${(err as Error).message}\n`,
+    );
+    throw err;
+  }
 }
 
 /** Search global learnings by free text, most recent first. */
