@@ -15,3 +15,7 @@ handoff.md
 .claude/learnings/engram.md
 .claude/settings.json
 .claude/MIGRATED.txt
+
+# Local-only scratch directory — sample MCP skeleton, draft notes, etc.
+# Anything in _local/ never goes to GitHub or npm.
+_local/
