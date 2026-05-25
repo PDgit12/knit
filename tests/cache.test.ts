@@ -111,6 +111,102 @@ describe('malformed settings robustness', () => {
   });
 });
 
+describe('v0.11.2 — migration preserves user data', () => {
+  it('v9.0-era upgrade preserves user permissions + non-knit-owned hooks + custom top-level keys', async () => {
+    // Pre-populate centralized data so autoInitialize skips and the upgrade
+    // path (maybeRefreshHooks) is what regenerates settings.local.json.
+    const { projectId } = await import('../src/engine/project-id.js');
+    const hash = projectId(projectRoot);
+    const projectData = join(knitHome, 'projects', hash);
+    mkdirSync(projectData, { recursive: true });
+    writeFileSync(
+      join(projectData, 'knowledge.json'),
+      JSON.stringify({ generatedAt: new Date().toISOString(), summary: { totalFiles: 0, totalLines: 0, languageBreakdown: {}, entryPoints: [], highFanoutFiles: [], untestedFiles: [], largestFiles: [] }, files: [], importGraph: {}, exports: {}, testMap: { tested: {}, untested: [], testFiles: [] } }),
+      'utf-8',
+    );
+
+    // Seed a realistic v0.9-era settings.local.json with:
+    //   - stale v7 knit hooks (will be regenerated)
+    //   - user-owned hook entry that MUST survive (no _knitOwned tag)
+    //   - user-owned mcpServers entry that MUST survive (e.g. another MCP)
+    //   - user-owned permissions block that MUST survive
+    //   - custom top-level key (e.g. "my-org-config") that MUST survive
+    mkdirSync(join(projectRoot, '.claude'), { recursive: true });
+    const settingsPath = join(projectRoot, '.claude', 'settings.local.json');
+    const userSettings = {
+      _knitHooks: { version: 7, generatedAt: '1970-01-01T00:00:00Z' },
+      mcpServers: {
+        'knit-brain': { command: 'npx', args: ['-y', 'knit-mcp@latest'] },
+        'my-other-mcp': { command: '/usr/local/bin/my-server', args: ['--port', '8080'] },
+      },
+      hooks: {
+        SessionStart: [
+          // A user-authored hook (NOT _knitOwned) that must survive
+          { hooks: [{ type: 'command', command: 'echo "user-authored startup"' }] },
+        ],
+        UserPromptSubmit: [],
+        PreToolUse: [],
+        PostToolUse: [
+          // A stale _knitOwned entry from v0.9 — should be REPLACED
+          { _knitOwned: true, hooks: [{ type: 'command', command: 'echo "old knit hook"' }] },
+        ],
+        Stop: [],
+      },
+      permissions: {
+        allow: ['Bash(git status)', 'Bash(npm test)'],
+        deny: ['Bash(rm -rf /)'],
+      },
+      'my-org-config': { team: 'platform', 'cost-center': 'CC-1234' },
+    };
+    writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2), 'utf-8');
+
+    const { refreshBrain } = await import('../src/mcp/cache.js');
+    refreshBrain(projectRoot);
+
+    const after = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+
+    // 1. Hooks version bumped.
+    expect(after._knitHooks.version).toBe(HOOKS_VERSION);
+
+    // 2. User-owned hook in SessionStart survived.
+    const userStartHook = after.hooks.SessionStart.find(
+      (e: { hooks?: Array<{ command?: string }>; _knitOwned?: boolean }) =>
+        !e._knitOwned && e.hooks?.some((h) => h.command === 'echo "user-authored startup"'),
+    );
+    expect(userStartHook, 'user-authored SessionStart hook was wiped').toBeDefined();
+
+    // 3. Stale _knitOwned PostToolUse hook was REPLACED, not appended.
+    const stalePostHook = after.hooks.PostToolUse.find(
+      (e: { hooks?: Array<{ command?: string }> }) =>
+        e.hooks?.some((h) => h.command === 'echo "old knit hook"'),
+    );
+    expect(stalePostHook, 'stale _knitOwned hook should have been replaced').toBeUndefined();
+
+    // 4. User's other MCP server entry survived.
+    expect(after.mcpServers['my-other-mcp']).toBeDefined();
+    expect(after.mcpServers['my-other-mcp'].args).toEqual(['--port', '8080']);
+
+    // 5. User's permissions block survived intact.
+    expect(after.permissions.allow).toContain('Bash(git status)');
+    expect(after.permissions.allow).toContain('Bash(npm test)');
+    expect(after.permissions.deny).toContain('Bash(rm -rf /)');
+
+    // 6. User's custom top-level key survived.
+    expect(after['my-org-config']).toEqual({ team: 'platform', 'cost-center': 'CC-1234' });
+
+    // 7. The v0.11 hook payloads landed (security + verify gates).
+    const allHookCommands = (['UserPromptSubmit', 'PostToolUse', 'Stop'] as const)
+      .flatMap((section) => after.hooks[section] ?? [])
+      .flatMap((entry: { hooks?: Array<{ command?: string }> }) => entry.hooks ?? [])
+      .map((h: { command?: string }) => h.command ?? '')
+      .join('\n');
+    expect(allHookCommands).toContain('REVIEW gate'); // slice 1 claim gate
+    expect(allHookCommands).toContain('verify: write landed'); // slice 2 diff verify
+    expect(allHookCommands).toContain('drift detector'); // slice 3
+    expect(allHookCommands).toContain('execFileSync'); // C2 shell-injection fix from v0.11.1
+  });
+});
+
 describe('v0.11 HOOKS_VERSION migration (7 → current)', () => {
   it('regenerates v0.11 hook payloads when version=7 is seen on disk', async () => {
     // Pre-populate centralized data so autoInitialize skips and the upgrade path

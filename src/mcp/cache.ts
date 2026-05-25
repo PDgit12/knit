@@ -389,14 +389,18 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
     return;
   }
 
-  // Case B — knit-owned file (current or legacy v0.5.x engram marker): overwrite
-  if ('_knitHooks' in existing || '_engramHooks' in existing) {
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
-    return;
-  }
+  // Case B (REMOVED in v0.11.2): previously "_knitHooks in existing → overwrite
+  // entire file." That blew away user-added permissions, mcpServers entries,
+  // custom top-level keys, AND user-authored hook entries when the file
+  // had been marked knit-owned by an earlier setup. Real-world v0.9 users
+  // with customized settings would lose data on upgrade. Fix: always use
+  // the hybrid-merge path (below), which strips ONLY stale _knitOwned hook
+  // entries and preserves everything else. The hybrid merge sets a fresh
+  // _knitHooks marker so the version bump still happens correctly.
 
-  // Case C — user-owned file: merge engram hook entries into existing arrays
+  // Case C — hybrid merge: strip stale _knitOwned hook entries, append fresh
+  // knit-owned entries, preserve every other top-level key (permissions,
+  // mcpServers, custom org config, user-authored hooks).
   const userHooksRaw = existing.hooks;
   let userHooks: Record<string, unknown[]>;
   if (userHooksRaw === undefined) {
