@@ -187,8 +187,9 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
 
   if (!query && domains.length === 0) {
     return JSON.stringify({
+      status: 'error',
       error: 'Provide either query (BM25 free-text) or domains (tag filter), or both. query=auth domains=#api filters BM25 results to entries tagged #api.',
-      query: [], results: [], count: 0,
+      results: [], count: 0,
     });
   }
 
@@ -1704,9 +1705,7 @@ export function handleGetLearning(params: Record<string, string>, brain: BrainCa
   if (!id) return errorResponse('id parameter is required');
   const entry = brain.knowledgeBase.entries.find((e) => e.id === id);
   if (!entry) {
-    return JSON.stringify({
-      error: `No learning with id="${id}". List active ones via knit_search_learnings (default returns id + summary).`,
-    });
+    return errorResponse(`No learning with id="${id}". List active ones via knit_search_learnings (default returns id + summary).`);
   }
   recordCacheHit(brain.knowledgeBase);
   return JSON.stringify({
@@ -1730,11 +1729,11 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   const entry = {
     date,
     summary: redactSecrets(params.summary || 'Untitled learning'),
-    domains: (params.domains || 'general').split(',').map((d) => d.trim()),
+    domains: (params.domains || 'general').split(',').map((d) => redactSecrets(d.trim())),
     approach: redactSecrets(params.approach || ''),
     outcome: (['success', 'partial', 'failure'].includes(params.outcome) ? params.outcome : 'success') as 'success' | 'partial' | 'failure',
     lesson: redactSecrets(params.lesson || ''),
-    tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
+    tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')).map((t) => redactSecrets(t)),
   };
 
   addEntry(brain.knowledgeBase, entry);
@@ -1748,6 +1747,12 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   if (mdFiles.length > 0) {
     const mdPath = join(learnDir, mdFiles[0]);
     const mdEntry = `\n## ${date} ${entry.summary}\n**Domain(s):** ${entry.domains.join(', ')}\n**Approach:** ${entry.approach}\n**Outcome:** ${entry.outcome}\n**Lesson:** ${entry.lesson}\n**Tags:** ${entry.tags.join(' ')}\n`;
+    // TODO(security/MEDIUM-5): Non-atomic read-modify-write. Two concurrent agents (e.g.
+    // parallel team worktrees) calling knit_record_learning simultaneously can interleave:
+    // both read the same `existing` content and one write silently clobbers the other's
+    // entry. Mitigation: use a temp file + atomic rename (writeFileSync to
+    // `${mdPath}.tmp`, then fs.renameSync) so at worst entries arrive out of order but
+    // never disappear; or serialize via a per-path lock (e.g. proper-lockfile).
     const existing = readFileSync(mdPath, 'utf-8');
     writeFileSync(mdPath, existing + mdEntry, 'utf-8');
   }
@@ -1762,7 +1767,7 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
 
 export function handleRecordFalsePositive(params: Record<string, string>, brain: BrainCache): string {
   const date = new Date().toISOString().split('T')[0];
-  const tags = [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')), '#false-positive'];
+  const tags = [...(params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')).map((t) => redactSecrets(t)), '#false-positive'];
   const entry = {
     date,
     summary: redactSecrets(params.summary || 'Untitled FP'),
@@ -1925,6 +1930,12 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   if (!filePath) {
     return errorResponse('file_path is required');
   }
+  // TODO(security/MEDIUM-4): TOCTOU — existsSync → statSync → readFileSync is three
+  // separate syscalls. A malicious agent with write access to the watched directory could
+  // swap in a symlink between the existsSync check and readFileSync, redirecting reads to
+  // an arbitrary file (e.g. /etc/passwd, ~/.ssh/id_rsa). Mitigation: open the file with
+  // O_NOFOLLOW using fs.openSync + fs.fstatSync before reading, or resolve the real path
+  // with fs.realpathSync and verify it stays within an allowed root before any read.
   if (!existsSync(filePath)) {
     return errorResponse(`file not found: ${filePath}`);
   }
@@ -1960,7 +1971,8 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
     return JSON.stringify({ status: 'error', error: 'Invalid source_id — must be 1-80 chars, alphanumeric + . _ - only' });
   }
   const sourceId = userSourceId || slugifySourceId(filePath);
-  const label = (params.label || '').trim() || undefined;
+  const rawLabel = (params.label || '').trim();
+  const label = rawLabel ? redactSecrets(rawLabel) : undefined;
   const source: RequirementsSource = {
     sourceId,
     sourcePath: filePath,
@@ -2030,8 +2042,14 @@ export function handleGenerateTestCases(params: Record<string, string>, brain: B
       if (s) sourcesToSearch.push(s);
     }
   }
-  const hits = retrieveTopChunks(sourcesToSearch, feature, topN);
-  const contextBytes = hits.reduce((s, h) => s + Buffer.byteLength(h.chunk.text, 'utf-8'), 0);
+  const MAX_RESPONSE_BYTES = 100 * 1024; // 100 KB ceiling — prevents multi-MB MCP responses
+  let hits = retrieveTopChunks(sourcesToSearch, feature, topN);
+  // Enforce byte cap: drop trailing chunks until total fits within MAX_RESPONSE_BYTES.
+  let contextBytes = hits.reduce((s, h) => s + Buffer.byteLength(h.chunk.text, 'utf-8'), 0);
+  while (contextBytes > MAX_RESPONSE_BYTES && hits.length > 1) {
+    const dropped = hits.pop()!;
+    contextBytes -= Buffer.byteLength(dropped.chunk.text, 'utf-8');
+  }
   const totalBytes = sourcesToSearch.reduce((s, src) => s + src.sourceBytes, 0);
   const reductionPct = totalBytes > 0 ? Math.round(100 - (contextBytes / totalBytes) * 100) : 0;
   return JSON.stringify({
@@ -2086,6 +2104,11 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   const handoffPath = join(brain.rootPath, 'handoff.md');
   const r = (k: string, fallback: string): string => redactSecrets(params[k] || fallback);
   const content = `# Session Handoff\n\n**Goal:** ${r('goal', 'Not specified')}\n\n**Current State:** ${r('current_state', 'Not specified')}\n\n**Files in Flight:** ${r('files_in_flight', 'None')}\n\n**What Changed:** ${r('what_changed', 'Nothing')}\n\n**Failed Attempts:**\n${r('failed_attempts', 'None documented')}\n\n**Decisions Made:** ${r('decisions_made', 'None')}\n\n**Next Step:** ${r('next_step', 'Not specified')}\n\n---\n*Saved: ${new Date().toISOString()}*\n`;
+  // TODO(security/MEDIUM-5): Non-atomic write. If two concurrent agents both call
+  // knit_save_handoff simultaneously (e.g. parallel team worktrees), one write will
+  // silently clobber the other, losing a handoff entirely. Mitigation: write to a
+  // temp file first (e.g. handoff.md.tmp), then fs.renameSync to handoff.md — rename
+  // is atomic on POSIX/macOS so the file is always either old-complete or new-complete.
   writeFileSync(handoffPath, content, 'utf-8');
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
@@ -2659,7 +2682,7 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
     date: new Date().toISOString().split('T')[0],
     timestamp: new Date().toISOString(),
     summary: redactSecrets((params.summary || '').slice(0, 500)),
-    tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')),
+    tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')).map((t) => redactSecrets(t)),
     outcome,
     filesTouched: params.files_touched
       ? params.files_touched.split(',').map((f) => f.trim()).filter(Boolean)

@@ -529,7 +529,7 @@ export function handleToolCall(
     const allowAbsolute = toolName === 'knit_index_requirements';
     const bad = decoded.includes('..') || decoded.includes('\0') || (!allowAbsolute && (decoded.startsWith('/') || /^[A-Za-z]:\//.test(decoded)));
     if (bad) {
-      return JSON.stringify({ error: 'Invalid file path — no traversal or absolute paths allowed' });
+      return JSON.stringify({ status: 'error', error: 'Invalid file path — no traversal or absolute paths allowed' });
     }
     params.file_path = decoded;
   }
@@ -544,7 +544,7 @@ export function handleToolCall(
 
   const handler = handlers[toolName];
   if (!handler) {
-    return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+    return JSON.stringify({ status: 'error', error: `Unknown tool: ${toolName}` });
   }
 
   return handler(params, brain);
