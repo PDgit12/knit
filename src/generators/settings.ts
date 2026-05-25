@@ -65,8 +65,14 @@ import {
  *                 UserPromptSubmit clears it; Stop-hook compares the
  *                 touched-file set against the classification marker
  *                 and surfaces scope/risk drift before LEARN.
+ *  v11 — 0.11.1 audit fixes: post-edit tsc hook switches from execSync
+ *                 to execFileSync (kills shell-injection vector via
+ *                 project-root path). All three PostToolUse hooks now
+ *                 stderr-write their catch blocks instead of swallowing
+ *                 silently. Existing v0.11.0 users auto-receive the
+ *                 hardening on next MCP call via the hybrid-merge path.
  */
-export const HOOKS_VERSION = 10;
+export const HOOKS_VERSION = 11;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {

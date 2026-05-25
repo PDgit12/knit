@@ -2,6 +2,104 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.1] — 2026-05-25
+
+**The audit-driven hardening release.** Five parallel agents audited v0.11.0
+and found 28 issues; the three CRITICAL findings (live bug + 2 security
+holes) shipped as same-week fixes, plus 10 HIGH-priority items. No
+behavior changes for the happy path — every fix preserves the public API.
+
+### Fixed — CRITICAL
+
+- **C1: `source_id` path traversal in `knit_index_requirements`.** User-
+  supplied `source_id` is now validated against `/^[A-Za-z0-9._-]{1,80}$/`;
+  values containing `..` or `/` are rejected. Previously a malicious
+  caller could write the indexed JSON to arbitrary paths via
+  `source_id="../../tmp/pwned"` (path.join normalizes `..`).
+- **C2: shell injection in the post-edit `tsc` hook.** Replaced
+  `execSync(tscCmd + " --noEmit --pretty false", { cwd })` with
+  `execFileSync(tscBin, [...args], { cwd })` — no shell spawned, no
+  `$(...)` interpolation. Project directories with shell metachars no
+  longer trigger code execution on every `.ts` edit.
+- **C3: live bug in calibration.** `parseDirection` normalizes
+  user-typed shorthand (`#high-risk-was-low`) to long form
+  (`high-risk-was-low-risk`), but `applyAdjustment` matched only the
+  shorthand. Every risk-direction FP coming through the normal handler
+  path silently dropped the calibration shift. Fixed + regression test
+  that goes through the full `parseDirection → recordClassifierFP` path.
+
+### Fixed — HIGH
+
+- **H1: `readFileSync` size + `isFile()` guard.** `handleIndexRequirements`
+  now `statSync`s before reading; rejects non-regular files (FIFOs,
+  `/dev/zero`) and anything >5MB. Prevents OOM/hang via crafted paths.
+- **H2: chunks now `redactSecrets`-cleaned before persistence.** Spec
+  docs commonly contain credentials; we now redact before saving. Four
+  new patterns added to sanitize.ts: postgres / mysql / mongodb
+  connection strings + Bearer auth tokens.
+- **H3: dead-export risk removed.** `appendTurnEdit`/`readTurnEdits`/
+  `clearTurnEdits` engine helpers were unused at the time of the audit;
+  the silent-failures team made them production-robust with stderr
+  logging, so they're kept as the engine-level mirror of the inline
+  hook payloads (callable from future MCP handlers).
+- **H4: `knit_brain_status` now surfaces v0.11 state.** Calibration,
+  requirements, and fingerprint blocks added to the status response so
+  users discover the new surfaces from the single "what's my brain
+  state?" entry point.
+- **H5: `knit_delete_requirements` tool added.** Cleanup path for stale
+  indexed sources. Pairs with `knit_list_requirements` + same
+  source_id validation as `knit_index_requirements`.
+- **H6: hook silent failures.** Turn-edit appender, diff verifier, and
+  tsc check hooks no longer swallow errors silently; each catch now
+  writes `[knit] <hook-name> failed: <msg>` to stderr.
+- **H7/H8: real runtime tests for the Stop-hook claim gate** + extended
+  HOOKS_VERSION migration test that verifies a settings.local.json with
+  `version: 7` regenerates with all v0.11 claim-marker / turn-edit /
+  drift commands present (not just the version number bumped).
+- **H9/H10: README honesty pass.** New "Honest comparison vs memory
+  libraries" section. Acknowledges mem0 (LOCOMO ~90% token reduction
+  published), agentmemory (LongMemEval 95.2% R@5 published). Knit
+  shares the same retrieval architecture (BM25+RRF+graph) but has not
+  run those benchmarks — no parity claim, only architectural similarity.
+  Real differentiation reframed: MCP-native zero-glue install + 4-tier
+  workflow + per-project classifier calibration + measurable cheapness
+  per-user (not aggregate dataset numbers).
+
+### Fixed — MEDIUM (selected)
+
+- Windows absolute paths (`C:/...`) now blocked by the traversal guard.
+- `loadCalibration`, `loadSource`, `readProtocolConfig`,
+  `maybeAppendMetricsSnapshot`, `computeCoChangeRanking`: all now
+  distinguish "missing" from "corrupt" via stderr logging instead of
+  silently falling back to defaults.
+- Backticks in project names no longer break markdown headings in
+  `knit_compose_template` output.
+- Re-indexing the same source_id now has a test confirming it
+  overwrites cleanly (count stays at 1).
+- `KNIT_INSTRUCTIONS` now surfaces 9 new v0.11 tool names (verify_claim,
+  calibration get/record-fp, requirements ingestion trio, fingerprint,
+  infer_domains, compose_template). Budget bumped from 3KB → 4KB to
+  accommodate; discoverability-vs-budget trade-off favors surfacing
+  real tools.
+
+### Hooks bumped
+
+`HOOKS_VERSION` 10 → **11**. Existing v0.11.0 users auto-receive the C2
+shell-injection fix and H6 hook-stderr improvements on next MCP call via
+the hybrid-merge path (no manual `knit refresh` needed).
+
+### Tool surface
+
+52 → **53** tools (Tier 1: 39 → 40). New: `knit_delete_requirements`.
+
+### Workflow note (Knit eating its own food)
+
+These fixes were implemented by **three Knit team worktrees in parallel**
+(Security / Calibration+SilentFailures / Architecture+Tests) spawned via
+`knit_spawn_team_worktree`, then merged sequentially via
+`knit_finalize_team_worktree`. The audit-find-fix loop took ~6 hours
+end-to-end — a real-world stress test of the v0.4.1 team-worktree primitive.
+
 ## [0.11.0] — 2026-05-24
 
 **The "verify + auto-config foundation" release.** v0.10 made token
