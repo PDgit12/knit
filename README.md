@@ -3,7 +3,7 @@
   <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PDgit12/knit/ci.yml?style=for-the-badge&label=CI&color=10b981" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
-  <img src="https://img.shields.io/badge/tests-636%20passing-22c55e?style=for-the-badge" alt="tests" />
+  <img src="https://img.shields.io/badge/tests-664%20passing-22c55e?style=for-the-badge" alt="tests" />
   <img src="https://img.shields.io/badge/MCP%20tools-53-7c3aed?style=for-the-badge" alt="tools" />
 </p>
 
@@ -452,6 +452,7 @@ LongMemEval-S R@5/R@10 + LOCOMO LLM-as-Judge runs are on the roadmap (v0.13+). U
 
 | Version | Headline |
 |---|---|
+| **v0.11.2** | Pre-publish polish · chunk cap (2000) + `errorResponse` envelope across handlers + CLAUDE.md generator surfaces v0.11 tools · new `engram doctor` install health-check CLI · upgrade-path smoke test caught + fixed a data-loss bug in cache.ts (Case B was wiping user permissions on upgrade) · 11 real exploit-payload integration tests prove C1/C2/H1 fixes hold · `npm run bench` ships a synthetic retrieval harness (50 Q&A) measuring 86% top-1 / 96% R@5. 53 tools, 664 tests. |
 | **v0.11.1** | Audit-driven hardening · 3 CRITICAL (source_id path traversal, post-edit tsc shell injection, live calibration bug) + 10 HIGH fixes from a 5-agent audit, implemented in 3 parallel `knit_spawn_team_worktree` teams. HOOKS_VERSION 11 (auto-upgrades existing users). New `knit_delete_requirements` tool. Honest comparison vs mem0/Letta added. 53 tools, 636 tests. |
 | **v0.11.0** | Verify Layer + auto-config foundation · mandatory `knit_verify_claim` REVIEW gate · post-edit diff verify + universal `tsc` check · drift detector · self-healing classifier (per-project calibration) · `knit_index_requirements` + `knit_generate_test_cases` (BM25 over long specs) · `knit_get_fingerprint` + `knit_infer_domains` + `knit_compose_template` (zero-config CLAUDE.md). 52 tools, 625 tests. |
 | **v0.10.0** | Token-economics release · risk × scope × change_kind classifier split · `context_budget_remaining` graceful degradation · per-project diversity cap on cross-project search · 11 new compounding-metrics fields + weekly snapshot persistence + `knit_get_metrics_history`. Makes "Knit makes Claude cheaper" a chartable number from day 1. |

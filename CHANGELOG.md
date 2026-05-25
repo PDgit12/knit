@@ -2,6 +2,96 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.2] — 2026-05-25
+
+**The pre-publish polish release.** Closes the last yellows from the
+v0.11.1 audit before npm publish. Five phases: remaining MEDIUM/LOW
+cleanup, `engram doctor` CLI, upgrade-path smoke test, real-payload
+exploit tests, synthetic retrieval benchmark.
+
+The upgrade smoke test found and fixed a data-loss bug in cache.ts
+that v0.11.1 shipped with — see "Fixed — DATA LOSS" below.
+
+### Added
+
+- **`engram doctor` CLI** (`npx knit-mcp doctor`). 5-second install
+  health check: installed version, Node version, HOOKS_VERSION
+  drift between code and project, MCP registration in
+  `~/.claude.json`, knowledgebase health, dangling-symlink detection
+  (catches the exact bug from v0.11.1 audit). Exits 0 on healthy
+  + warnings, 1 on errors — CI-safe.
+- **`npm run bench`** — synthetic retrieval benchmark scaffold.
+  50 Q&A pairs against a 50-paragraph synthetic corpus, runs the
+  same `retrieveTopChunks` pipeline as `handleGenerateTestCases`.
+  Measures top-1 accuracy + recall@5; exits non-zero below 85%
+  top-1 to catch BM25/RRF tuning regressions. Current scores:
+  **86% top-1, 96% R@5**.
+- **Chunk cap surfaced in API.** `handleIndexRequirements` now
+  returns `chunks_truncated: boolean` and `max_chunks_per_source: 2000`
+  so callers can detect when their input hit the cap.
+- **`errorResponse(error, extra?)` helper** in handlers.ts.
+  Refactored 15+ bare `JSON.stringify({error:...})` returns to the
+  consistent `{status:'error', error, ...extra}` envelope so callers
+  can pattern-match uniformly.
+- **CLAUDE.md generator** now surfaces the v0.11 tool family
+  (`knit_verify_claim`, requirements ingestion quartet, fingerprint
+  trio, `knit_get_calibration`) in the session-startup section,
+  so new projects discover all of it without `knit_list_features`.
+
+### Fixed — DATA LOSS (caught by Phase C smoke test)
+
+- **`cache.ts writeKnitHooks` Case B was wiping user data.**
+  Pre-v0.11.2: when a project's `settings.local.json` had
+  `_knitHooks` present, the WHOLE FILE was overwritten on upgrade.
+  Real-world v0.9 users with customized settings — user-authored
+  hooks, extra `mcpServers` entries, user `permissions` blocks, or
+  custom top-level org config keys — would silently lose all of
+  it the first time v0.11.x's auto-upgrade fired. The existing
+  migration test passed because it seeded a file with only
+  `_knitHooks + hooks` (no realistic user customizations).
+- **Fix:** removed Case B. Always use the hybrid-merge path, which
+  strips only `_knitOwned` hook entries and preserves everything
+  else (user permissions, other tools' MCP server entries, custom
+  keys, user-authored hooks, the works).
+
+### Tests
+
+- **Phase D — 11 real-payload exploit tests** in `tests/exploit.test.ts`.
+  These don't just inspect code; they execute the actual attack
+  payloads from the audit and assert they're blocked. Coverage:
+  C1 (`source_id="../../tmp/pwned"`, null-byte injection, absolute
+  paths, 80/81-char boundary), H1 (`/dev/null`, FIFO, 5MB boundary,
+  empty file), C2 (generated hook payload uses `execFileSync` with
+  array args, not concatenated string + `execSync`), Windows C:/
+  traversal, chunk-count cap exactly at 2000.
+- **Phase C — migration smoke test** in `tests/cache.test.ts`.
+  Realistic v0.9 settings.local.json (user hooks + extra MCP + user
+  permissions + custom org keys + stale `_knitOwned` hooks) → assert
+  HOOKS_VERSION bumps, user data preserved, stale Knit entries
+  replaced (not duplicated), new v0.11 commands present.
+- **Phase B — 16 doctor tests** in `tests/doctor.test.ts`. Fresh
+  project, version match/older/newer drift, unreadable settings,
+  valid/corrupt KB, dangling vs valid symlinks, overall report shape.
+
+### Stats
+
+- 636 → **664 tests** (+28).
+- 53 tools (unchanged from v0.11.1).
+- HOOKS_VERSION 11 (unchanged from v0.11.1 — no new hook payload
+  shape this release; the bumped `cache.ts` Case-B fix is pure
+  data-handling, no hook regen needed for users who upgrade to
+  v0.11.2 cleanly).
+
+### Workflow note
+
+Phase C's discovery of the cache.ts data-loss bug is exactly the
+kind of issue that a fresh-eyes audit-then-fix cycle catches. The
+audit said "test the migration path"; writing the test surfaced a
+bug nobody had written code to look at. Real-world v0.9 → v0.11.x
+upgrade IS the deployment path; if a user lost their settings, that
+would be a credibility-destroying failure mode at first contact with
+a paying customer.
+
 ## [0.11.1] — 2026-05-25
 
 **The audit-driven hardening release.** Five parallel agents audited v0.11.0
