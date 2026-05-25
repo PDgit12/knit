@@ -27,6 +27,13 @@ export function createLearningsFile(filePath: string, projectName: string): void
  * Appends a learning entry to the learnings file. Atomic via O_APPEND —
  * concurrent appenders cannot truncate or interleave entry bodies because
  * each formatted entry is delivered as a single write() syscall.
+ *
+ * TODO(v0.12): POSIX O_APPEND atomicity is only guaranteed for writes ≤ PIPE_BUF
+ * (~4KB on Linux/macOS). A learning entry with a long lesson/approach can exceed
+ * this limit, making interleaved writes from concurrent MCP processes possible.
+ * sessions.ts and global-learnings.ts share the same risk. Fix: use the same
+ * atomic temp+rename pattern already used in sessions.ts#pruneSessionsByAge and
+ * worktrees.ts#saveRegistry, or use a file lock (e.g. proper-lockfile).
  */
 export function appendLearning(filePath: string, entry: LearningEntry): void {
   if (!existsSync(filePath)) {

@@ -155,6 +155,14 @@ export function importFromMarkdown(kb: KnowledgeBase, entries: LearningEntry[]):
  * Query the knowledge base for entries relevant to given domain tags.
  * Returns entries sorted by relevance (access count + recency).
  * Marks returned entries as accessed (increments accessCount).
+ *
+ * IMPORTANT — mutation contract: this function mutates `accessCount` and
+ * `lastAccessed` on the returned entries in-place. The caller is responsible
+ * for persisting the updated KB via `saveKnowledgeBase` if durable access
+ * tracking is required. Callers that only need query results without touching
+ * disk may safely skip the save, but the in-memory KB will diverge from disk.
+ * TODO(v0.12): consider making the mutation optional (e.g., a `track: boolean` param)
+ * so read-only callers don't need to guard against accidental mutation.
  */
 export function queryByDomains(kb: KnowledgeBase, domains: string[]): KBEntry[] {
   const now = new Date().toISOString();

@@ -395,6 +395,10 @@ function buildSummary(
       const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
       if (pkg.main) entryPoints.push(pkg.main);
       if (pkg.bin) {
+        // TODO(v0.12): `Object.values(pkg.bin) as string[]` is an unsafe cast — package.json
+        // `bin` values are typically strings but are not validated before the cast. If a
+        // malformed package.json ships a non-string bin value (e.g. an object), this silently
+        // pushes a non-string into entryPoints. Fix: filter with `typeof v === 'string'`.
         const bins = typeof pkg.bin === 'string' ? [pkg.bin] : Object.values(pkg.bin) as string[];
         entryPoints.push(...bins);
       }

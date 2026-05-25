@@ -120,6 +120,10 @@ function detectStack(root: string): StackInfo {
   // Node/JS/TS projects
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
+    // TODO(v0.12): `pkg` is typed as `any` — add runtime shape validation (e.g., check
+    // that pkg.dependencies and pkg.devDependencies are objects or undefined before spread).
+    // Risk is low (try/catch handles parse errors; spread of undefined is safe), but
+    // a non-object `dependencies` value (e.g. a string) would silently produce NaN keys.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let pkg: any;
     try {
@@ -162,6 +166,9 @@ function detectStack(root: string): StackInfo {
     else if (allDeps.playwright || allDeps['@playwright/test']) stack.testFramework = 'playwright';
 
     // Build/lint from scripts
+    // TODO(v0.12): when detectPackageManager returns 'unknown', these produce the literal
+    // string "unknown run build" / "unknown run lint". Guard with a check like
+    // `const pm = detectPackageManager(root); if (pm !== 'unknown') { ... }` before assigning.
     const scripts = pkg.scripts || {};
     if (scripts.build) stack.buildCommand = `${detectPackageManager(root)} run build`;
     if (scripts.lint) stack.lintCommand = `${detectPackageManager(root)} run lint`;

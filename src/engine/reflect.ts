@@ -180,7 +180,6 @@ function classifyOrigin(supporting: SourcedEntry[]): 'local' | 'global' | 'mixed
     else global = true;
     if (local && global) return 'mixed';
   }
-  if (local && global) return 'mixed';
   return local ? 'local' : 'global';
 }
 
