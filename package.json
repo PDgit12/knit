@@ -14,7 +14,10 @@
     "lint": "eslint src/ tests/ --ext .ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bench": "tsx benchmarks/retrieval-synthetic.ts",
+    "bench": "npm run bench:retrieval",
+    "bench:retrieval": "tsx benchmarks/retrieval-synthetic.ts",
+    "bench:tokens": "tsx benchmarks/token-economy.ts",
+    "bench:all": "npm run bench:retrieval && npm run bench:tokens",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "keywords": [

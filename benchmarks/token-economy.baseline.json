@@ -1,0 +1,26 @@
+{
+  "version": "v0.12",
+  "generated_at": "2026-05-26T13:49:21.445Z",
+  "mcp_on": {
+    "instructions": 3432,
+    "claudeMd": 3801,
+    "toolsList": 15494,
+    "total": 22727
+  },
+  "mcp_off": {
+    "denseClaudeMd": 4024,
+    "total": 4024
+  },
+  "per_recall": {
+    "mcp_on_bytes": 750,
+    "mcp_off_bytes": 10000,
+    "savings_pct": 92.5
+  },
+  "per_classify": {
+    "mcp_on_bytes": 400,
+    "mcp_off_bytes": 800,
+    "savings_pct": 50
+  },
+  "session_delta_bytes": 18703,
+  "session_delta_pct": 464.8
+}
