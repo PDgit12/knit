@@ -22,6 +22,8 @@
  */
 
 import type { ScanResult } from '../engine/integration-scanner.js';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 
 export const KNIT_INSTRUCTIONS_BASE = `Knit is a memory + workflow layer for this project. It provides per-project memory across sessions, a knowledge graph (imports/exports/tests), and a tier-routed workflow protocol.
 
@@ -60,12 +62,40 @@ Citation rule: when you state a fact about this codebase ("file X imports Y", "f
  *  for budget cap and content invariants continue to assert against this. */
 export const KNIT_INSTRUCTIONS = KNIT_INSTRUCTIONS_BASE;
 
+/**
+ * v0.12 — handshake-time budget verdict.
+ *
+ * Reads CLAUDE.md size from disk; returns a one-line addendum when the file
+ * is over the 6.5KB budget (warn at 6.5K, over-budget at >25% over = >8.125K).
+ * Returns empty string when healthy or when CLAUDE.md is missing.
+ *
+ * This is the structural enforcement layer: the verdict surfaces in the MCP
+ * server `instructions` field — injected into the agent's system prompt at
+ * handshake, BEFORE any tool description is read. The agent learns of the
+ * budget problem on its first turn, not after calling a diagnostic tool.
+ */
+export const CLAUDE_MD_BUDGET_BYTES = 6500;
+
+export function buildBudgetVerdict(rootPath: string): string {
+  let bytes = 0;
+  try { bytes = statSync(join(rootPath, 'CLAUDE.md')).size; } catch { return ''; }
+  if (bytes <= CLAUDE_MD_BUDGET_BYTES) return ''; // healthy — no noise.
+  const verdict = bytes > CLAUDE_MD_BUDGET_BYTES * 1.25 ? 'over-budget' : 'warn';
+  const kb = Math.round(bytes / 1024 * 10) / 10;
+  const targetKb = Math.round(CLAUDE_MD_BUDGET_BYTES / 1024 * 10) / 10;
+  return `BUDGET ${verdict}: CLAUDE.md is ${kb}KB / ${targetKb}KB target. Run \`engram doctor\` to see the full per-surface report and \`engram refresh\` to regenerate the marker block.`;
+}
+
 /** Build the instructions string tailored to this project's detected
  *  integrations. Returns the universal baseline if no scan ran or nothing
  *  was detected; appends short addenda for each known framework otherwise.
- *  Keeps total under the ~750-token budget. */
-export function buildInstructions(scan: ScanResult | null): string {
-  if (!scan) return KNIT_INSTRUCTIONS_BASE;
+ *  v0.12: also appends a one-line budget verdict when CLAUDE.md is over
+ *  budget — surfaces at handshake before any tool description is read.
+ *  Keeps total under the ~750-token budget when healthy. */
+export function buildInstructions(scan: ScanResult | null, rootPath?: string): string {
+  const budgetLine = rootPath ? buildBudgetVerdict(rootPath) : '';
+  const budgetSuffix = budgetLine ? `\n\n— Budget check —\n\n${budgetLine}` : '';
+  if (!scan) return KNIT_INSTRUCTIONS_BASE + budgetSuffix;
   const addenda: string[] = [];
 
   if (scan.detected.ruflo.present) {
@@ -98,12 +128,13 @@ export function buildInstructions(scan: ScanResult | null): string {
     );
   }
 
-  if (addenda.length === 0) return KNIT_INSTRUCTIONS_BASE;
+  if (addenda.length === 0) return KNIT_INSTRUCTIONS_BASE + budgetSuffix;
 
   return (
     KNIT_INSTRUCTIONS_BASE +
     '\n\n— Per-project integrations —\n\n' +
     addenda.join('\n\n') +
-    '\n\nGeneral rule: when an integration above provides a higher-level routing primitive (slash command, swarm orchestrator, methodology framework), use it. Knit handles the substrate it doesn\'t cover: memory, classification, and the workflow protocol for tasks the integration doesn\'t route.'
+    '\n\nGeneral rule: when an integration above provides a higher-level routing primitive (slash command, swarm orchestrator, methodology framework), use it. Knit handles the substrate it doesn\'t cover: memory, classification, and the workflow protocol for tasks the integration doesn\'t route.' +
+    budgetSuffix
   );
 }

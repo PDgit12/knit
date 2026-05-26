@@ -35,7 +35,10 @@ const ROOT_PATH = detectProjectRoot();
 // baseline when no scan has run yet (cold first start). The scan refreshes
 // at the next autoInitialize, so subsequent sessions pick up the tailored
 // version.
-const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH));
+// v0.12 — pass ROOT_PATH so buildInstructions can append a one-line budget
+// verdict when CLAUDE.md is over the 6.5KB target. Surfaces at handshake,
+// before the agent reads any tool description.
+const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH), ROOT_PATH);
 
 const server = new Server(
   { name: 'knit-brain', version: VERSION },
