@@ -1,318 +1,60 @@
 # Knit — Agent Memory & Workflow Intelligence CLI
 
-CLI tool that gives any AI coding agent (Claude Code, Cursor, Codex) compounding project intelligence. One command (`npx knit-mcp setup`) wires up institutional memory, tiered task routing, and token-optimized workflows — what takes weeks to hand-build, installed in 5 minutes.
+TypeScript MCP server (npm: `knit-mcp`) that gives any AI coding agent (Claude Code, Cursor, Codex) per-project memory, tier-routed workflow protocol, and parallel team worktrees.
+
+The orchestration protocol, tier classifier, and per-phase depth are fetched on demand via `knit_get_workflow({phase})` and injected at MCP handshake — this file holds only project-specific facts. Release timeline and deferred work live in `.claude/MARKETING.md`.
 
 ## Build & Verify
 
 ```bash
-npm run typecheck   # zero errors required
-npm run lint        # zero errors required
-npm run test        # all tests must pass
-npm run build       # clean compilation
-npm run dev         # local dev — test CLI locally with `node dist/cli.js`
+npm run typecheck    # zero errors required
+npm run lint         # zero errors required
+npm run test         # all tests must pass
+npm run build        # clean compilation
+npm run bench        # synthetic 50-Q&A retrieval bench (top-1 ≥ 85% gate)
+npm run dev          # local dev — test CLI locally with node dist/cli.js
 ```
 
-All four checks MUST pass before any commit or PR. The Stop hook runs typecheck + lint + build automatically.
+All four gates MUST pass before any commit or PR. The Stop hook runs typecheck + lint + build automatically.
 
-## Project Architecture
+## Domain Architecture
 
-### Domain Architecture
+Five domains. Every file belongs to exactly one. Domains are the unit of parallel orchestration via `knit_spawn_team_worktree`.
 
-Every file belongs to exactly one domain. Domains are the unit of orchestration.
+### Domain 1 — CLI (User Interface)
+- **Files:** `src/cli.ts`, `src/commands/*.ts` (`setup`, `status`, `refresh`, `install-agents`, `export`, `doctor`)
+- **Head concern:** UX, argument parsing, error messages, progress output, exit codes.
 
-```
-┌─────────────────────────────────────────────┐
-│            MAIN ORCHESTRATOR                │
-│  (Claude — classifies, routes, synthesizes) │
-└──────┬────────┬────────┬────────┬─────┬─────┘
-       │        │        │        │     │
-       ▼        ▼        ▼        ▼     ▼
-   ┌──────┐ ┌──────┐ ┌──────┐ ┌─────┐ ┌───┐
-   │ CLI  │ │Engine│ │ Gen  │ │ MCP │ │ QA│
-   │ Head │ │ Head │ │ Head │ │Head │ │Head│
-   └──┬───┘ └──┬───┘ └──┬───┘ └──┬──┘ └─┬─┘
-      │        │        │        │      │
-    agents   agents   agents   agents  agents
-```
+### Domain 2 — Engine (Core Intelligence)
+- **Files:** `src/engine/*.ts` — `learnings`, `global-learnings`, `sessions`, `reflect`, `knowledge`, `knowledgebase`, `scanner`, `teams`, `worktrees`, `agent-registry`, `agent-fetcher`, `install-agents`, `paths`, `project-id`, `protocol-guard`, `requirements`, `calibration`, `domain-inference`, `types`.
+- **Head concern:** Memory persistence (`~/.knit/projects/<hash>/`), learnings + sessions storage, pattern reflection, team/worktree orchestration, agent registry, BM25 retrieval, self-healing classifier.
 
-### Domain 1: CLI (User Interface)
-**Files:** `src/cli.ts`, `src/commands/*.ts` (`setup`, `status`, `refresh`, `install-agents`, `export`)
-**Head concern:** UX, argument parsing, error messages, interactive prompts, progress output
-**Agents:** `code-reviewer`, `typescript-reviewer`
+### Domain 3 — Generators (Output Templates)
+- **Files:** `src/generators/*.ts` — `claude-md`, `settings`, `agent-md`, `workflow-protocol`, `learnings`, `auto-config`.
+- **Head concern:** Marker-wrapped output, no hardcoded paths, idiomatic per-framework templates. Output drives what users see on disk.
 
-### Domain 2: Engine (Core Intelligence)
-**Files:** `src/engine/*.ts` — `learnings`, `global-learnings`, `sessions`, `reflect`, `knowledge`, `knowledgebase`, `scanner`, `teams`, `worktrees`, `agent-registry`, `agent-fetcher`, `install-agents`, `paths`, `project-id`, `protocol-guard`, `types`
-**Head concern:** Memory persistence, learnings/sessions storage, pattern reflection, team/worktree orchestration, agent registry, path resolution at `~/.knit/projects/<hash>/`
-**Agents:** `type-design-analyzer`, `code-reviewer`, `code-architect`, `silent-failure-hunter`
+### Domain 4 — MCP Server (Tool Surface)
+- **Files:** `src/mcp/*.ts` — `server`, `handlers`, `tools`, `cache`, `features`, `instructions`, `sanitize`, `update-check`, `notifier`.
+- **Head concern:** Tool definitions, request handlers, input redaction, response shape, tier-gating, handshake-time budget verdict. The surface every connected agent talks to.
 
-### Domain 3: Generators (Output Templates)
-**Files:** `src/generators/*.ts` — `claude-md`, `settings`, `agent-md`, `workflow-protocol`, `learnings`
-**Head concern:** Template correctness across frameworks, idiomatic output, no hardcoded paths, marker-wrapped CLAUDE.md sections
-**Agents:** `code-reviewer`, `typescript-reviewer`
+### Domain 5 — Quality Assurance
+- **Files:** `tests/*.ts`, `benchmarks/*.ts`, build configs, lint configs.
+- **Head concern:** Coverage ≥ 80%, real exploit tests for security fixes, regression-gated benches.
 
-### Domain 4: MCP Server (Tool Surface)
-**Files:** `src/mcp/*.ts` — `server`, `handlers`, `tools`, `cache`
-**Head concern:** MCP tool definitions (35 tools as of v0.5.0), request handlers, input sanitization, response shape, caching. This is the surface every connected agent (Claude Code, Cursor, Codex) talks to.
-**Agents:** `code-architect`, `code-reviewer`, `silent-failure-hunter`
-
-### Domain 5: Quality Assurance
-**Files:** `tests/*`, build configs, lint configs
-**Head concern:** Test coverage (80%+), CLI integration tests, template output validation. Current: 295 tests.
-**Agents:** `tdd-guide`, `pr-test-analyzer`, `build-error-resolver`
-
-### Cross-Domain Communication Rules
+## Cross-Domain Communication Rules
 
 | Change in | Notify | Why |
 |-----------|--------|-----|
-| `src/engine/types.ts` | ALL domains | Types are the universal contract |
-| `src/engine/reflect.ts` or `learnings.ts` | MCP + QA | Engine changes ripple to MCP tool responses + tests |
-| `src/generators/*` | MCP + QA | Generator output is invoked by MCP tools (e.g. `knit_setup_project`) |
-| `src/mcp/tools.ts` | CLI + Engine + QA | New/changed tool means new engine method + handler + test |
-| New CLI command | CLI + Engine + QA | Needs wiring, engine support, tests |
-
----
-
-## Orchestration Protocol — v1.0 (2026-05-15)
-
-### Pre-flight (runs BEFORE every task — no exceptions)
-
-**Step 1 — Load institutional knowledge:**
-```
-grep learnings: .claude/learnings/*.md for domain tags matching the task
-grep false positives: filter for #false-positive entries → feed into all agent prompts
-```
-
-**Step 2 — Detect tool availability:**
-
-| Layer | Check | If unavailable |
-|-------|-------|----------------|
-| Semantic search | Is a code search MCP available? | Fall back to Grep + Read |
-| Browser QA | Is a browse skill available? | Skip browser verification |
-| Dev build | `npm run build` exits 0? | Fix build before proceeding |
-
-**Step 3 — State availability:** Before classification, say:
-> **Tools:** semantic search ✓/✗ | browser QA ✓/✗ | build ✓/✗
-
----
-
-### Task Classification
-
-Classify BEFORE doing anything. State the classification out loud.
-
-**Trivial** (1 domain, obvious fix):
-- Typo, config change, lint fix, missing import
-- Phases: EXECUTE → VERIFY → LEARN
-- Agents: 0
-
-**Standard** (1-2 domains):
-- Bug fix, single-file feature, test addition
-- Phases: RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN
-
-**Complex** (3+ domains or architectural):
-- New feature, schema change, new adapter, new CLI command
-- Phases: ALL 6 — RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW
-- **IMMEDIATE ACTION:** Call `EnterPlanMode` as FIRST tool call after stating classification
-
-**Auto-detection rules:**
-- Touches `src/engine/types.ts` → Complex (universal contract)
-- Touches tier-router or context-builder → Complex (core intelligence)
-- New file created → at minimum Standard
-- Touches 3+ files → Complex
-- User says "plan" or shift+tab → Force Complex
-
-### The 6-Phase Protocol
-
-```
-RESEARCH → IDEATE → PLAN → EXECUTE → OPTIMIZE → REVIEW
-    ↑                                              |
-    └──────────────── LEARN ←──────────────────────┘
-```
-
-**Phase routing by tier:**
-```
-TRIVIAL:    EXECUTE ──→ VERIFY ──→ LEARN
-STANDARD:   RESEARCH ──→ EXECUTE ──→ OPTIMIZE ──→ REVIEW ──→ LEARN
-COMPLEX:    RESEARCH ──→ IDEATE ──→ PLAN ──→ EXECUTE ──→ OPTIMIZE ──→ REVIEW ──→ LEARN
-```
-
-### Domain Context Object
-
-Built during RESEARCH, passed to EVERY agent prompt:
-
-```
-DOMAIN CONTEXT:
-  Affected domains: [list]
-  Files to touch: [list]
-  Cross-domain ripple: [which domains get notified]
-  Known pitfalls: [from learnings grep]
-  False positives to suppress: [from #false-positive entries]
-  Tool availability: semantic search ✓/✗ | browser QA ✓/✗ | build ✓/✗
-  Scout findings: [from RESEARCH]
-  Selected approach: [from IDEATE, if run]
-  Approved plan: [from PLAN, if run]
-```
-
----
-
-#### Phase 1: RESEARCH `[Standard + Complex]`
-
-**Standard:** Read affected files directly, check cross-domain rules.
-**Complex:** Spawn `code-explorer` agents per affected domain in parallel.
-
-**Gate:** Can I name all affected files and domains? YES → proceed | NO → read more
-
----
-
-#### Phase 2: IDEATE `[Complex only]`
-
-1. Launch domain heads for affected domains in parallel
-2. Each head proposes approach + risks
-3. Orchestrator synthesizes and presents options
-
-**Gate:** User selects approach
-
----
-
-#### Phase 3: PLAN `[Complex only — auto plan mode]`
-
-Auto-enter plan mode. RESEARCH and IDEATE happen INSIDE plan mode.
-
-1. Domain plans with exact files to create/modify/delete
-2. Cross-domain sync + ordering
-3. Execution order (sequential vs parallel)
-
-**Gate:** User says "go" / "approved" / "do it"
-
----
-
-#### Phase 4: EXECUTE
-
-- Follow approved plan strictly
-- TDD for new features (test first → implement → refactor)
-- Milestone check: typecheck every 5 file edits
-
----
-
-#### Phase 5: OPTIMIZE `[Standard + Complex]`
-
-Launch affected domain heads in parallel with review agents:
-
-| Domain Head | Review Agents |
-|-------------|--------------|
-| CLI Head | `code-reviewer`, `typescript-reviewer` |
-| Engine Head | `type-design-analyzer`, `code-reviewer`, `code-architect`, `silent-failure-hunter` |
-| Gen Head | `code-reviewer`, `typescript-reviewer` |
-| MCP Head | `code-architect`, `code-reviewer`, `silent-failure-hunter` |
-| QA Head | `tdd-guide`, `pr-test-analyzer`, `build-error-resolver` |
-
-**Gate:** Zero CRITICAL findings. All HIGH acknowledged.
-
----
-
-#### Phase 6: REVIEW `[Standard + Complex]`
-
-**Layer 1 — Code gates:** typecheck + lint + test + build (all must pass)
-**Layer 2 — CLI verification:** Run the CLI against a test project, verify output
-
----
-
-#### LEARN (after every task) — MANDATORY, NEVER SKIP
-
-**Enforcement rule:** If about to say "done"/"complete"/"finished" — STOP. Did LEARN run? If not, run it NOW.
-
-**Checklist:**
-1. [ ] Append entry to `.claude/learnings/` with domain tags
-2. [ ] If false positive → add `#false-positive` tag
-3. [ ] If semantic search available AND code changed → sync index
-4. [ ] If phase completed → update CLAUDE.md Phase Status
-5. [ ] If file created/deleted → update Domain Architecture file lists
-
-**Output format:**
-```
-LEARN complete:
-  ✅ Learnings updated: [entry title]
-  ✅ CLAUDE.md: [what changed, or "no changes needed"]
-  ✅ Memory: [what changed, or "no changes needed"]
-  ✅ Search index: [synced / skipped — offline]
-```
-
----
-
-## Token Discipline
-
-| Tier | Agent calls | Cost |
-|------|------------|------|
-| Trivial | 0 | ~5-8k tokens |
-| Standard | 1-3 | ~20-30k tokens |
-| Complex | 5-15 parallel | ~50-80k tokens |
-
-**Savings mechanisms:**
-- Learnings file prevents re-investigation (~10-20k saved per known issue)
-- False positive suppression (~5k saved per FP)
-- Domain Context Object gives targeted scope (~10-30k saved per agent)
-- Parallel execution (5 agents = 1 round trip)
-- Tier-appropriate scaling (no agents for trivial tasks)
-
----
-
-## Slash Command Routing
-
-| User says | Skill |
-|-----------|-------|
-| "plan", "how should we" | `/plan` |
-| "ship", "create PR" | `/ship` |
-| "review" | `/review` |
-| "QA", "test" | `/qa` |
-| "debug", "investigate" | `/investigate` |
-| "build failed" | `/build-fix` |
-| "security audit" | `/cso` |
-| "save progress" | `/context-save` |
-| "resume" | `/context-restore` |
-
----
-
-## Session Handoff Protocol
-
-When context degrades:
-1. Write `handoff.md`: Goal, Current State, Files in Flight, What Changed, **Failed Attempts** (mandatory), Decisions Made, ONE Next Step
-2. User runs `/clear`
-3. Fresh session reads `handoff.md` first
-4. Archive to `.claude/handoffs/`
-
----
-
-## Toolchain
-
-Built with TypeScript, compiled via tsup, tested with Vitest. The Knit Orchestration Protocol is the core IP — all generated workflow files are original compositions.
+| `src/engine/types.ts` | ALL domains | Universal contract (31 dependents) |
+| `src/engine/reflect.ts` or `learnings.ts` | MCP + QA | Engine changes ripple to MCP responses + tests |
+| `src/generators/*` | MCP + QA | Generator output is invoked by MCP setup tools |
+| `src/mcp/tools.ts` | CLI + Engine + QA | New tool → new engine method + handler + test |
+| `src/mcp/instructions.ts` | MCP + QA | Surface visible to every agent at handshake |
+| New CLI command | CLI + Engine + QA | Needs wiring + engine support + tests |
 
 ## Git & Commits
 
-- **Branches:** `feature/<descriptive-name>`, squash merge to main
-- **Pre-merge:** `npm run typecheck && npm run lint && npm run test && npm run build`
-- Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
-
-## Phase Status
-
-All releases below are live on npm as `knit-mcp`. `latest` → v0.5.1.
-
-- **Phase 0** (project setup + workflow): ✅ Complete
-- **v0.1.x** — shipped. 23 MCP tools, 111 tests. Original baseline.
-- **v0.3.0** — shipped. Centralized data at `~/.knit/projects/<hash>/`, marker-wrapped CLAUDE.md, on-demand workflow via `knit_get_workflow`, session memory in `sessions.jsonl`, team-scoped git worktrees, token-accounting metrics, hooks wired into auto-init. Model C: cross-project learnings pool at `~/.knit/global/learnings.jsonl`. Pattern reflection re-enabled. v0.2.0 was tagged in git but skipped on npm (jumped straight to 0.3.0). 31 MCP tools, 197 tests.
-- **v0.3.1** — git-tagged, NOT published to npm. Windows-compatible hooks (rewrote all 7 hooks as inline `node -e '…'` cross-platform). Folded into v0.4.0's npm release.
-- **v0.4.0** — shipped. VoltAgent subagent integration (`github.com/VoltAgent/awesome-claude-code-subagents`, MIT, pinned SHA `6f804f0c…`) with engram personalization layer. Bundled-core 6 agents in `dist/agents/core/`; specialized agents fetched on demand to `~/.knit/agents/cache/<sha>/`. `engram install-agents` CLI + `knit_install_agent` MCP tool. 32 MCP tools, 247 tests.
-- **v0.4.1** — shipped. Built across 4 parallel team worktrees via Claude Code's Agent `isolation:"worktree"` — engram eating its own dogfood. Fixed agent-prefix wiring bug (`agentsForRole` now returns `engram-<name>`). VoltAgent attribution added to fetched agents + `THIRD-PARTY-NOTICES.md` shipped. JSONL session pruning + `knit_prune_sessions` tool. Reflect falls back to global pool when local entries < 3. Hybrid hook merging (`_engramOwned: true` tag per entry; merge into existing user `settings.local.json` without clobbering). `engram export obsidian <vault>` CLI. 33 MCP tools, 272 tests.
-- **v0.4.2** — shipped. Metadata-only patch. Dropped stale "20 tools" copy from package.json description; fixed broken npm version badge in README (URL-encoded scoped name `%40piyushdua%2Fknit`); removed hardcoded `MCP_tools-32` badge that drifts every release; synced Domain Architecture in CLAUDE.md to actual `src/` (replaced fictional `adapters/` with real `mcp/`). No code changes. 33 MCP tools, 272 tests.
-- **v0.5.0** — shipped. Headline feature: **Protocol Guard** — runtime enforcement of the engram protocol via hooks. New SessionStart hook (auto-loads session marker), UserPromptSubmit hook (clears classification marker per turn), PreToolUse `Edit|Write|MultiEdit` gate (reads strictness config; off/warn/block). New tools `knit_set_protocol_strictness` + `knit_get_protocol_strictness`. `knit_classify_task` writes the marker as a side effect so the gate has something to read. CLAUDE.md generator gained a "system-reminder override" paragraph that defends the protocol block from the harness's default `"may or may not be relevant"` wrapper. New `src/engine/protocol-guard.ts` module. 35 MCP tools, 293 tests.
-- **v0.5.1** — shipped. Upgrade-path fix for v0.5.0. `HOOKS_VERSION` constant in `generators/settings.ts` (now 3); `cache.ts` reads stored `_engramHooks.version` on every brain load; if stale, runs `writeKnitHooks` once per process to refresh. Hybrid merge preserves user permissions. Means existing v0.4.x users auto-receive Protocol Guard hooks on next MCP call — no `engram refresh` needed. 35 MCP tools, 295 tests.
-
-## v0.5 candidates (deferred, ranked by value × cost)
-
-1. **Hybrid search fusion** — engram's `searchSessions` / `searchGlobalLearnings` / `queryByDomains` use plain substring match. agentmemory (`rohitg00/agentmemory`, Apache-2.0) uses BM25 + vector embeddings + knowledge graph fused via Reciprocal Rank Fusion (k=60). ~95% R@5 vs ~86% BM25-only in their benchmarks. Local embeddings via `@xenova/transformers` or similar avoid the network. Biggest retrieval-quality win.
-2. **4-tier memory consolidation** — engram has flat learnings + sessions. agentmemory promotes through working → episodic → semantic → procedural tiers with Ebbinghaus decay. Lets old noise self-evict; surfaces stable patterns; matches how human memory actually consolidates. Real architecture change.
-3. **Privacy filter on the ingest path** — engram strips control chars + caps length on MCP tool inputs (`tools.ts:209`), but doesn't scan for secrets (`sk-…`, `AKIA…`, `ghp_…`) before persisting to learnings or sessions. Bake it into the ingest pipeline. Real defense for users who paste tokens by accident.
-4. **More auto-capture hooks** — engram has PreToolUse + PostToolUse + Stop. agentmemory has 12 lifecycle hooks (SessionStart, PreCompact, etc.) and captures from them automatically. Reduces the LEARN-discipline burden — closer to zero-effort capture.
-5. **Session-diversified retrieval** — cap retrieved results to N per session in final ranking so one verbose session doesn't dominate. Trivial add to `searchSessions` / `searchGlobalLearnings`.
-6. **/plugin install path** — Claude Code now supports `claude /plugin install`. Ship engram as a plugin alongside the MCP-server-via-npx path so users don't need to edit `~/.claude.json` manually.
-7. **Knowledge graph + entity extraction** — agentmemory extracts entities/relationships during consolidation and uses graph traversal as a reranking signal. Useful only AFTER (1) and (2) land.
-
-(Items 8+: REST/HTTP API for non-MCP clients, live observability viewer, native Windows shell outside hooks — all deferred until a real user need surfaces.)
+- **Branches:** `feature/<descriptive-name>`, squash merge to main.
+- **Pre-merge gates:** `npm run typecheck && npm run lint && npm run test && npm run build`.
+- Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`, `release:`.
+- Never force-push or rewrite tags. Never bypass hooks (`--no-verify`) unless explicitly authorized.
