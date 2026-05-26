@@ -72,7 +72,7 @@ import {
  *                 silently. Existing v0.11.0 users auto-receive the
  *                 hardening on next MCP call via the hybrid-merge path.
  */
-export const HOOKS_VERSION = 11;
+export const HOOKS_VERSION = 12;
 
 export function generateSettings(config: KnitConfig, rootPath: string): object {
   return {
@@ -373,6 +373,46 @@ function generateHooks(config: KnitConfig, rootPath: string) {
               fs.mkdirSync(path.dirname(logPath), { recursive: true });
               fs.appendFileSync(logPath, JSON.stringify({ file: f, ts: new Date().toISOString() }) + "\\n");
             } catch (e) { try { process.stderr.write('[knit] turn-edit appender hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
+          });
+        `),
+        timeout: 5,
+      },
+    ],
+  });
+
+  // v0.12 — CLAUDE.md size watch. Fires immediately after any Edit/Write
+  // touching CLAUDE.md (vs. the existing v0.9 #4 Stop-hook budget watch
+  // which only runs at end of turn). Catches the over-budget edit at the
+  // moment it lands so the agent can act in the same turn instead of
+  // shipping bloat through to the next session. Read-only stderr warn —
+  // never blocks.
+  hooks.PostToolUse.push({
+    _knitOwned: true,
+    matcher: 'Write|Edit|MultiEdit',
+    hooks: [
+      {
+        type: 'command',
+        command: nodeHook(`
+          let d = "";
+          process.stdin.on("data", (c) => d += c);
+          process.stdin.on("end", () => {
+            try {
+              const fs = require("fs");
+              const path = require("path");
+              const i = JSON.parse(d);
+              const ti = i.tool_input || {};
+              const f = ti.file_path || (i.tool_response && i.tool_response.filePath) || "";
+              if (!f) return;
+              if (path.basename(f) !== "CLAUDE.md") return;
+              const TARGET = 6500;
+              const SLACK = 6500 * 1.25;
+              let size = 0;
+              try { size = fs.statSync(f).size; } catch { return; }
+              if (size <= TARGET) return;
+              const kb = Math.round(size/1024*10)/10;
+              const verdict = size > SLACK ? "over-budget" : "warn";
+              process.stderr.write("[knit] BUDGET " + verdict + ": " + f + " is now " + kb + "KB (target 6.5KB). Move long-form content to .claude/MARKETING.md or run \\\`engram refresh\\\`.\\n");
+            } catch (e) { try { process.stderr.write('[knit] claude-md size watch hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
           });
         `),
         timeout: 5,

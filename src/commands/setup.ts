@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
 import ora from 'ora';
+import { runDoctor } from './doctor.js';
 
 interface SetupOptions {
   global?: boolean;
@@ -106,7 +107,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   console.log(chalk.bold('  How it works'));
   console.log(`  ${chalk.cyan('1.')} Open ${chalk.bold('any project')} in Claude Code`);
   console.log(`  ${chalk.cyan('2.')} Agent calls \`knit_classify_task\` → brain auto-initializes`);
-  console.log(`  ${chalk.cyan('3.')} Agent gets 35 tools: imports, exports, tests, learnings, teams`);
+  console.log(`  ${chalk.cyan('3.')} Agent gets 53+ tools: imports, exports, tests, learnings, teams, requirements`);
   console.log(`  ${chalk.cyan('4.')} Brain compounds with every session — gets smarter over time`);
   console.log();
   console.log(chalk.dim('  No CLI needed after this. The MCP server handles everything.'));
@@ -114,6 +115,38 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
 
   if (isGlobal) {
     console.log(chalk.dim(`  Config written to: ${settingsPath}`));
+  }
+  console.log();
+
+  // v0.12 — run doctor as final step. Non-fatal: setup completes even if the
+  // user's project is over-budget, but they SEE the verdict immediately and
+  // get the concrete fix command. Closes the "diagnostic without action" gap
+  // that left v0.11.x users shipping over-budget without ever knowing.
+  console.log(chalk.bold('  Install health check'));
+  console.log();
+  try {
+    const report = runDoctor(process.cwd());
+    for (const c of report.checks) {
+      const icon =
+        c.status === 'ok' ? chalk.green('✓')
+        : c.status === 'warn' ? chalk.yellow('⚠')
+        : c.status === 'error' ? chalk.red('✗')
+        : chalk.gray('·');
+      console.log(`  ${icon} ${c.name.padEnd(22)} ${chalk.dim(c.detail)}`);
+    }
+    const errors = report.checks.filter((c) => c.status === 'error').length;
+    const warnings = report.checks.filter((c) => c.status === 'warn').length;
+    console.log();
+    if (errors > 0) {
+      console.log(chalk.red(`  ${errors} error(s) — run \`engram doctor\` for full details + fix commands.`));
+    } else if (warnings > 0) {
+      console.log(chalk.yellow(`  ${warnings} warning(s) — setup complete, but check items above.`));
+    } else {
+      console.log(chalk.green('  All checks passed — install is healthy.'));
+    }
+  } catch (err) {
+    // Doctor should never throw, but if it does, don't fail setup.
+    console.log(chalk.dim(`  (doctor skipped: ${(err as Error).message})`));
   }
   console.log();
 }

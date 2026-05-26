@@ -21,6 +21,7 @@ import { join, resolve } from 'node:path';
 import { HOOKS_VERSION } from '../generators/settings.js';
 import { knowledgebasePath, projectDataDir } from '../engine/paths.js';
 import { VERSION } from '../version.js';
+import { CLAUDE_MD_BUDGET_BYTES } from '../mcp/instructions.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'error' | 'info';
 
@@ -164,6 +165,50 @@ export function runDoctor(rootPath: string): DoctorReport {
     } catch {
       // missing entry — fine, no symlink to check
     }
+  }
+
+  // ── Token budget (v0.12) — CLAUDE.md size vs 6.5KB target ──
+  // The structural enforcement: doctor exits non-zero if CLAUDE.md is
+  // over 25% past target. Bridges "diagnostic only" (brain_status) →
+  // "blocks setup completion" (exit 1).
+  const claudeMdPath = join(rootPath, 'CLAUDE.md');
+  if (existsSync(claudeMdPath)) {
+    try {
+      const bytes = statSync(claudeMdPath).size;
+      const kb = Math.round(bytes / 1024 * 10) / 10;
+      const targetKb = Math.round(CLAUDE_MD_BUDGET_BYTES / 1024 * 10) / 10;
+      if (bytes <= CLAUDE_MD_BUDGET_BYTES) {
+        checks.push({
+          name: 'Token budget',
+          status: 'ok',
+          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — healthy`,
+        });
+      } else if (bytes <= CLAUDE_MD_BUDGET_BYTES * 1.25) {
+        checks.push({
+          name: 'Token budget',
+          status: 'warn',
+          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget, within 25% slack. Run \`engram refresh\` or trim the file.`,
+        });
+      } else {
+        checks.push({
+          name: 'Token budget',
+          status: 'error',
+          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget by >25%. Move long-form content to .claude/MARKETING.md or run \`engram refresh\`.`,
+        });
+      }
+    } catch (err) {
+      checks.push({
+        name: 'Token budget',
+        status: 'warn',
+        detail: `CLAUDE.md unreadable: ${(err as Error).message}`,
+      });
+    }
+  } else {
+    checks.push({
+      name: 'Token budget',
+      status: 'info',
+      detail: 'no CLAUDE.md yet — created on first MCP call',
+    });
   }
 
   // ── Node version sanity check ──
