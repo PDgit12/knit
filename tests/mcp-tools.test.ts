@@ -624,6 +624,67 @@ describe('handleToolCall', () => {
     expect(result.intelligence.patterns).toBeUndefined();
   });
 
+  // ── v0.11.5 — budget_health + learnings_health actionable nudges ───────────
+  //
+  // Both fields are read-only suggestions. They appear ONLY when worth acting on:
+  //   budget_health: only when overall verdict is warn or over-budget
+  //   learnings_health: only when total≥5 AND accessed_pct<30
+  //
+  // Healthy state must NOT add them — keeps load_session response lean.
+
+  it('knit_load_session — budget_health absent when CLAUDE.md is small enough (no nudge to add)', () => {
+    // Default test brain has no CLAUDE.md on disk → claudeMdBytes=0 → healthy.
+    // tool_registry/instructions in the test fixture sit within targets too.
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    expect(result.budget_health).toBeUndefined();
+  });
+
+  it('knit_load_session — learnings_health absent on a fresh brain (total < 5)', () => {
+    // Test brain has 1–2 entries — under the 5-learning floor, so no nudge.
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    expect(result.learnings_health).toBeUndefined();
+  });
+
+  it('knit_load_session — budget_health surfaces with concrete suggestion when CLAUDE.md is over budget', async () => {
+    // Write a 20KB CLAUDE.md to a fresh tmpdir — triggers over-budget on claude_md.
+    const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-budget-test-'));
+    writeFileSync(join(tmpRoot, 'CLAUDE.md'), 'A'.repeat(20000), 'utf-8');
+    const overBrain: BrainCache = { ...brain, rootPath: tmpRoot };
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, overBrain));
+    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best */ }
+    expect(result.budget_health).toBeDefined();
+    expect(result.budget_health.verdict).toBe('over-budget');
+    expect(result.budget_health.worst_surface).toBe('claude_md');
+    expect(result.budget_health.suggestion).toMatch(/CLAUDE\.md/);
+    expect(result.budget_health.per_session_kb).toBeGreaterThan(15);
+  });
+
+  it('knit_load_session — learnings_health surfaces when total≥5 AND hit_rate=0', () => {
+    // Inject 6 unaccessed entries to cross the 5-learning floor with 0% utilization.
+    for (let i = 0; i < 6; i++) {
+      brain.knowledgeBase.entries.push({
+        id: `nudge-test-${i}`,
+        summary: `entry ${i}`,
+        lesson: 'noop',
+        tags: ['#nudge'],
+        domains: [],
+        accessCount: 0,
+        timestamp: new Date().toISOString(),
+        approach: '',
+        outcome: 'success',
+      });
+    }
+    const result = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+    expect(result.learnings_health).toBeDefined();
+    expect(result.learnings_health.verdict).toBe('low-utilization');
+    expect(result.learnings_health.total).toBeGreaterThanOrEqual(6);
+    expect(result.learnings_health.accessed_pct).toBeLessThan(30);
+    expect(result.learnings_health.suggestion).toMatch(/knit_search_learnings|knit_consolidate_learnings/);
+  });
+
   // ── H4: redactSecrets on save_session_summary ────────────────────
   it('knit_save_session_summary redacts secrets before persisting (H4)', async () => {
     // sessionsJsonlPath resolves under $KNIT_HOME/projects/<hash>/sessions.jsonl,

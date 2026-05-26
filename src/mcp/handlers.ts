@@ -314,20 +314,23 @@ const TOKEN_BUDGETS = {
   /** Generated CLAUDE.md block. v0.7 trim landed at ~2KB on typical projects;
    *  6.5KB target allows for projects with many domains / large project map. */
   claude_md_bytes: 6500,
-  /** Tier-gated tools/list response. v0.12 typical: 38 Tier-1 active × ~280
-   *  bytes ≈ 10.6KB. 11KB target allows headroom for the v0.12 + v0.13
-   *  growth without immediately warning; full 51-tool exposure
-   *  (everything enabled) sits in warn range, surfacing the bloat. */
-  tool_registry_bytes: 11000,
+  /** Tier-gated tools/list response. v0.12 typical: 40 Tier-1 active × ~280
+   *  bytes ≈ 11.2KB. 12KB target gives Tier-1 healthy headroom; full
+   *  51-tool exposure (everything enabled) sits in warn range, surfacing
+   *  the bloat. Bumped from 11000 in v0.12 to reflect actual Tier-1 size. */
+  tool_registry_bytes: 12000,
   /** MCP server `instructions` field — sent at handshake. v0.11.1 surfaces
    *  9 new tools (verify_claim, calibration, requirements ingestion,
-   *  fingerprint, infer_domains, compose_template) → ~3.5KB. The
-   *  discoverability-vs-budget trade-off favors surfacing real tools. */
+   *  fingerprint, infer_domains, compose_template) → ~3.5KB. v0.12 may
+   *  append a one-line budget verdict (~200B) when CLAUDE.md is over
+   *  budget. The discoverability-vs-budget trade-off favors surfacing
+   *  real tools. */
   instructions_bytes: 4000,
   /** Sum of the three above — the per-session fixed cost Knit imposes.
-   *  v0.12 typical: ~14KB (CLAUDE.md ~2KB + tools ~10.6KB + instructions ~2KB);
-   *  20KB target covers the union with slack as more tools come online. */
-  per_session_overhead_bytes: 20000,
+   *  v0.12 typical: ~15KB (CLAUDE.md ~2KB + tools ~11.2KB + instructions
+   *  ~2.6KB); 22KB target covers the union with slack as more tools
+   *  come online. Bumped from 20000 alongside tool_registry. */
+  per_session_overhead_bytes: 22000,
 } as const;
 
 function verdict(actual: number, target: number): 'healthy' | 'warn' | 'over-budget' {
@@ -2507,6 +2510,102 @@ function parseLoadSessionInclude(raw: string | undefined): Set<string> {
   );
 }
 
+/**
+ * v0.11.5 — concise budget + learnings health for knit_load_session.
+ *
+ * knit_brain_status returns the full diagnostic surface (~1KB). load_session
+ * is on the hot path of every session — surface a one-line nudge only when
+ * action is warranted, so over-budget repos see "fix this" instead of
+ * burying the verdict in a tool the agent rarely calls.
+ *
+ * Read-only: returns suggestion strings; never auto-fixes.
+ */
+function computeBudgetHealth(brain: BrainCache): {
+  verdict: 'healthy' | 'warn' | 'over-budget';
+  per_session_kb: number;
+  worst_surface: 'claude_md' | 'tool_registry' | 'instructions' | null;
+  suggestion?: string;
+} | undefined {
+  let claudeMdBytes = 0;
+  try { claudeMdBytes = statSync(join(brain.rootPath, 'CLAUDE.md')).size; } catch { /* missing */ }
+
+  const shape = detectProjectShape(brain);
+  const listing = computeFeatureListing(shape);
+  const toolRegistryBytes = listing.totals.active * 280;
+  const instructionsBytes = KNIT_INSTRUCTIONS.length;
+  const perSessionOverheadBytes = claudeMdBytes + toolRegistryBytes + instructionsBytes;
+
+  const cv = verdict(claudeMdBytes, TOKEN_BUDGETS.claude_md_bytes);
+  const tv = verdict(toolRegistryBytes, TOKEN_BUDGETS.tool_registry_bytes);
+  const iv = verdict(instructionsBytes, TOKEN_BUDGETS.instructions_bytes);
+  const ov = verdict(perSessionOverheadBytes, TOKEN_BUDGETS.per_session_overhead_bytes);
+
+  // Worst-of-four for overall; pick the worst single surface for the suggestion.
+  const verdicts = [cv, tv, iv, ov];
+  const overall: 'healthy' | 'warn' | 'over-budget' = verdicts.includes('over-budget')
+    ? 'over-budget'
+    : verdicts.includes('warn')
+      ? 'warn'
+      : 'healthy';
+
+  if (overall === 'healthy') return undefined; // Don't add a nudge when nothing's wrong.
+
+  // Find the worst single per-surface offender for the suggestion.
+  const rank = (v: 'healthy' | 'warn' | 'over-budget'): number =>
+    v === 'over-budget' ? 2 : v === 'warn' ? 1 : 0;
+  const surfaces: Array<['claude_md' | 'tool_registry' | 'instructions', 'healthy' | 'warn' | 'over-budget']> = [
+    ['claude_md', cv],
+    ['tool_registry', tv],
+    ['instructions', iv],
+  ];
+  surfaces.sort((a, b) => rank(b[1]) - rank(a[1]));
+  const worst = surfaces[0][0];
+
+  const suggestions: Record<typeof worst, string> = {
+    claude_md: 'CLAUDE.md is over the 6.5KB target — run `engram refresh` to splice the lean marker-block, or check that the file is using the generator (not hand-curated).',
+    tool_registry: 'Tool registry over budget — call knit_list_features to see which Tier-2/3 tools are active and disable any you do not need.',
+    instructions: 'Instructions block over budget — likely a v0.x → v0.y growth. Restart Claude Code to pick up the trimmed instructions.',
+  };
+
+  return {
+    verdict: overall,
+    per_session_kb: Math.round(perSessionOverheadBytes / 1024 * 10) / 10,
+    worst_surface: worst,
+    suggestion: suggestions[worst],
+  };
+}
+
+/**
+ * v0.11.5 — learnings utilization nudge.
+ *
+ * Hit rate at 0% with N learnings recorded means the memory layer isn't
+ * paying off — either learnings are too narrow to recall, or sessions
+ * aren't calling knit_search_learnings. Surfacing this once per session
+ * (only when N ≥ 5) lets the agent act on it instead of letting the
+ * accumulation drift.
+ *
+ * Read-only: never auto-prunes; just suggests.
+ */
+function computeLearningsHealth(brain: BrainCache): {
+  total: number;
+  accessed_pct: number;
+  verdict: 'healthy' | 'low-utilization';
+  suggestion?: string;
+} | undefined {
+  const total = brain.knowledgeBase.entries.length;
+  if (total < 5) return undefined; // Not enough signal — skip.
+  const accessed = brain.knowledgeBase.entries.filter((e) => e.accessCount > 0).length;
+  const pct = total > 0 ? Math.round((accessed / total) * 100) : 0;
+  if (pct >= 30) return { total, accessed_pct: pct, verdict: 'healthy' };
+  // Under 30% utilization → low. Surface a concrete next step.
+  return {
+    total,
+    accessed_pct: pct,
+    verdict: 'low-utilization',
+    suggestion: `${total} learnings recorded but only ${pct}% have been recalled. Either call knit_search_learnings before re-investigating, or prune stale entries with knit_consolidate_learnings.`,
+  };
+}
+
 export function handleLoadSession(params: Record<string, string>, brain: BrainCache): string {
   const include = parseLoadSessionInclude(params.include);
   const wantAll = include.has('all');
@@ -2629,6 +2728,10 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     };
   }
 
+  // v0.11.5 — actionable nudges (read-only). Only surfaced when worth acting on.
+  const budgetHealth = computeBudgetHealth(brain);
+  const learningsHealth = computeLearningsHealth(brain);
+
   const response: Record<string, unknown> = {
     session_context: {
       last_session: lastSession,
@@ -2647,6 +2750,8 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
       ...(recentSessions !== undefined ? { recent_sessions: recentSessions } : {}),
     },
     ...(updateAvailable ? { update_available: updateAvailable } : {}),
+    ...(budgetHealth ? { budget_health: budgetHealth } : {}),
+    ...(learningsHealth && learningsHealth.verdict === 'low-utilization' ? { learnings_health: learningsHealth } : {}),
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : topLearnings.length > 0
