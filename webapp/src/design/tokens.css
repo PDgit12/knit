@@ -1,0 +1,132 @@
+/* Knit dashboard — Monetir-inspired design tokens.
+ *
+ * Palette is color-blocked (not gradient-based): one sage canvas, four
+ * card surfaces (black hero, mint positive, lavender secondary, off-
+ * white neutral). No drop shadows; cards separate by color, not depth.
+ * Numbers are the protagonist — large, tight, tabular.
+ */
+
+:root {
+  /* Canvas + surfaces */
+  --canvas: #dfe6dc;            /* sage page background */
+  --surface-dark: #0d0d0d;      /* hero stat card */
+  --surface-mint: #b6f0a3;      /* positive metric */
+  --surface-lavender: #a594f9;  /* secondary metric */
+  --surface-neutral: #f5f5f0;   /* off-white transaction cards */
+  --surface-glass: #ffffff;     /* pure white nested */
+
+  /* Foreground */
+  --text-dark: #0d0d0d;         /* primary on light surfaces */
+  --text-light: #f5f5f0;        /* primary on dark surface */
+  --text-mute-dark: rgba(13, 13, 13, 0.55);
+  --text-mute-light: rgba(245, 245, 240, 0.55);
+
+  /* Hairlines (used sparingly — color-blocking is the primary divider) */
+  --hairline: rgba(13, 13, 13, 0.08);
+
+  /* Radii — generous, the Monetir signature */
+  --radius-card: 28px;
+  --radius-card-inner: 20px;
+  --radius-pill: 999px;
+  --radius-control: 12px;
+
+  /* Spacing */
+  --space-1: 0.5rem;
+  --space-2: 0.75rem;
+  --space-3: 1rem;
+  --space-4: 1.25rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 2.5rem;
+  --space-8: 3rem;
+
+  /* Typography stack — system Inter-like.
+   * No web-font download (preserves local-first invariant). macOS gets
+   * SF Pro, Linux gets Inter or DejaVu, Windows gets Segoe UI Variable.
+   * All look professional at the geometric grotesque end of the scale. */
+  --font-sans: 'Inter', 'Inter Variable', ui-sans-serif, system-ui,
+               -apple-system, 'Segoe UI Variable', 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+               'Liberation Mono', monospace;
+
+  /* Type scale */
+  --size-hero: clamp(3rem, 6vw, 4.5rem);   /* the giant numbers */
+  --size-stat: clamp(1.75rem, 3vw, 2.25rem); /* secondary numbers */
+  --size-h1: 1.75rem;
+  --size-h2: 1.25rem;
+  --size-h3: 1.0625rem;
+  --size-body: 0.9375rem;
+  --size-label: 0.8125rem;
+  --size-eyebrow: 0.6875rem;
+
+  /* Weights */
+  --weight-bold: 800;     /* hero numbers */
+  --weight-semibold: 600; /* card titles */
+  --weight-medium: 500;   /* labels */
+  --weight-regular: 400;
+
+  /* Motion */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 280ms;
+}
+
+/* Base reset + canvas */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--text-dark);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  line-height: 1.5;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';  /* Inter typographic refinements */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover { text-decoration: none; }
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+/* Back-compat aliases — the pre-redesign views (ProjectView, MetricsView,
+ * GlobalView, DoctorView) reference these names via inline styles. Kept
+ * here so the dashboard stays usable across the redesign rollout, even
+ * though the color semantics have flipped (light mode now). Each view
+ * gets its own design pass in a follow-up commit; remove these aliases
+ * when the last consumer is migrated. */
+:root {
+  --text: var(--text-dark);
+  --text-dim: var(--text-mute-dark);
+  --bg: var(--canvas);
+  --surface: var(--surface-neutral);
+  --border: var(--hairline);
+  --accent: var(--surface-lavender);
+  --accent-2: var(--surface-mint);
+}
+
+/* Tabular numerals — used on every stat number for column alignment. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum', 'cv11';
+}
+
+/* Hairline divider used inside light cards. */
+.hairline { border-color: var(--hairline); }

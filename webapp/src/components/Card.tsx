@@ -1,19 +1,146 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, CSSProperties } from 'react';
 
-export function Card({ children, style }: { children: ReactNode; style?: React.CSSProperties }) {
+// Card surface variants. Monetir aesthetic: color-blocked, no shadow.
+export type CardVariant = 'dark' | 'mint' | 'lavender' | 'neutral' | 'glass';
+
+const VARIANT_BG: Record<CardVariant, string> = {
+  dark: 'var(--surface-dark)',
+  mint: 'var(--surface-mint)',
+  lavender: 'var(--surface-lavender)',
+  neutral: 'var(--surface-neutral)',
+  glass: 'var(--surface-glass)',
+};
+
+const VARIANT_FG: Record<CardVariant, string> = {
+  dark: 'var(--text-light)',
+  mint: 'var(--text-dark)',
+  lavender: 'var(--text-dark)',
+  neutral: 'var(--text-dark)',
+  glass: 'var(--text-dark)',
+};
+
+const VARIANT_MUTE: Record<CardVariant, string> = {
+  dark: 'var(--text-mute-light)',
+  mint: 'var(--text-mute-dark)',
+  lavender: 'var(--text-mute-dark)',
+  neutral: 'var(--text-mute-dark)',
+  glass: 'var(--text-mute-dark)',
+};
+
+export function Card({
+  children, variant = 'neutral', padding = 'normal', radius = 'card', style, onClick,
+}: {
+  children: ReactNode;
+  variant?: CardVariant;
+  padding?: 'normal' | 'tight' | 'large';
+  radius?: 'card' | 'inner';
+  style?: CSSProperties;
+  onClick?: () => void;
+}) {
+  const pad = padding === 'tight' ? 'var(--space-4)' : padding === 'large' ? 'var(--space-7)' : 'var(--space-6)';
   return (
-    <div style={{
-      padding: '1.25rem',
-      background: 'var(--surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 12,
-      ...style,
-    }}>
+    <div
+      onClick={onClick}
+      style={{
+        background: VARIANT_BG[variant],
+        color: VARIANT_FG[variant],
+        borderRadius: radius === 'inner' ? 'var(--radius-card-inner)' : 'var(--radius-card)',
+        padding: pad,
+        cursor: onClick ? 'pointer' : undefined,
+        transition: onClick ? 'transform var(--duration-fast) var(--ease)' : undefined,
+        ...style,
+        // Expose the per-card mute color so children can reference it.
+        ['--card-mute' as string]: VARIANT_MUTE[variant],
+      }}
+      onMouseDown={onClick ? (e) => { (e.currentTarget as HTMLElement).style.transform = 'scale(0.99)'; } : undefined}
+      onMouseUp={onClick ? (e) => { (e.currentTarget as HTMLElement).style.transform = ''; } : undefined}
+      onMouseLeave={onClick ? (e) => { (e.currentTarget as HTMLElement).style.transform = ''; } : undefined}
+    >
       {children}
     </div>
   );
 }
 
+// Tiny inline icons drawn as SVG — no icon library dep.
+export function ArrowUpRight({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M7 17 L17 7 M9 7 H17 V15" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function DeltaPill({ value, positive = true }: { value: string; positive?: boolean }) {
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '4px 10px',
+      background: positive ? 'var(--surface-mint)' : 'rgba(239, 68, 68, 0.15)',
+      color: positive ? 'var(--text-dark)' : '#b91c1c',
+      borderRadius: 'var(--radius-pill)',
+      fontSize: 'var(--size-label)',
+      fontWeight: 'var(--weight-semibold)',
+      fontFeatureSettings: "'tnum'",
+    }}>
+      {positive && <ArrowUpRight size={12} />}
+      {value}
+    </span>
+  );
+}
+
+export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <div style={{
+      fontSize: 'var(--size-eyebrow)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.08em',
+      fontWeight: 'var(--weight-medium)',
+      color: 'var(--card-mute, var(--text-mute-dark))',
+      ...style,
+    }}>{children}</div>
+  );
+}
+
+export function HeroNumber({
+  children, mute, style,
+}: { children: ReactNode; mute?: boolean; style?: CSSProperties }) {
+  return (
+    <div
+      className="tabular"
+      style={{
+        fontSize: 'var(--size-hero)',
+        fontWeight: 'var(--weight-bold)',
+        lineHeight: 0.95,
+        letterSpacing: '-0.02em',
+        color: mute ? 'var(--card-mute, var(--text-mute-dark))' : 'inherit',
+        ...style,
+      }}
+    >{children}</div>
+  );
+}
+
+export function StatNumber({
+  children, style,
+}: { children: ReactNode; style?: CSSProperties }) {
+  return (
+    <div
+      className="tabular"
+      style={{
+        fontSize: 'var(--size-stat)',
+        fontWeight: 'var(--weight-bold)',
+        lineHeight: 1,
+        letterSpacing: '-0.015em',
+        ...style,
+      }}
+    >{children}</div>
+  );
+}
+
+// Back-compat: ProjectView + MetricsView import a {Stat} component from
+// the pre-redesign era. Implemented here as a thin wrapper around the new
+// Card so those views keep working until they get their own design pass.
 export function Stat({ label, value, mono, hint }: {
   label: string;
   value: string | number;
@@ -21,34 +148,45 @@ export function Stat({ label, value, mono, hint }: {
   hint?: string;
 }) {
   return (
-    <Card>
+    <Card variant="neutral" padding="tight">
       <div style={{
-        fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em',
-        color: 'var(--text-dim)', marginBottom: '0.5rem',
+        fontSize: 'var(--size-eyebrow)', textTransform: 'uppercase',
+        letterSpacing: '0.06em', color: 'var(--text-mute-dark)',
+        marginBottom: 6,
       }}>{label}</div>
-      <div style={{
-        fontSize: '1.875rem', fontWeight: 600,
-        fontFamily: mono ? 'ui-monospace, monospace' : undefined,
-      }}>{value}</div>
-      {hint && <div style={{ marginTop: '0.5rem', color: 'var(--text-dim)', fontSize: '0.75rem' }}>{hint}</div>}
+      <div
+        className="tabular"
+        style={{
+          fontSize: 'var(--size-stat)', fontWeight: 'var(--weight-bold)',
+          letterSpacing: '-0.015em', lineHeight: 1,
+          fontFamily: mono ? 'var(--font-mono)' : undefined,
+        }}
+      >{value}</div>
+      {hint && (
+        <div style={{ marginTop: 6, color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
+          {hint}
+        </div>
+      )}
     </Card>
   );
 }
 
 export function Loading() {
-  return <div style={{ color: 'var(--text-dim)' }}>Loading…</div>;
+  return <div style={{ color: 'var(--text-mute-dark)', padding: 'var(--space-4)' }}>Loading…</div>;
 }
 
-export function ErrorBanner({ message }: { message: string }) {
+export function ErrorBanner({ message, hint }: { message: string; hint?: string }) {
   return (
-    <div style={{
-      padding: '1rem', border: '1px solid #7c2d2d', background: '#2a1010',
-      borderRadius: 8, color: '#f8b4b4',
-    }}>
-      <strong>Error.</strong>
-      <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
+    <Card variant="neutral" padding="tight" style={{ borderLeft: '3px solid #ef4444' }}>
+      <div style={{ fontWeight: 'var(--weight-semibold)', marginBottom: 4 }}>Could not load.</div>
+      <div style={{ color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
         <code>{message}</code>
-      </p>
-    </div>
+      </div>
+      {hint && (
+        <div style={{ color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)', marginTop: 8 }}>
+          {hint}
+        </div>
+      )}
+    </Card>
   );
 }

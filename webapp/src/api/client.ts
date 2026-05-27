@@ -9,6 +9,19 @@ export interface BrainSummary {
   knitHome: string;
 }
 
+export interface BrainAggregate {
+  projectCount: number;
+  totalLearnings: number;
+  totalSessions: number;
+  totalCacheHits: number;
+  totalGraphQueries: number;
+  totalFpSuppressions: number;
+  totalTokensSaved: number;
+  totalTokensSpent: number;
+  netTokenDelta: number;
+  topProjects: Array<{ id: string; name: string; netTokenDelta: number; verdict: string }>;
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -90,6 +103,7 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   brainSummary: () => get<BrainSummary>('/api/brain/summary'),
+  brainAggregate: () => get<BrainAggregate>('/api/brain/aggregate'),
   projects: () => get<{ projects: ProjectSummary[] }>('/api/projects'),
   projectLearnings: (id: string) => get<ProjectLearnings>(`/api/projects/${id}/learnings`),
   projectMetrics: (id: string) => get<ProjectMetrics>(`/api/projects/${id}/metrics`),

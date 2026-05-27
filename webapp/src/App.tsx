@@ -25,7 +25,7 @@ export function App() {
   return (
     <div style={{ minHeight: '100vh' }}>
       <Nav route={route} />
-      <main style={{ maxWidth: 1100, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
+      <main style={{ maxWidth: 1240, margin: '0 auto', padding: 'var(--space-5) var(--space-5) var(--space-8)' }}>
         {renderRoute(route)}
       </main>
     </div>
@@ -48,38 +48,44 @@ function renderRoute(route: string): React.ReactElement {
 }
 
 function Nav({ route }: { route: string }) {
-  const activeStyle = { color: 'var(--text)', borderBottomColor: 'var(--accent)' } as const;
-  const linkStyle = (active: boolean) => ({
-    padding: '0.5rem 0',
-    marginRight: '1.5rem',
-    color: active ? 'var(--text)' : 'var(--text-dim)',
-    borderBottom: '2px solid transparent',
-    textDecoration: 'none',
-    ...(active ? activeStyle : {}),
-  });
   const isHome = route === '#/' || route === '';
   const isGlobal = route === '#/global';
   const isDoctor = route === '#/doctor';
   return (
     <nav style={{
-      borderBottom: '1px solid var(--border)',
-      padding: '1rem 1.5rem',
-      display: 'flex',
-      alignItems: 'baseline',
-      maxWidth: 1100,
-      margin: '0 auto',
+      maxWidth: 1240, margin: '0 auto',
+      padding: 'var(--space-5) var(--space-5) 0',
+      display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
     }}>
       <a href="#/" style={{
-        fontSize: '1.125rem', fontWeight: 600, marginRight: '2rem',
-        background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
-        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-        textDecoration: 'none',
+        fontSize: 'var(--size-h2)', fontWeight: 'var(--weight-bold)',
+        letterSpacing: '-0.01em', marginRight: 'var(--space-5)',
+        color: 'var(--text-dark)',
       }}>
-        Knit
+        Knit<span style={{ color: 'var(--surface-lavender)' }}>.</span>
       </a>
-      <a href="#/" style={linkStyle(isHome)}>Projects</a>
-      <a href="#/global" style={linkStyle(isGlobal)}>Cross-project</a>
-      <a href="#/doctor" style={linkStyle(isDoctor)}>Health</a>
+      <NavLink href="#/" active={isHome}>Brain</NavLink>
+      <NavLink href="#/global" active={isGlobal}>Cross-project</NavLink>
+      <NavLink href="#/doctor" active={isDoctor}>Health</NavLink>
     </nav>
+  );
+}
+
+function NavLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      style={{
+        padding: '8px 14px',
+        borderRadius: 'var(--radius-pill)',
+        fontSize: 'var(--size-label)',
+        fontWeight: 'var(--weight-medium)',
+        background: active ? 'var(--surface-dark)' : 'transparent',
+        color: active ? 'var(--text-light)' : 'var(--text-mute-dark)',
+        transition: 'background var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease)',
+      }}
+    >
+      {children}
+    </a>
   );
 }

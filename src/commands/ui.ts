@@ -15,7 +15,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFileSync, readdirSync, existsSync, statSync, accessSync, constants as fsConstants } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, accessSync, watch, type FSWatcher, constants as fsConstants } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -177,6 +177,52 @@ function brainSummary(): BrainSummary {
     globalLearnings: countGlobalLearnings(),
     knitVersion: VERSION,
     knitHome: knitRoot().replace(homedir(), '~'),
+  };
+}
+
+interface BrainAggregate {
+  projectCount: number;
+  totalLearnings: number;
+  totalSessions: number;
+  totalCacheHits: number;
+  totalGraphQueries: number;
+  totalFpSuppressions: number;
+  totalTokensSaved: number;
+  totalTokensSpent: number;
+  netTokenDelta: number;
+  topProjects: Array<{ id: string; name: string; netTokenDelta: number; verdict: string }>;
+}
+
+function computeBrainAggregate(): BrainAggregate {
+  const root = join(knitRoot(), 'projects');
+  const totals = {
+    projectCount: 0, totalLearnings: 0, totalSessions: 0,
+    totalCacheHits: 0, totalGraphQueries: 0, totalFpSuppressions: 0,
+    totalTokensSaved: 0, totalTokensSpent: 0,
+  };
+  const projectDeltas: BrainAggregate['topProjects'] = [];
+  if (!existsSync(root)) {
+    return { ...totals, netTokenDelta: 0, topProjects: [] };
+  }
+  for (const id of readdirSync(root)) {
+    try { if (!statSync(join(root, id)).isDirectory()) continue; } catch { continue; }
+    const m = computeProjectMetrics(id);
+    if (!m) continue;
+    totals.projectCount++;
+    totals.totalLearnings += m.totalLearnings;
+    totals.totalSessions += m.totalSessions;
+    totals.totalCacheHits += m.cacheHits;
+    totals.totalGraphQueries += m.graphQueries;
+    totals.totalFpSuppressions += m.fpSuppressions;
+    totals.totalTokensSaved += m.tokensSavedEstimate;
+    totals.totalTokensSpent += m.tokensSpentEstimate;
+    projectDeltas.push({ id, name: m.projectName, netTokenDelta: m.netTokenDelta, verdict: m.verdict });
+  }
+  projectDeltas.sort((a, b) => b.netTokenDelta - a.netTokenDelta);
+  return {
+    ...totals,
+    netTokenDelta: totals.totalTokensSaved - totals.totalTokensSpent,
+    topProjects: projectDeltas.slice(0, 5),
   };
 }
 
@@ -517,6 +563,102 @@ function openBrowser(url: string): void {
   });
 }
 
+// ─── Real-time sync via Server-Sent Events ──────────────────────────────
+// The dashboard server watches ~/.knit/ for any file change (learnings
+// recorded, sessions saved, classifications written) and pushes a
+// minimal event over SSE so the React app can refresh affected views
+// without polling. This is the "real-time sync with the brain" surface
+// — local file watch only, no network.
+//
+// Event types: 'change' (file written/modified), 'unlink' (file deleted),
+// 'hello' (sent immediately on connection so the client knows it's
+// connected and the server is alive).
+
+interface SseClient {
+  res: ServerResponse;
+  id: number;
+}
+
+let sseClients: SseClient[] = [];
+let sseNextId = 1;
+let watcher: FSWatcher | null = null;
+
+function sseSend(client: SseClient, event: string, data: unknown): void {
+  try {
+    client.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch {
+    // Client gone — will be cleaned up on next pump.
+  }
+}
+
+function sseBroadcast(event: string, data: unknown): void {
+  for (const client of sseClients) sseSend(client, event, data);
+}
+
+function startBrainWatcher(): void {
+  if (watcher) return;
+  const root = knitRoot();
+  if (!existsSync(root)) return;
+  try {
+    // Recursive watch — works on macOS + Windows; Linux falls back to
+    // per-directory watchers via Node's polyfill. Coalesce bursts by
+    // debouncing inside a 250ms window (many file events fire when one
+    // knowledgebase.json save triggers tmp + rename + accessCount bumps).
+    let lastFlush = 0;
+    let pending: { kind: string; path: string } | null = null;
+    let flushTimer: NodeJS.Timeout | null = null;
+    const flush = (): void => {
+      if (!pending) return;
+      const now = Date.now();
+      lastFlush = now;
+      sseBroadcast('change', { ...pending, timestamp: new Date().toISOString() });
+      pending = null;
+    };
+    watcher = watch(root, { recursive: true }, (eventType, filename) => {
+      if (!filename) return;
+      // Filter the noisy stuff we don't care about.
+      if (filename.endsWith('.tmp') || filename.includes('.tmp.')) return;
+      if (filename.startsWith('.')) return; // .classified-current etc.
+      pending = { kind: eventType, path: filename };
+      const sinceFlush = Date.now() - lastFlush;
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = setTimeout(flush, Math.max(250 - sinceFlush, 50));
+    });
+    watcher.on('error', (err) => {
+      process.stderr.write(`[knit ui] file watcher error: ${err.message}\n`);
+    });
+  } catch (err) {
+    process.stderr.write(`[knit ui] could not start file watcher: ${(err as Error).message}\n`);
+  }
+}
+
+function handleSseConnect(res: ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    // SSE over HTTP/1.1 — keep the socket open indefinitely.
+    'X-Accel-Buffering': 'no',
+  });
+  const client: SseClient = { res, id: sseNextId++ };
+  sseClients.push(client);
+  sseSend(client, 'hello', { connectedAt: new Date().toISOString(), clientId: client.id });
+
+  // Heartbeat every 25s so proxies (and the browser) don't drop the connection.
+  const heartbeat = setInterval(() => sseSend(client, 'ping', { t: Date.now() }), 25000);
+
+  const cleanup = (): void => {
+    clearInterval(heartbeat);
+    sseClients = sseClients.filter((c) => c.id !== client.id);
+  };
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+
+  // Start the watcher on first connection; keep it running for the life
+  // of the process. Multiple clients share one watcher.
+  startBrainWatcher();
+}
+
 export async function uiCommand(): Promise<void> {
   // Locate the built webapp bundle. In dev: <repo>/webapp/dist.
   // In an npm-installed package: <package>/dist/webapp.
@@ -543,16 +685,19 @@ export async function uiCommand(): Promise<void> {
     // API surface — local-first, read-only in v1.0-alpha.
     if (url.startsWith('/api/')) {
       try {
+        if (url === '/api/events') { handleSseConnect(res); return; }
         if (url === '/api/version') return jsonResponse(res, 200, {
           knitVersion: VERSION,
           dashboardApi: 'v1',
           endpoints: [
-            '/api/version', '/api/brain/summary', '/api/projects',
-            '/api/projects/:id/learnings', '/api/projects/:id/metrics',
-            '/api/global/learnings', '/api/doctor',
+            '/api/version', '/api/brain/summary', '/api/brain/aggregate',
+            '/api/projects', '/api/projects/:id/learnings',
+            '/api/projects/:id/metrics', '/api/global/learnings',
+            '/api/doctor', '/api/events (SSE)',
           ],
         });
         if (url === '/api/brain/summary') return jsonResponse(res, 200, brainSummary());
+        if (url === '/api/brain/aggregate') return jsonResponse(res, 200, computeBrainAggregate());
         if (url === '/api/projects') return jsonResponse(res, 200, { projects: listProjects() });
         if (url === '/api/global/learnings') return jsonResponse(res, 200, { learnings: readGlobalLearnings() });
         if (url === '/api/doctor') return jsonResponse(res, 200, runGlobalDoctor());
