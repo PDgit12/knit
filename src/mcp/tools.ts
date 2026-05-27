@@ -33,56 +33,63 @@ import {
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
 
-/** MCP tool definition */
+/** MCP tool definition.
+ *  v0.12.2: property-level `description` is OPTIONAL. The MCP spec allows it
+ *  to be omitted, and we drop it for self-documenting field names like
+ *  `file_path` / `query` / `limit` to keep the handshake registry lean. */
 interface ToolDef {
   name: string;
   description: string;
   inputSchema: {
     type: 'object';
-    properties: Record<string, { type: string; description: string }>;
+    properties: Record<string, { type: string; description?: string }>;
     required?: string[];
   };
 }
 
-/** All tool definitions exposed by the Knit MCP server */
+/** All tool definitions exposed by the Knit MCP server.
+ *  v0.12.2: descriptions trimmed (moderate option A). Property-level
+ *  descriptions removed where the field name is self-documenting; tool-level
+ *  descriptions cut to functional purpose + when-to-use. Saves ~6KB at
+ *  handshake vs pre-v0.12.2. Non-obvious params keep their description. */
 export function getToolDefinitions(): ToolDef[] {
   return [
     // ── Query (read the brain) ───────────────────────────────────
     {
       name: 'knit_query_imports',
-      description: '[GRAPH] Reverse deps — WHO IMPORTS this file. Use to find blast radius before editing.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
+      description: '[GRAPH] WHO IMPORTS this file. Blast radius before editing.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_dependents',
-      description: '[GRAPH] Forward deps — WHAT THIS FILE IMPORTS. Opposite of knit_query_imports (who imports it).',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
+      description: '[GRAPH] WHAT THIS FILE IMPORTS (forward deps).',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_exports',
-      description: '[GRAPH] Exports from a file: functions, classes, types, constants. Use when verifying a claim or finding the canonical definition.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path.' } }, required: ['file_path'] },
+      description: '[GRAPH] Exports from a file: functions, classes, types, constants.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string' } }, required: ['file_path'] },
     },
     {
       name: 'knit_query_tests',
-      description: '[GRAPH] Tests covering a file, OR list all untested files with filter="untested". Use before declaring "tested" on changed code.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Relative file path (optional).' }, filter: { type: 'string', description: '"untested" to list all untested files.' } } },
+      description: '[GRAPH] Tests covering a file, or filter="untested" for all untested files.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string' }, filter: { type: 'string' } } },
     },
     {
       name: 'knit_find_fanout',
-      description: '[GRAPH] High-fanout files — imported by many others. Editing these is high-risk; surfaces in classify_task risk_tier.',
-      inputSchema: { type: 'object', properties: { min_importers: { type: 'string', description: 'Minimum importers to qualify (default: 3).' } } },
+      description: '[GRAPH] High-fanout files. Editing these is high-risk.',
+      inputSchema: { type: 'object', properties: { min_importers: { type: 'string' } } },
     },
     {
       name: 'knit_search_learnings',
-      description: '[MEMORY] Search THIS PROJECT\'s learnings. Use BEFORE re-investigating. Companions: knit_search_global_learnings (cross-project), knit_search_sessions (past tasks). BM25 + graph boost via files=.',
+      description: '[MEMORY] Search project learnings. BM25 + graph fusion (pass files=).',
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'BM25 free-text query over summary/lesson/approach/tags.' },
-          domains: { type: 'string', description: 'Comma-separated tag filter; combines with query when both passed.' },
-          files: { type: 'string', description: 'Comma-separated files the agent is editing — enables import-graph traversal boost.' },
-          limit: { type: 'string', description: 'Max results (default 10, max 50).' },
+          query: { type: 'string' },
+          domains: { type: 'string' },
+          files: { type: 'string' },
+          limit: { type: 'string' },
         },
       },
     },
@@ -100,84 +107,84 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Update (write to the brain) ──────────────────────────────
     {
       name: 'knit_classify_task',
-      description: '[PROTOCOL] BEFORE any Edit/Write. Returns risk_tier (drives plan mode), scope_tier (drives phases), change_kind, auto_plan_mode. Optional context_budget_remaining (0-100) downgrades gracefully.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown" for new projects.' }, description: { type: 'string', description: 'Brief task description.' }, verbose: { type: 'string', description: '"true" to include reasoning + cross_domain_ripple + files_count (debug fields).' }, context_budget_remaining: { type: 'string', description: 'Integer 0–100 — percent of host agent context window remaining. <30 triggers scope downgrade + skips OPTIMIZE phase. Defaults to 100.' } }, required: ['files_to_touch'] },
+      description: '[PROTOCOL] BEFORE any Edit/Write. Returns risk_tier, scope_tier, change_kind, auto_plan_mode.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files, or "unknown".' }, description: { type: 'string' }, verbose: { type: 'string' }, context_budget_remaining: { type: 'string', description: '0–100. <30 downgrades scope.' } }, required: ['files_to_touch'] },
     },
     {
       name: 'knit_build_context',
-      description: 'Build the Domain Context Object: affected domains, ripple, pitfalls, false positives.',
-      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string', description: 'Comma-separated files.' } }, required: ['files_to_touch'] },
+      description: 'Build Domain Context Object: affected domains, ripple, pitfalls, FPs.',
+      inputSchema: { type: 'object', properties: { files_to_touch: { type: 'string' } }, required: ['files_to_touch'] },
     },
     {
       name: 'knit_record_learning',
-      description: '[MEMORY-WRITE] Record a non-obvious THIS-PROJECT insight. Skip substring repeats. For cross-project: knit_record_global_learning. For FPs: knit_record_false_positive.',
-      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'One-line summary.' }, domains: { type: 'string', description: 'Comma-separated domains.' }, approach: { type: 'string', description: 'What approach was taken.' }, outcome: { type: 'string', description: 'success | partial | failure.' }, lesson: { type: 'string', description: 'What to repeat or avoid.' }, tags: { type: 'string', description: 'Space-separated tags (e.g. "#api #auth").' } }, required: ['summary', 'lesson', 'tags'] },
+      description: '[MEMORY-WRITE] Record a non-obvious project insight. Search first to skip duplicates.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string' }, domains: { type: 'string' }, approach: { type: 'string' }, outcome: { type: 'string', description: 'success | partial | failure.' }, lesson: { type: 'string' }, tags: { type: 'string' } }, required: ['summary', 'lesson', 'tags'] },
     },
     {
       name: 'knit_record_false_positive',
-      description: 'Mark a finding as confirmed non-issue so future reviewers suppress it. v0.11: include a direction tag (e.g. "#complex-was-trivial") to also feed the self-healing classifier.',
-      inputSchema: { type: 'object', properties: { summary: { type: 'string', description: 'What was flagged.' }, reason: { type: 'string', description: 'Why it\'s not a real issue.' }, tags: { type: 'string', description: 'Space-separated tags. Optional classifier-direction tag tunes calibration: #complex-was-trivial, #trivial-was-complex, #high-risk-was-low, etc.' } }, required: ['summary', 'reason'] },
+      description: 'Mark a non-issue. Add #direction tag (e.g. #complex-was-trivial) to tune calibration.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string' }, reason: { type: 'string' }, tags: { type: 'string' } }, required: ['summary', 'reason'] },
     },
     {
       name: 'knit_get_calibration',
-      description: 'Read per-project classifier calibration: FP counters by direction, current scope/risk adjustments. v0.11 slice 4.',
+      description: 'Read classifier calibration: FP counters, scope/risk adjustments.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_reset_calibration',
-      description: 'Wipe per-project classifier calibration back to default zeros. Admin tier — use when calibration drifted in a bad direction.',
+      description: 'Wipe classifier calibration to default. Admin tier.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_index_requirements',
-      description: 'Ingest a long-form requirements / spec / RFC doc into a BM25-indexed per-project store. Companion to knit_generate_test_cases — solves the 200KB-doc → relevant-only-context problem at ingest time.',
-      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Absolute path to the source doc (Jira export, Swagger spec, RFC, etc.).' }, source_id: { type: 'string', description: 'Optional id (defaults to slugified basename).' }, label: { type: 'string', description: 'Human-readable label, e.g. "PAY-1234 Payment Flow Spec".' }, min_chars: { type: 'string', description: 'Drop chunks shorter than this (default 50).' } }, required: ['file_path'] },
+      description: 'Ingest a requirements/spec/RFC doc into a BM25-indexed store. Pair with knit_generate_test_cases.',
+      inputSchema: { type: 'object', properties: { file_path: { type: 'string', description: 'Absolute path.' }, source_id: { type: 'string' }, label: { type: 'string' }, min_chars: { type: 'string' } }, required: ['file_path'] },
     },
     {
       name: 'knit_generate_test_cases',
-      description: 'Free-text query against indexed requirements. Returns top-N relevant chunks via BM25+RRF across sources, plus a test-case-generation template. Companion to knit_index_requirements.',
-      inputSchema: { type: 'object', properties: { feature: { type: 'string', description: 'The topic / feature name to retrieve context for.' }, source_id: { type: 'string', description: 'Optional — scope retrieval to one indexed source. Omit to search across all.' }, top_n: { type: 'string', description: 'How many chunks to return (default 5, max 30).' } }, required: ['feature'] },
+      description: 'Query indexed requirements. Returns top-N chunks via BM25+RRF + test-gen template.',
+      inputSchema: { type: 'object', properties: { feature: { type: 'string' }, source_id: { type: 'string' }, top_n: { type: 'string' } }, required: ['feature'] },
     },
     {
       name: 'knit_list_requirements',
-      description: 'List all indexed requirements sources (header info only — no chunks). Cheap. Call before knit_generate_test_cases to see what is available.',
+      description: 'List indexed requirements sources (no chunks). Call before knit_generate_test_cases.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_delete_requirements',
-      description: 'Delete an indexed requirements source by id. Returns {deleted: bool}. Use knit_list_requirements first to see source ids.',
-      inputSchema: { type: 'object', properties: { source_id: { type: 'string', description: 'Source id to delete (as shown by knit_list_requirements).' } }, required: ['source_id'] },
+      description: 'Delete an indexed source by id.',
+      inputSchema: { type: 'object', properties: { source_id: { type: 'string' } }, required: ['source_id'] },
     },
     {
       name: 'knit_get_fingerprint',
-      description: 'v0.12 phase 0 — project fingerprint: languages, framework, test runner, linter, build/lint/typecheck commands, package manager, CI files. Foundation for auto-config.',
+      description: 'Project fingerprint: languages, framework, test/lint/build commands, CI files.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_infer_domains',
-      description: 'v0.12 phase 1 — domain inference: ranks candidate domains by fusing git co-change + import-graph centrality + test colocation via RRF. Review candidates before accepting into CLAUDE.md.',
-      inputSchema: { type: 'object', properties: { lookback_days: { type: 'string', description: 'How many days of git history for co-change clustering (default 90, max 730).' } } },
+      description: 'Rank candidate domains via git co-change + import-graph + test colocation (RRF).',
+      inputSchema: { type: 'object', properties: { lookback_days: { type: 'string' } } },
     },
     {
       name: 'knit_compose_template',
-      description: 'v0.12 phase 2 — composes Project Identity / Build & Verify / Domain Architecture sections from fingerprint + domains. Preview only; paste into CLAUDE.md to accept.',
-      inputSchema: { type: 'object', properties: { project_name: { type: 'string', description: 'Optional name override; defaults to detected project name.' } } },
+      description: 'Preview CLAUDE.md sections from fingerprint + domains. Paste to accept.',
+      inputSchema: { type: 'object', properties: { project_name: { type: 'string' } } },
     },
     {
       name: 'knit_save_handoff',
-      description: '[END OF SESSION — UNFINISHED] Save state when work is incomplete or context degraded. failed_attempts is the load-bearing field. For finished work use knit_save_session_summary.',
-      inputSchema: { type: 'object', properties: { goal: { type: 'string', description: 'What we\'re trying to accomplish.' }, current_state: { type: 'string', description: 'Where we are now.' }, files_in_flight: { type: 'string', description: 'Files being modified.' }, what_changed: { type: 'string', description: 'Commits and edits.' }, failed_attempts: { type: 'string', description: 'What was tried and why it failed.' }, decisions_made: { type: 'string', description: 'Important choices.' }, next_step: { type: 'string', description: 'ONE most important next thing.' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
+      description: '[END SESSION — UNFINISHED] Save state. failed_attempts is load-bearing.',
+      inputSchema: { type: 'object', properties: { goal: { type: 'string' }, current_state: { type: 'string' }, files_in_flight: { type: 'string' }, what_changed: { type: 'string' }, failed_attempts: { type: 'string' }, decisions_made: { type: 'string' }, next_step: { type: 'string' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
     },
     {
       name: 'knit_setup_project',
-      description: 'Bootstrap domain teams for a non-code project (research/legal/marketing).',
+      description: 'Bootstrap domain teams for a non-code project.',
       inputSchema: {
         type: 'object',
         properties: {
           project_type: { type: 'string', description: 'code | research | analysis | writing | design | custom.' },
-          description: { type: 'string', description: 'What the project does.' },
-          domains: { type: 'string', description: 'Comma-separated domains.' },
-          team_roles: { type: 'string', description: 'Comma-separated team roles.' },
+          description: { type: 'string' },
+          domains: { type: 'string' },
+          team_roles: { type: 'string' },
         },
         required: ['description'],
       },
@@ -192,22 +199,22 @@ export function getToolDefinitions(): ToolDef[] {
     {
       name: 'knit_define_team',
       description: 'Create or update a custom team.',
-      inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'Team name.' }, role: { type: 'string', description: 'Team role.' }, focus: { type: 'string', description: 'Team focus area.' }, agents: { type: 'string', description: 'Comma-separated agent types.' }, file_patterns: { type: 'string', description: 'Comma-separated globs.' }, checklist: { type: 'string', description: 'Pipe-separated review items.' } }, required: ['name', 'role', 'focus'] },
+      inputSchema: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' }, focus: { type: 'string' }, agents: { type: 'string' }, file_patterns: { type: 'string' }, checklist: { type: 'string', description: 'Pipe-separated.' } }, required: ['name', 'role', 'focus'] },
     },
     {
       name: 'knit_start_team_review',
       description: 'Start a parallel team review with a shared findings board.',
-      inputSchema: { type: 'object', properties: { task_description: { type: 'string', description: 'What the teams review.' }, teams: { type: 'string', description: 'Comma-separated team names or "all".' } }, required: ['task_description'] },
+      inputSchema: { type: 'object', properties: { task_description: { type: 'string' }, teams: { type: 'string', description: 'Comma-separated or "all".' } }, required: ['task_description'] },
     },
     {
       name: 'knit_get_team_prompt',
       description: 'Get a team\'s prompt with other teams\' findings included.',
-      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Team name.' }, files_to_review: { type: 'string', description: 'Comma-separated files.' } }, required: ['team_name'] },
+      inputSchema: { type: 'object', properties: { team_name: { type: 'string' }, files_to_review: { type: 'string' } }, required: ['team_name'] },
     },
     {
       name: 'knit_post_team_findings',
       description: 'Post team findings to the shared board.',
-      inputSchema: { type: 'object', properties: { team_name: { type: 'string', description: 'Team posting.' }, findings: { type: 'string', description: 'JSON array of findings.' } }, required: ['team_name', 'findings'] },
+      inputSchema: { type: 'object', properties: { team_name: { type: 'string' }, findings: { type: 'string', description: 'JSON array.' } }, required: ['team_name', 'findings'] },
     },
     {
       name: 'knit_get_board_summary',
@@ -218,43 +225,38 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Session memory ───────────────────────────────────────────
     {
       name: 'knit_load_session',
-      description: '[PROTOCOL FIRST] Call once at session start. Returns handoff, top learnings, FPs, update_available. Opt in via include=patterns,teams,metrics,recent_sessions,full_learnings,all.',
-      inputSchema: { type: 'object', properties: { include: { type: 'string', description: 'Comma-separated optional sections.' } } },
+      description: '[PROTOCOL FIRST] Call once at session start. Returns handoff, top learnings, FPs. Opt in via include=patterns,teams,metrics,recent_sessions,full_learnings,all.',
+      inputSchema: { type: 'object', properties: { include: { type: 'string' } } },
     },
     {
       name: 'knit_save_session_summary',
-      description: '[END OF SESSION] Record a session summary so future knit_search_sessions can find this work. Pair with knit_save_handoff when work is unfinished.',
+      description: '[END SESSION] Record a session summary. Pair with knit_save_handoff if unfinished.',
       inputSchema: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: 'One-line summary.' },
-          tags: { type: 'string', description: 'Space-separated tags like "#auth #refactor".' },
+          summary: { type: 'string' },
+          tags: { type: 'string' },
           outcome: { type: 'string', description: 'shipped | wip | failed | unknown.' },
-          files_touched: { type: 'string', description: 'Comma-separated files (optional).' },
-          domains: { type: 'string', description: 'Comma-separated domains (optional).' },
+          files_touched: { type: 'string' },
+          domains: { type: 'string' },
         },
         required: ['summary', 'tags', 'outcome'],
       },
     },
     {
       name: 'knit_prune_sessions',
-      description: 'Prune sessions older than max_age_days (default 90). Atomic rewrite.',
+      description: 'Prune sessions older than max_age_days (default 90). Atomic.',
       inputSchema: {
         type: 'object',
-        properties: {
-          max_age_days: { type: 'string', description: 'Maximum age in days (default 90).' },
-        },
+        properties: { max_age_days: { type: 'string' } },
       },
     },
     {
       name: 'knit_search_sessions',
-      description: '[MEMORY] "Have I done this task before?" — search past SESSION summaries. Different from knit_search_learnings (lessons) and knit_search_global_learnings (cross-project).',
+      description: '[MEMORY] "Have I done this task before?" — search past SESSION summaries.',
       inputSchema: {
         type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Free text or tag.' },
-          limit: { type: 'string', description: 'Max results (default 10).' },
-        },
+        properties: { query: { type: 'string' }, limit: { type: 'string' } },
         required: ['query'],
       },
     },
@@ -262,25 +264,20 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Workflow on demand ───────────────────────────────────────
     {
       name: 'knit_get_workflow',
-      description: 'Fetch one workflow section: overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools. Omit phase to list all.',
+      description: 'Fetch one workflow section. Omit phase to list all.',
       inputSchema: {
         type: 'object',
-        properties: {
-          phase: { type: 'string', description: 'Section name. Omit to list all.' },
-        },
+        properties: { phase: { type: 'string', description: 'overview|tier|phases|research|ideate|plan|execute|optimize|review|tdd|learn|handoff|ship|tools.' } },
       },
     },
 
     // ── Parallel team worktrees ──────────────────────────────────
     {
       name: 'knit_spawn_team_worktree',
-      description: 'Create a git worktree for a team so they can write in parallel without colliding.',
+      description: 'Create a git worktree for a team to write in parallel without colliding.',
       inputSchema: {
         type: 'object',
-        properties: {
-          team_name: { type: 'string', description: 'Team display name (e.g., "UI", "API & Security").' },
-          task_description: { type: 'string', description: 'What this team is doing.' },
-        },
+        properties: { team_name: { type: 'string' }, task_description: { type: 'string' } },
         required: ['team_name', 'task_description'],
       },
     },
@@ -289,35 +286,30 @@ export function getToolDefinitions(): ToolDef[] {
       description: 'List active team worktrees. include_finalized=true for full history.',
       inputSchema: {
         type: 'object',
-        properties: {
-          include_finalized: { type: 'string', description: '"true" for full history (default: active only).' },
-        },
+        properties: { include_finalized: { type: 'string' } },
       },
     },
     // ── Cross-project learnings (Model C — global pool) ─────────
     {
       name: 'knit_record_global_learning',
-      description: '[MEMORY-WRITE] Record a learning that generalizes across MULTIPLE projects. Sparingly — most learnings are project-specific. Companion: knit_record_learning (this project only).',
+      description: '[MEMORY-WRITE] Record a learning that generalizes across projects. Sparingly.',
       inputSchema: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: 'One-line summary.' },
-          lesson: { type: 'string', description: 'Generalizable lesson.' },
-          tags: { type: 'string', description: 'Space-separated tags.' },
-          outcome: { type: 'string', description: 'success | partial | failure (optional).' },
+          summary: { type: 'string' },
+          lesson: { type: 'string' },
+          tags: { type: 'string' },
+          outcome: { type: 'string' },
         },
         required: ['summary', 'lesson', 'tags'],
       },
     },
     {
       name: 'knit_search_global_learnings',
-      description: '[MEMORY] Search learnings ACROSS ALL projects on this machine. Use when starting a new domain. Companion: knit_search_learnings (this project only).',
+      description: '[MEMORY] Search learnings across ALL projects on this machine.',
       inputSchema: {
         type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Free text or tag.' },
-          limit: { type: 'string', description: 'Max results (default 10).' },
-        },
+        properties: { query: { type: 'string' }, limit: { type: 'string' } },
         required: ['query'],
       },
     },
@@ -325,36 +317,30 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Pattern reflection (now backed by Model C, useful with ≥3 entries) ──
     {
       name: 'knit_reflect',
-      description: 'Detect patterns across learnings. Needs ≥3 entries to surface anything.',
+      description: 'Detect patterns across learnings. Needs ≥3 entries.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_get_suggestions',
-      description: 'Adaptive warnings from past patterns. "Based on history, watch out for X."',
-      inputSchema: { type: 'object', properties: { domains: { type: 'string', description: 'Comma-separated domains for this task.' } }, required: ['domains'] },
+      description: 'Adaptive warnings from past patterns.',
+      inputSchema: { type: 'object', properties: { domains: { type: 'string' } }, required: ['domains'] },
     },
 
     {
       name: 'knit_install_agent',
-      description: 'Install one VoltAgent subagent into .claude/agents/, personalized with project context.',
+      description: 'Install one VoltAgent subagent into .claude/agents/, personalized.',
       inputSchema: {
         type: 'object',
-        properties: {
-          name: { type: 'string', description: 'Agent name (e.g., "typescript-pro", "security-engineer").' },
-          refresh: { type: 'string', description: '"true" to force re-fetch even if cached.' },
-        },
+        properties: { name: { type: 'string' }, refresh: { type: 'string' } },
         required: ['name'],
       },
     },
     {
       name: 'knit_finalize_team_worktree',
-      description: 'Merge or discard a team\'s worktree. Surfaces conflicts without destroying the worktree.',
+      description: 'Merge or discard a team\'s worktree. Surfaces conflicts without destroying it.',
       inputSchema: {
         type: 'object',
-        properties: {
-          team_name: { type: 'string', description: 'Team name or slug.' },
-          action: { type: 'string', description: '"merge" or "discard".' },
-        },
+        properties: { team_name: { type: 'string' }, action: { type: 'string', description: 'merge | discard.' } },
         required: ['team_name', 'action'],
       },
     },
@@ -362,73 +348,73 @@ export function getToolDefinitions(): ToolDef[] {
     // ── Protocol Guard ───────────────────────────────────────────
     {
       name: 'knit_set_protocol_strictness',
-      description: 'Set Protocol Guard strictness: off | warn (default) | block.',
-      inputSchema: { type: 'object', properties: { level: { type: 'string', description: 'One of: off | warn | block.' } }, required: ['level'] },
+      description: 'Set Protocol Guard: off | warn (default) | block.',
+      inputSchema: { type: 'object', properties: { level: { type: 'string' } }, required: ['level'] },
     },
     {
       name: 'knit_get_protocol_strictness',
-      description: 'Read current Protocol Guard strictness.',
+      description: 'Read Protocol Guard strictness.',
       inputSchema: { type: 'object', properties: {} },
     },
 
     // ── Meta — feature discoverability ───────────────────────────
     {
       name: 'knit_list_features',
-      description: 'List active vs hidden Knit tools and why. Call when a tool you expect isn\'t available.',
+      description: 'List active vs hidden Knit tools and why.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_enable_feature',
-      description: 'Enable a Tier-2/3 feature flag (teams, subagents, admin). Persisted.',
+      description: 'Enable a Tier-2/3 feature flag. Persisted.',
       inputSchema: {
         type: 'object',
-        properties: { feature: { type: 'string', description: 'One of: teams, subagents, admin.' } },
+        properties: { feature: { type: 'string', description: 'teams | subagents | admin | diagnostics.' } },
         required: ['feature'],
       },
     },
     {
       name: 'knit_disable_feature',
-      description: 'Disable a feature flag. Auto-exposed tools stay visible regardless.',
+      description: 'Disable a feature flag. Auto-exposed tools stay visible.',
       inputSchema: {
         type: 'object',
-        properties: { feature: { type: 'string', description: 'One of: teams, subagents, admin.' } },
+        properties: { feature: { type: 'string' } },
         required: ['feature'],
       },
     },
     {
       name: 'knit_scan_integrations',
-      description: 'Re-scan host for existing workflow frameworks (Ruflo, gstack, CodeTour). Runs implicitly at autoInit; this is the manual re-trigger.',
+      description: 'Re-scan host for existing frameworks (Ruflo, gstack, CodeTour).',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_compounding_metrics',
-      description: 'Sessions / learnings / reuse-ratio / estimated tokens saved. Quantifies how much memory is paying back per-session overhead.',
+      description: 'Sessions / learnings / reuse-ratio / tokens-saved estimate.',
       inputSchema: { type: 'object', properties: {} },
     },
     {
       name: 'knit_get_metrics_history',
-      description: 'Weekly metrics snapshots + week-over-week deltas. Companion to knit_compounding_metrics for trend charts ("got X% cheaper by week N").',
-      inputSchema: { type: 'object', properties: { limit: { type: 'string', description: 'How many recent snapshots (default 12, max 52).' } } },
+      description: 'Weekly metrics snapshots + WoW deltas for trend charts.',
+      inputSchema: { type: 'object', properties: { limit: { type: 'string' } } },
     },
     {
       name: 'knit_verify_claim',
-      description: '[REVIEW] Fact-check one claim before LEARN on standard/complex scope. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists". Verdict: verified | contradicted | unparseable.',
-      inputSchema: { type: 'object', properties: { claim: { type: 'string', description: 'One claim about the codebase to verify.' } }, required: ['claim'] },
+      description: '[REVIEW] Fact-check one claim before LEARN. Patterns: "A imports B", "X exports Y", "A is tested by B", "X exists".',
+      inputSchema: { type: 'object', properties: { claim: { type: 'string' } }, required: ['claim'] },
     },
     {
       name: 'knit_get_learning',
-      description: '[MEMORY] Expand ONE learning by id (from a prior knit_search_learnings hit). Hierarchical retrieval — search returns headlines, this fetches details. Saves tokens vs. dumping full bodies.',
-      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Learning id from a prior knit_search_learnings result.' } }, required: ['id'] },
+      description: '[MEMORY] Expand ONE learning by id. Hierarchical retrieval — search returns headlines, this fetches details.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     },
     {
       name: 'knit_consolidate_learnings',
-      description: 'Detect clusters of similar learnings (Jaccard tag overlap) and propose a single pattern entry per cluster. Dry-run by default; pass commit=true to persist.',
+      description: 'Cluster similar learnings (Jaccard tag overlap) and propose pattern entries. Dry-run unless commit=true.',
       inputSchema: {
         type: 'object',
         properties: {
-          min_cluster_size: { type: 'string', description: 'Minimum cluster size (default 3, max 20).' },
-          jaccard_threshold: { type: 'string', description: 'Min Jaccard tag overlap to cluster (default 0.5).' },
-          commit: { type: 'string', description: '"true" to apply; default is dry-run.' },
+          min_cluster_size: { type: 'string' },
+          jaccard_threshold: { type: 'string' },
+          commit: { type: 'string' },
         },
       },
     },
