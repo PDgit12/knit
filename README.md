@@ -3,50 +3,66 @@
   <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PDgit12/knit/ci.yml?style=for-the-badge&label=CI&color=10b981" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
-  <img src="https://img.shields.io/badge/tests-665%20passing-22c55e?style=for-the-badge" alt="tests" />
   <img src="https://img.shields.io/badge/MCP%20tools-53-7c3aed?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/local--first-100%25-10b981?style=for-the-badge" alt="local-first" />
 </p>
 
 <h1 align="center">🧶 knit</h1>
 
 <p align="center">
-  <strong>An intelligent command layer for Claude Code.</strong><br/>
-  Project-scoped memory · on-demand workflow · parallel team worktrees · honest token accounting.<br/>
-  <em>All in one MCP server.</em>
+  <strong>Universal MCP brain for agentic coding platforms.</strong><br/>
+  Project-scoped memory · on-demand workflow · parallel team worktrees · live analytics dashboard.<br/>
+  <em>Works with Claude Code, Cursor, Codex, Cline, Continue — anything that speaks MCP.</em>
 </p>
 
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-what-knit-is">What it is</a> ·
-  <a href="#-whats-new-in-v0110">v0.11</a> ·
-  <a href="#-52-mcp-tools">Tools</a> ·
-  <a href="#-how-its-different">Comparison</a> ·
-  <a href="#-honest-comparison-vs-memory-libraries">vs mem0/Letta</a>
+  <a href="#-whats-new-in-v0130">v0.13</a> ·
+  <a href="#-53-mcp-tools">Tools</a> ·
+  <a href="#-the-dashboard">Dashboard</a> ·
+  <a href="#-how-its-different">vs mem0/Letta</a>
 </p>
 
 ---
 
 ## 🧠 What knit is
 
-Knit makes Claude Code do the right thing automatically — because you can't predict how a user will phrase a request. It does three jobs at once:
+Knit gives **any MCP-speaking coding agent** the right defaults automatically — because you can't predict how a user will phrase a request, and every agent (Claude Code, Cursor, Codex, Cline, Continue) ends up burning tokens re-discovering the same project facts. Knit does four jobs at once:
 
 | | |
 |---|---|
-| 🧠 **Memory** | Every project keeps a brain at `~/.knit/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session. |
-| 🪶 **Tokens** | `CLAUDE.md` is ~2 KB (project facts only). Protocol depth is fetched on demand via `knit_get_workflow(phase)`. Knit is **net-negative** on context cost. |
+| 🧠 **Memory** | Every project keeps a brain at `~/.knit/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session. Cross-project pool at `~/.knit/global/`. |
+| 🪶 **Tokens** | `CLAUDE.md` is ~2 KB (project facts only). Protocol depth is fetched on demand via `knit_get_workflow(phase)`. Real measured savings: **+254,800 net tokens across 3 projects** on this maintainer's machine. Reuse-ratio + ROI surfaced in the dashboard. |
 | 🛠️ **Workflow** | A 4-tier classification (Inquiry / Trivial / Standard / Complex) with phase-triggered plan mode, quality-gated `LEARN`, and team-scoped git worktrees so parallel agents don't step on each other. |
+| 📊 **Dashboard** | New in v0.13. `knit ui` opens a local-first analytics dashboard at `http://127.0.0.1:7421` — bento layout, brain savings, per-project ROI, **force-directed brain graph**, real-time sync via SSE. See [Dashboard](#-the-dashboard). |
 
-It's a **single product**, not three. Every design choice has to win on memory + tokens + workflow together.
+**Local-first** invariant: zero cloud calls in memory/retrieval/classification. Dashboard binds to `127.0.0.1` only, with Host/Origin validation + CSP headers. Your brain stays on your machine.
+
+It's a **single product**, not four. Every design choice has to win on memory + tokens + workflow + analytics together.
 
 ---
 
 ## 🚀 Quick start
 
 ```bash
-npx knit-mcp@latest setup
+npm install -g knit-mcp
+knit setup       # adds Knit MCP to your agent's config (Claude Code / Cursor / Codex / etc.)
+knit ui          # opens the brain dashboard at http://127.0.0.1:7421 (optional but recommended)
 ```
 
-Adds the Knit MCP server to your Claude Code config (`~/.claude.json`). **No per-project setup.** Open Claude Code in any project — the first MCP tool call auto-initializes the brain, hooks, and per-project CLAUDE.md block.
+**No per-project setup.** Open your MCP-speaking agent in any project — the first MCP tool call auto-initializes the brain, hooks, and per-project CLAUDE.md block.
+
+### Adoption per agent
+
+| Agent | How to register | Verified |
+|---|---|---|
+| Claude Code | `knit setup` writes to `~/.claude.json` | ✅ Tier-1 |
+| Cursor | Settings → MCP → add `knit` server (stdio: `npx knit-mcp`) | ✅ |
+| Codex CLI | Add to `~/.codex/config.toml` MCP servers section | ✅ |
+| Cline | VS Code settings → Cline → MCP servers | ✅ |
+| Continue | `~/.continue/config.json` `mcpServers` | ✅ |
+| Other MCP clients | Anything that spawns stdio MCP servers works | ✅ |
 
 > **Supported shells:** macOS, Linux, WSL, Git Bash, PowerShell. Windows `cmd.exe` is not supported as the hook-runner shell — use PowerShell (default in modern Windows Terminal) or Git Bash.
 
@@ -73,32 +89,50 @@ Knit writes nowhere else on your machine.
 
 ---
 
-## ✨ What's new in v0.9.0
+## ✨ What's new in v0.13.0
 
-v0.9 closes the **enforcement story** — every honest limit from the v0.8 architecture got a structural fix.
+v0.13 ships the **dashboard** — the visual surface on top of the brain. Plus security hardening and the universal positioning (works with every MCP-speaking agent).
 
-### Anti-hallucination
+### 📊 Brain dashboard (`knit ui`)
 
-- 📎 **Citation rule in the MCP `instructions` field.** Every session's system prompt now tells the agent: *"when you state a fact about this codebase, cite the Knit tool result that verified it — e.g. (per `knit_query_imports`). If you can't cite, say 'unverified' explicitly."* Makes hallucinations visible at the **claim level**.
-- 🔍 **`knit_verify_claim` tool.** Single-call fact-check against the knowledge graph. Parses *"A imports B"*, *"X exports Y"*, *"A is tested by B"*, *"X exists"* and returns `verified | contradicted | unparseable` with evidence.
+A single command opens a local-first analytics surface at `http://127.0.0.1:7421` — bento layout inspired by modern fintech dashboards, color-blocked cards, generous spacing, real-time sync.
 
-### Smarter retrieval
-
-- ⚡ **Auto-search inside `knit_classify_task`.** For `standard` / `complex` tier, classify now runs BM25 over (description + affected domains) automatically and embeds top-3 hits as `pre_emptive_learnings`. Closes the *"agent skipped `knit_search_learnings` before re-investigating"* gap with **zero extra calls**.
-- 📚 **`suggested_reads` from `knit_build_context`.** Curated list of files worth opening *before* editing — three signals: graph-importers (blast radius), graph-imports (likely needed), memory-mentions (files referenced by past learnings). Each entry carries `{ path, reason, via }`.
-- 🪜 **`knit_get_learning` — hierarchical retrieval.** Search returns headlines (summary + tags); the agent expands a specific learning by id only when needed. **Pay-per-detail.**
-- 🧮 **`knit_consolidate_learnings`.** Tag-Jaccard clustering of similar learnings → one pattern entry per cluster. Dry-run by default; `commit=true` persists with originals tagged `#consolidated` (preserved but deprioritized).
-
-### Hook-level enforcement (`HOOKS_VERSION` 6 → 7)
-
-| Hook | What it does |
+| View | What it shows |
 |---|---|
-| **PreToolUse search-gate** | For `standard`/`complex` tasks, blocks Edit/Write (in `block` mode) or warns (default `warn`) when `knit_search_learnings` hasn't fired in the current turn. |
-| **PreToolUse content inspection** | Reads proposed Edit/Write content, parses local imports, warns on relative paths that don't resolve on disk — **catches hallucinated imports before they land**. |
-| **PostToolUse import validation** | After the file lands, re-parses imports and warns about unresolved relative paths — catches anything that slipped past the pre-check. |
-| **Stop-hook budget watch** | Cheap CLAUDE.md size check at session end; warns if it crosses the 12.5 KB over-budget threshold. Drift becomes visible even when the agent doesn't call `knit_brain_status`. |
+| **Brain** (`#/`) | Hero card with net tokens saved across all projects, recent activity feed (live), memory hit-rate arc, top projects by ROI |
+| **Graph** (`#/graph`) | Project picker → **force-directed brain graph**: every learning is a node, edges by Jaccard similarity over shared tags + domains. Click any node for the full lesson. Threshold slider. |
+| **Cross-project** (`#/global`) | Cross-project learnings pool, filterable by source project |
+| **Per-project** (`#/p/:id`) | Searchable learnings list, retrieval signals, ROI deep dive (`#/p/:id/metrics`), graph (`#/p/:id/graph`) |
+| **Health** (`#/doctor`) | Install diagnostics: ~/.knit writable, MCP registered, version current |
 
-> **Upgrade note.** After `npx knit-mcp@latest setup`, **restart Claude Code**. The `instructions` field and tier-gated `tools/list` only flow into the system prompt at handshake. The `HOOKS_VERSION` bump auto-regenerates installed hooks on the next brain load — no manual `knit refresh` needed.
+**Real-time sync via SSE.** The server watches `~/.knit/` via `fs.watch`; any agent recording a learning anywhere updates the open dashboard within ~250ms. No polling.
+
+### 🔐 Security hardening (real, not theater)
+
+The dashboard is a localhost HTTP server, which has real attack surface. v0.13 closes it:
+
+- **Host-header validation** — rejects requests whose `Host` isn't `127.0.0.1`/`localhost`. Blocks **DNS rebinding** (a malicious site you visit could resolve `evil.com` to 127.0.0.1 and trick your browser into reading the dashboard).
+- **Origin-header validation** — cross-origin requests get `403`. Same defense pattern as PostgreSQL, Redis, Docker daemon, the React dev server.
+- **Content-Security-Policy** on every HTML response — same-origin scripts only, no `'unsafe-eval'`, no external sources.
+- **X-Frame-Options: DENY**, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer.
+- **No mutation endpoints** in v0.13 (read-only dashboard). Setup wizard / refresh button stay deferred until proper CSRF protection lands.
+
+### 🌍 Universal positioning
+
+Knit is an MCP server. Anything that speaks MCP works:
+
+- **Claude Code** — handshake via stdio, `instructions` field carries protocol primer
+- **Cursor** — register knit MCP server in settings
+- **Codex CLI** — `~/.codex/config.toml` mcpServers section
+- **Cline / Continue** — both speak MCP, same setup
+
+The dashboard works regardless of which agent you use — it reads the brain from disk.
+
+### 🪙 Token-economy lever
+
+`knit ui` notifies you when a new `knit-mcp` is available on npm — polls the registry every 5 minutes server-side, banner pops in the dashboard with the one-line `npm install -g knit-mcp@latest` command. No stale installs.
+
+> **Upgrade note.** After `npm install -g knit-mcp@latest`, **restart your agent**. The `instructions` field flows into the system prompt at handshake. The `HOOKS_VERSION` bump auto-regenerates installed hooks on the next brain load — no manual `knit refresh` needed.
 
 ---
 
@@ -115,7 +149,41 @@ Each surface gets a `healthy | warn | over-budget` verdict from `knit_brain_stat
 
 ---
 
-## 🛠️ 43 MCP Tools
+## 📊 The dashboard
+
+Run `knit ui` to open the local analytics surface. **Single command**, no other CLI needed for normal operation:
+
+```bash
+knit ui
+# Knit Dashboard — http://127.0.0.1:7421
+# Reading from: /Users/<you>/.knit
+# Press Ctrl-C to stop.
+# (automatically opens your default browser)
+```
+
+| Feature | What you see |
+|---|---|
+| **Bento home** | Big "Net tokens saved" hero card (dark), live recent activity (green "live" dot when SSE connected), memory hit-rate gauge, top projects by ROI as color-blocked cards |
+| **Brain graph** | Force-directed visualization of one project's learnings. Nodes sized by access count, colored by domain. Edges by Jaccard similarity over tags + domains. Click any node → side panel with the full lesson. Threshold slider live-recomputes the graph. |
+| **Per-project deep dive** | Hero card with verdict tone (cold/warming/compounding/strong), retrieval signals, classifications-by-tier breakdown, top domains heatmap, searchable learnings list |
+| **Health** | Install diagnostics — Node version, Knit version, ~/.knit permissions, MCP registration in `~/.claude.json` |
+
+**API endpoints** (all read-only, all 127.0.0.1 only):
+
+- `GET /api/version` — runtime version + update check + security metadata
+- `GET /api/brain/summary` — global counts
+- `GET /api/brain/aggregate` — cross-project ROI totals
+- `GET /api/projects` — project list
+- `GET /api/projects/:id/learnings` — full learning entries
+- `GET /api/projects/:id/metrics` — compounding ROI for one project
+- `GET /api/projects/:id/graph` — force-directed node + edge data (Jaccard threshold tunable)
+- `GET /api/global/learnings` — cross-project pool
+- `GET /api/doctor` — install diagnostics
+- `GET /api/events` — Server-Sent Events stream for real-time sync
+
+---
+
+## 🛠️ 53 MCP Tools
 
 <details open>
 <summary><strong>🕸️ Knowledge graph</strong> <em>(Tier 1, ~5ms)</em></summary>

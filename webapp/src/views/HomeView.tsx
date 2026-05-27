@@ -317,41 +317,61 @@ function SavedVsSpentBars({ saved, spent }: { saved: number; spent: number }) {
 }
 
 function HitRateArc({ value }: { value: number }) {
-  // Half-donut. Pre-fix had a near-invisible mint-on-mint track —
-  // hard to read on the screenshot. Now the track is solid dark with
-  // light opacity for contrast against the mint card; the filled arc
-  // is the same dark color at full opacity so the proportion reads
-  // immediately. Endpoint marker stays lavender for the third color.
-  const size = 150;
-  const stroke = 22;
-  const r = (size - stroke) / 2;
-  const cx = size / 2;
-  const cy = size - stroke / 2;
-  const startAngle = Math.PI; // 180° — start at left
-  const endAngle = Math.PI - (value / 100) * Math.PI;
-  const x1 = cx + r * Math.cos(startAngle);
-  const y1 = cy + r * Math.sin(startAngle);
-  const x2 = cx + r * Math.cos(endAngle);
-  const y2 = cy + r * Math.sin(endAngle);
-  const largeArc = value > 50 ? 1 : 0;
-  const trackPath = `M ${stroke / 2} ${cy} A ${r} ${r} 0 0 1 ${size - stroke / 2} ${cy}`;
-  const filledPath = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
+  // Half-donut gauge — math fixed.
+  //
+  // Pre-fix had two bugs visible in the live screenshot:
+  // (1) cy was at the bottom of the visible canvas, so the arc's
+  //     baseline endpoints were below the SVG height and the lower-half
+  //     of the circle (which renders when y = cy + r*sin) extended off-
+  //     screen, with only the rightmost endpoint visible as a stray dot
+  //     hanging below the mint card.
+  // (2) SVG screen y-axis is flipped vs math y, so y = cy + r*sin(θ)
+  //     traces the LOWER half. For an upper-half gauge we need
+  //     y = cy − r*sin(θ).
+  //
+  // Now: cy sits at the BOTTOM of the canvas, computed from r + stroke
+  // padding so the entire half-arc fits. Both paths use sweep-flag = 1
+  // (clockwise in screen y-down = upward arc from left baseline).
+  const stroke = 20;
+  const r = 65;
+  const cx = r + stroke / 2;        // canvas-relative center x
+  const width = 2 * r + stroke;
+  const height = r + stroke;
+  const cy = height - stroke / 2;   // baseline near bottom
+
+  const startAngle = Math.PI;       // 180° (math) → leftmost baseline
+  const endAngle = Math.PI - Math.max(0, Math.min(1, value / 100)) * Math.PI;
+
+  // Math angle → SVG point (subtract sin because screen y is inverted).
+  const pt = (a: number): { x: number; y: number } => ({
+    x: cx + r * Math.cos(a),
+    y: cy - r * Math.sin(a),
+  });
+  const s = pt(startAngle);
+  const e = pt(endAngle);
+
+  const trackPath = `M ${stroke / 2} ${cy} A ${r} ${r} 0 0 1 ${width - stroke / 2} ${cy}`;
+  const filledPath = `M ${s.x} ${s.y} A ${r} ${r} 0 0 1 ${e.x} ${e.y}`;
+
   return (
-    <svg width={size} height={size / 2 + stroke + 4} style={{ overflow: 'visible' }}>
+    <svg width={width} height={height} style={{ overflow: 'visible' }}>
       <defs>
-        <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+        <pattern id="hit-rate-hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
           <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(13, 13, 13, 0.18)" strokeWidth="3" />
         </pattern>
       </defs>
-      {/* Track: solid dark base + hatched overlay echoes the Monetir
-          reference's striped "previous-period" pattern, gives texture
-          even when value is 0%. */}
+      {/* Track: dark base + hatched overlay echoes the Monetir reference's
+          striped "previous-period" treatment; gives texture even at value=0. */}
       <path d={trackPath} stroke="rgba(13, 13, 13, 0.18)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
-      <path d={trackPath} stroke="url(#hatch)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
-      {/* Filled portion */}
-      <path d={filledPath} stroke="var(--text-dark)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
-      {/* End cap dot */}
-      <circle cx={x2} cy={y2} r={stroke / 3.2} fill="var(--surface-lavender)" stroke="var(--text-dark)" strokeWidth={2.5} />
+      <path d={trackPath} stroke="url(#hit-rate-hatch)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
+      {/* Filled portion — solid dark for strong contrast on the mint card. */}
+      {value > 0 && (
+        <path d={filledPath} stroke="var(--text-dark)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
+      )}
+      {/* Endpoint marker — small lavender dot, only when there's a filled portion to anchor it. */}
+      {value > 0 && (
+        <circle cx={e.x} cy={e.y} r={stroke / 3.2} fill="var(--surface-lavender)" stroke="var(--text-dark)" strokeWidth={2.5} />
+      )}
     </svg>
   );
 }

@@ -2,6 +2,107 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] — 2026-05-27
+
+**Brain dashboard + universal positioning.** Knit gets a visual surface:
+a local-first analytics dashboard, brain graph visualization, real-time
+sync via SSE. The positioning shifts from "Claude Code companion" to
+"universal MCP brain" — Knit works with any MCP-speaking agent
+(Claude Code, Cursor, Codex CLI, Cline, Continue).
+
+### Added — dashboard
+
+- **`knit ui`** — single CLI command that spins up a local HTTP server
+  on `127.0.0.1:7421` and opens the browser. Replaces (eventually) the
+  multi-command CLI (`status`, `refresh`, `install-agents`) with
+  screens.
+- **Webapp** (`webapp/` subdir) — Vite + React + TypeScript, served by
+  the same `knit ui` process. Bento layout, color-blocked surfaces
+  (sage canvas, mint/lavender/dark/neutral cards), Inter-stack
+  typography, 56KB gzipped.
+- **Five views:**
+  - `#/` (Brain) — net tokens saved hero, recent activity feed, memory
+    hit-rate gauge, top projects.
+  - `#/graph` (Graph picker) → `#/p/:id/graph` — force-directed brain
+    visualization with d3-force. Click any node for the full lesson.
+    Jaccard similarity threshold slider live-recomputes edges.
+  - `#/p/:id` (per-project) — searchable learnings, retrieval signals,
+    domain heatmap, links to metrics + graph.
+  - `#/p/:id/metrics` — full compounding ROI deep dive.
+  - `#/global` — cross-project learnings pool with filter chips.
+  - `#/doctor` — install health diagnostics.
+- **Real-time sync** — server watches `~/.knit/` via `fs.watch`,
+  pushes change events over SSE. All views re-fetch in <1s when any
+  agent records a learning. 250ms server-side debounce; in-memory
+  client registry with proper cleanup on disconnect.
+- **Update banner** — dashboard polls `/api/version` every 5min;
+  surfaces "update available" with copy-able install command when the
+  npm registry has a newer version than what's running.
+
+### Added — API surface
+
+- `GET /api/version` — runtime version + update check + security
+  metadata + endpoint manifest.
+- `GET /api/brain/summary` — global counts.
+- `GET /api/brain/aggregate` — cross-project ROI totals (net token
+  delta, top projects, totals across saved/spent/cache hits/graph
+  queries/FP suppressions).
+- `GET /api/projects` — project list.
+- `GET /api/projects/:id/learnings` — full learning entries for one
+  project.
+- `GET /api/projects/:id/metrics` — compounding ROI for one project
+  (mirrors `knit_compounding_metrics`).
+- `GET /api/projects/:id/graph` — force-directed graph nodes + edges
+  computed via Jaccard similarity over tags + domains. Threshold
+  tunable via `?threshold=` query param (0.0–1.0, default 0.25).
+- `GET /api/global/learnings` — cross-project pool.
+- `GET /api/doctor` — install diagnostics (~/.knit permissions, MCP
+  registration, version checks).
+- `GET /api/events` — Server-Sent Events stream for real-time sync.
+
+### Security hardening
+
+- **Host-header validation** — rejects requests whose Host isn't
+  `127.0.0.1`/`localhost`/IPv6 loopback. Blocks DNS rebinding attacks.
+- **Origin-header validation** — cross-origin requests get 403.
+- **Content-Security-Policy** — same-origin scripts, no `unsafe-eval`,
+  no external sources. style-src needs `unsafe-inline` for React
+  inline-style props (compiled to runtime strings).
+- **X-Frame-Options: DENY** — no iframe embedding (clickjacking
+  defense).
+- **X-Content-Type-Options: nosniff**.
+- **Referrer-Policy: no-referrer** — dashboard URL never leaks.
+- **No mutation endpoints** in v0.13.0 (read-only). Setup wizard /
+  refresh button defer until proper CSRF protection lands in v0.14.
+
+### Changed
+
+- `package.json` now declares `webapp/dist` + `webapp/index.html` in
+  `files` so npm-published bundles include the dashboard assets.
+- Root `npm run build` now also runs `npm run build:webapp` which
+  installs webapp deps and builds the Vite bundle. Fresh `npm install`
+  + `node dist/cli.js ui` works out of the box without manual webapp
+  build steps.
+- `cache.ts` brain load now drift-corrects `projectName` from the
+  package.json `name` field on every load (pre-v0.13 the name was
+  frozen at first bootstrap; renames silently kept the stale name).
+
+### Fixed
+
+- ESLint `no-useless-escape` errors on the IPv6 hostname-stripping
+  regex (`/[\[\]]/g` → `/[[\]]/g`). CI was failing on lint after
+  v0.12.2 ship.
+
+### Internal
+
+- Webapp dependencies added: `react`, `react-dom`, `vite`,
+  `@vitejs/plugin-react`, `d3-force`, `@types/d3-force`,
+  `typescript`.
+- Bundle size: ~65KB gzipped JS + 1.8KB CSS — paid only by users who
+  open the dashboard. The MCP server runtime adds zero new deps.
+- All five views migrated from the back-compat token aliases to the
+  v0.13 design system; aliases removed in cleanup commit.
+
 ## [0.12.2] — 2026-05-27
 
 **Token-economy patch.** Two surgical fixes informed by the v0.12.1
