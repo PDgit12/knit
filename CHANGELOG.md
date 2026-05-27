@@ -2,6 +2,53 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.2] — 2026-05-27
+
+**Token-economy patch.** Two surgical fixes informed by the v0.12.1
+audit (`.claude/AUDIT.md`). Both produce immediate per-session wins
+for users on Pro plans without changing protocol or API surface.
+
+### Changed — handshake byte cost (~38% reduction)
+
+- **Tool descriptions trimmed.** Dropped property-level `description`
+  strings where the field name is self-documenting (`file_path`,
+  `query`, `limit`, etc.); kept them on non-obvious params
+  (`context_budget_remaining`, `project_type`, `outcome`, `level`).
+  Tool-level descriptions cut to functional verb + when-to-use; verbose
+  "Companion: ..." cross-references removed (those belong in the
+  `instructions` field once, not in 53 tool descriptions).
+- **Measured byte savings (estimateActiveToolRegistryBytes):**
+  - First session: 15,494 → 9,619 (~1,470 tokens saved per session)
+  - Post-onboarding: 13,670 → 8,532 (~1,285 tokens saved per session)
+  - Fully enabled: 19,666 → 12,767 (~1,725 tokens saved per session)
+- Average per tool: 387 → 240 bytes.
+- The `ToolDef` interface now allows `description?: string` on properties
+  (MCP spec permits this — verified against
+  `node_modules/@modelcontextprotocol/sdk/dist/esm/spec.types.d.ts`).
+
+### Fixed — knit_install_agent async race
+
+- Pre-v0.12.2 returned `{status: 'queued'}` before the target file was
+  on disk. An agent that immediately tried to invoke the new subagent
+  raced a not-yet-written file.
+- Now blocks up to ~2 seconds (Atomics.wait + existsSync poll, no
+  busy-wait) and returns `{status: 'installed'}` once the file lands,
+  or `{status: 'pending'}` honestly if the network fetch is still
+  in flight after 2s with a retry hint.
+
+### Fixed (incidentally via description trim)
+
+- `knit_record_learning` description no longer claims "Skip substring
+  repeats" — replaced with "Search first to skip duplicates", which
+  honestly puts the responsibility on the agent (the handler never
+  did dedup; v0.12.1 audit flagged the claim as oversold).
+
+### Deferred to v0.13
+
+- Hook timeout visibility in `knit_brain_status` — requires HOOKS_VERSION
+  bump + trace-file instrumentation + auto-upgrade flow. Belongs in
+  v0.13 alongside the cross-platform soft-gates work, not in a patch.
+
 ## [0.12.1] — 2026-05-27
 
 **User-readiness polish.** Surgical fixes to bugs and rough edges
