@@ -106,22 +106,6 @@ code {
   font-size: 0.875em;
 }
 
-/* Back-compat aliases — the pre-redesign views (ProjectView, MetricsView,
- * GlobalView, DoctorView) reference these names via inline styles. Kept
- * here so the dashboard stays usable across the redesign rollout, even
- * though the color semantics have flipped (light mode now). Each view
- * gets its own design pass in a follow-up commit; remove these aliases
- * when the last consumer is migrated. */
-:root {
-  --text: var(--text-dark);
-  --text-dim: var(--text-mute-dark);
-  --bg: var(--canvas);
-  --surface: var(--surface-neutral);
-  --border: var(--hairline);
-  --accent: var(--surface-lavender);
-  --accent-2: var(--surface-mint);
-}
-
 /* Tabular numerals — used on every stat number for column alignment. */
 .tabular {
   font-variant-numeric: tabular-nums;

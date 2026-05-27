@@ -138,39 +138,6 @@ export function StatNumber({
   );
 }
 
-// Back-compat: ProjectView + MetricsView import a {Stat} component from
-// the pre-redesign era. Implemented here as a thin wrapper around the new
-// Card so those views keep working until they get their own design pass.
-export function Stat({ label, value, mono, hint }: {
-  label: string;
-  value: string | number;
-  mono?: boolean;
-  hint?: string;
-}) {
-  return (
-    <Card variant="neutral" padding="tight">
-      <div style={{
-        fontSize: 'var(--size-eyebrow)', textTransform: 'uppercase',
-        letterSpacing: '0.06em', color: 'var(--text-mute-dark)',
-        marginBottom: 6,
-      }}>{label}</div>
-      <div
-        className="tabular"
-        style={{
-          fontSize: 'var(--size-stat)', fontWeight: 'var(--weight-bold)',
-          letterSpacing: '-0.015em', lineHeight: 1,
-          fontFamily: mono ? 'var(--font-mono)' : undefined,
-        }}
-      >{value}</div>
-      {hint && (
-        <div style={{ marginTop: 6, color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
-          {hint}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export function Loading() {
   return <div style={{ color: 'var(--text-mute-dark)', padding: 'var(--space-4)' }}>Loading…</div>;
 }
