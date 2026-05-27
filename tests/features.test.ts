@@ -20,7 +20,7 @@ const allEnabled: ProjectShape = {
   domainCount: 5,
   hasInstalledSubagents: true,
   sessionCount: 50,
-  enabledFeatures: new Set(['teams', 'subagents', 'admin']),
+  enabledFeatures: new Set(['teams', 'subagents', 'admin', 'diagnostics']),
 };
 
 describe('TOOL_REGISTRY', () => {
@@ -45,14 +45,14 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
-  it('Tier 1 contains exactly 40 universal tools (v0.11.2 adds knit_delete_requirements)', () => {
+  it('Tier 1 contains exactly 34 universal tools (v0.12.1 demotes 6 diagnostics)', () => {
     const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
-    expect(tier1.length).toBe(40);
+    expect(tier1.length).toBe(34);
   });
 
-  it('Tier 2 contains exactly 10 conditional tools', () => {
+  it('Tier 2 contains exactly 16 conditional tools (v0.12.1 adds 6 diagnostics)', () => {
     const tier2 = TOOL_REGISTRY.filter((t) => t.tier === 2);
-    expect(tier2.length).toBe(10);
+    expect(tier2.length).toBe(16);
   });
 
   it('Tier 3 contains exactly 3 admin/setup tools (v0.11 slice 4 adds knit_reset_calibration)', () => {
@@ -130,11 +130,26 @@ describe('isToolActive — gating rules', () => {
 });
 
 describe('computeFeatureListing', () => {
-  it('empty project shape exposes only Tier 1 (40 tools — v0.11.2 adds knit_delete_requirements)', () => {
+  it('empty project shape exposes 40 tools (34 Tier-1 + 6 Tier-2 diagnostics auto-exposed on first session)', () => {
     const listing = computeFeatureListing(emptyShape);
     expect(listing.active.length).toBe(40);
     expect(listing.available.length).toBe(13);
     expect(listing.totals).toEqual({ active: 40, available: 13, total: 53 });
+  });
+
+  it('post-onboarding shape (sessionCount > 1) hides the 6 setup diagnostics by default', () => {
+    const postOnboard: ProjectShape = { ...emptyShape, sessionCount: 5 };
+    const listing = computeFeatureListing(postOnboard);
+    // 34 Tier-1 still active; 6 demoted diagnostics now hidden.
+    expect(listing.active.length).toBe(34);
+    expect(listing.by_category.diagnostics.available).toBe(6);
+  });
+
+  it('diagnostics opt-in re-exposes the 6 setup diagnostics post-onboarding', () => {
+    const optIn: ProjectShape = { ...emptyShape, sessionCount: 5, enabledFeatures: new Set(['diagnostics']) };
+    const listing = computeFeatureListing(optIn);
+    expect(listing.active.length).toBe(40);
+    expect(listing.by_category.diagnostics.available).toBe(0);
   });
 
   it('fully-enabled project shape exposes everything (53)', () => {
@@ -164,15 +179,18 @@ describe('computeFeatureListing', () => {
     expect(listing.by_category.workflow.available).toBe(0);
     expect(listing.by_category['fp-reflection'].available).toBe(0);
     expect(listing.by_category['protocol-config'].available).toBe(0);
+    // diagnostics now has 6 Tier-2 members but they auto-expose on first session,
+    // so availability is still 0 on the empty (first-session) shape.
     expect(listing.by_category.diagnostics.available).toBe(0);
   });
 });
 
 describe('isEnableableFeature', () => {
-  it('accepts the three valid flags', () => {
+  it('accepts the four valid flags (v0.12.1 adds diagnostics)', () => {
     expect(isEnableableFeature('teams')).toBe(true);
     expect(isEnableableFeature('subagents')).toBe(true);
     expect(isEnableableFeature('admin')).toBe(true);
+    expect(isEnableableFeature('diagnostics')).toBe(true);
   });
 
   it('rejects unknown flags', () => {

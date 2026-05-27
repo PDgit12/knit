@@ -2,6 +2,93 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.1] — 2026-05-27
+
+**User-readiness polish.** Surgical fixes to bugs and rough edges
+discovered during post-launch dogfooding of v0.12. No new features —
+this release exists so v0.12 actually works as advertised when users
+start adopting it.
+
+### Fixed — engine
+
+- **Persistence bug — root cause of "0% recall" reporting** in
+  `knit_brain_status`. `handleSearchLearnings` (both the BM25 path and
+  the tag-filter back-compat path) mutated `accessCount` and
+  `lastAccessed` in-memory but never called `saveKnowledgeBase` before
+  returning. Mutations were discarded on session end, so the brain
+  status reported `accessed_pct: 0` regardless of actual usage. Fixed:
+  persist after every retrieval. The BM25 path also previously skipped
+  per-entry access tracking entirely — now bumps `accessCount` on each
+  returned entry.
+
+### Fixed — security (MCP handlers)
+
+- **MEDIUM-5 (atomic writes)** — `handleRecordLearning` and
+  `handleSaveHandoff` previously used non-atomic writes that parallel
+  team-worktree agents could clobber. record_learning now uses
+  `appendFileSync` (POSIX-atomic under PIPE_BUF); save_handoff writes to
+  `${path}.tmp.${pid}` then `renameSync` (atomic on POSIX).
+- **MEDIUM-4 (TOCTOU)** — `handleIndexRequirements` resolved the file
+  path three separate times (`existsSync` → `statSync` → `readFileSync`),
+  giving a window for symlink swap to redirect reads. Fixed: single
+  `openSync` with `O_NOFOLLOW`, then `fstatSync` and `readFileSync(fd)`
+  from the open descriptor.
+
+### Fixed — classifier
+
+- **`detectsInquiryIntent` misclassified multi-step write tasks as
+  inquiry.** Pre-fix, descriptions like *"Reduce budget by trimming
+  tools, consolidate learnings, and audit codebase"* fell to `inquiry`
+  tier because the lone word "audit" beat the narrow action-verb override.
+  Three corrections: extended verb list with `reduce, trim, shrink,
+  consolidate, demote, promote, harden, secure, polish, clean, tidy,
+  prune, optimize, repair, resolve, address, sharpen, tighten, wire,
+  hook, gate`; loosened the determiner requirement (action verb + ANY
+  following word counts); added ≥2-distinct-action-verbs override.
+  Question-word leads still correctly override action verbs.
+
+### Changed — handshake budget
+
+- **6 Tier-1 setup diagnostics demoted to Tier-2 `diagnostics` category**:
+  `knit_get_fingerprint`, `knit_infer_domains`, `knit_compose_template`,
+  `knit_scan_integrations`, `knit_compounding_metrics`,
+  `knit_get_metrics_history`. Auto-exposed on first session
+  (`sessionCount <= 1`) so onboarding still surfaces them; drop out of
+  the active surface afterwards. Re-enable with
+  `knit_enable_feature("diagnostics")`. Saves ~2.2KB / ~550 tokens on
+  every post-onboarding session's handshake.
+- **`AVG_TOOL_DEF_BYTES` replaced with honest measurement.** The
+  pre-v0.12.1 estimator multiplied active-tool-count by a hardcoded
+  280-byte average; real measurement is ~387 B/tool. The understatement
+  was hiding ~30% of the real handshake budget. Fixed:
+  `estimateActiveToolRegistryBytes(shape)` in `tools.ts` JSON-serializes
+  the actual active ToolDef array and returns true bytes.
+- **Budget targets raised to honest levels** to match the corrected
+  measurement: `tool_registry_bytes` 12000 → 14000;
+  `per_session_overhead_bytes` 22000 → 24000. v0.13 architecture work
+  targets bringing these back down via tool description trimming.
+
+### Fixed — UX
+
+- **CLI error messages now include command name + remediation hint.**
+  Every `knit <command>` catch block previously printed only
+  `error.message`. Fixed: every catch block prints
+  `Error in 'knit <command>': <message>` followed by
+  `Next: run 'knit doctor' to diagnose, or file an issue at <URL>`.
+- **`knit doctor` now probes write permission on the project data
+  directory.** Pre-v0.12.1, a read-only `~/.knit` would pass doctor
+  green, then the first MCP call would fail with opaque EACCES. Fixed:
+  explicit `fs.accessSync(dataDir, W_OK)` probe, surfaces failures as
+  `error` (not `info`) with `chmod` remediation. Also probes the nearest
+  existing ancestor when the data dir doesn't exist yet.
+
+### Added — tests
+
+- 4 new classifier regression cases in `tests/mcp-tools.test.ts` for the
+  `detectsInquiryIntent` widening.
+- 2 new tests in `tests/features.test.ts` verifying the diagnostics
+  Tier-2 auto-expose behavior (first-session + opt-in paths).
+
 ## [0.12.0] — 2026-05-26
 
 **Picture Perfect: Structural Enforcement.** Knit's optimization layer

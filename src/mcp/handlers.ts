@@ -4,7 +4,7 @@
  * and returns a JSON string response.
  */
 
-import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
@@ -33,6 +33,11 @@ import {
 import { featuresConfigPath, searchMarkerPath, metricsHistoryPath } from '../engine/paths.js';
 import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
+// Note: tools.ts imports many handlers from this file. Importing back is a
+// circular dependency, but estimateActiveToolRegistryBytes is only ever
+// called at runtime (inside handleBrainStatus), not at module init, so ESM
+// resolves the binding lazily and the cycle is safe.
+import { estimateActiveToolRegistryBytes } from './tools.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
 import { VERSION } from '../version.js';
 import { scanIntegrations, persistScanResult, loadScanResult } from '../engine/integration-scanner.js';
@@ -199,6 +204,11 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
     const results = queryByDomains(brain.knowledgeBase, domains);
     if (results.length > 0) recordCacheHit(brain.knowledgeBase);
     writeSearchMarker(brain.rootPath);
+    // queryByDomains mutates accessCount + lastAccessed in-memory; persist
+    // so the brain_status accessed_pct metric reflects actual retrieval.
+    // Without this, mutations are discarded on session end (root cause of
+    // pre-v0.12.1 "0% recall" reporting).
+    saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
     return JSON.stringify(buildLearningsResponse(results, domains, []));
   }
 
@@ -263,6 +273,17 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   if (fpInResults > 0) bumpMetric(brain.knowledgeBase, 'fpSuppressions', fpInResults);
   if (entries.length > 0) recordCacheHit(brain.knowledgeBase);
   writeSearchMarker(brain.rootPath);
+  // v0.12.1 — the BM25/RRF path returns entries directly from the index
+  // without touching accessCount. Bump it here so per-entry recall is
+  // visible in brain_status (matches queryByDomains behavior).
+  const nowIso = new Date().toISOString();
+  for (const entry of entries) {
+    entry.accessCount = (entry.accessCount ?? 0) + 1;
+    entry.lastAccessed = nowIso;
+  }
+  // Persist accessCount + bumped metrics; otherwise both are discarded on
+  // session end (root cause of pre-v0.12.1 "0% recall" reporting).
+  saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
   const retrieverLabel: 'bm25' | 'bm25+graph' = graphHits.length > 0 ? 'bm25+graph' : 'bm25';
   return JSON.stringify(buildLearningsResponse(entries, domains, [query], retrieverLabel));
 }
@@ -314,11 +335,15 @@ const TOKEN_BUDGETS = {
   /** Generated CLAUDE.md block. v0.7 trim landed at ~2KB on typical projects;
    *  6.5KB target allows for projects with many domains / large project map. */
   claude_md_bytes: 6500,
-  /** Tier-gated tools/list response. v0.12 typical: 40 Tier-1 active × ~280
-   *  bytes ≈ 11.2KB. 12KB target gives Tier-1 healthy headroom; full
-   *  51-tool exposure (everything enabled) sits in warn range, surfacing
-   *  the bloat. Bumped from 11000 in v0.12 to reflect actual Tier-1 size. */
-  tool_registry_bytes: 12000,
+  /** Tier-gated tools/list response. v0.12.1 measured: 40 active first-session
+   *  (34 Tier-1 + 6 auto-exposed setup diagnostics) ≈ 15.5KB; 34 active
+   *  post-onboarding ≈ 13.7KB; 53 active fully-enabled ≈ 19.7KB. Real avg is
+   *  ~387 bytes/tool (not the 280 the pre-v0.12.1 estimator assumed — that's
+   *  why budget verdicts looked healthier than they actually were). 14KB
+   *  target → 17.5KB slack covers first-session honestly; full opt-in
+   *  correctly flags as over-budget. v0.13 architecture work targets <12KB
+   *  via tool description trimming. */
+  tool_registry_bytes: 14000,
   /** MCP server `instructions` field — sent at handshake. v0.11.1 surfaces
    *  9 new tools (verify_claim, calibration, requirements ingestion,
    *  fingerprint, infer_domains, compose_template) → ~3.5KB. v0.12 may
@@ -327,10 +352,11 @@ const TOKEN_BUDGETS = {
    *  real tools. */
   instructions_bytes: 4000,
   /** Sum of the three above — the per-session fixed cost Knit imposes.
-   *  v0.12 typical: ~15KB (CLAUDE.md ~2KB + tools ~11.2KB + instructions
-   *  ~2.6KB); 22KB target covers the union with slack as more tools
-   *  come online. Bumped from 20000 alongside tool_registry. */
-  per_session_overhead_bytes: 22000,
+   *  v0.12.1 typical (honest measurement): ~19KB on first session
+   *  (CLAUDE.md ~2KB + tools ~15.5KB + instructions ~3.4KB); ~17KB
+   *  post-onboarding. 24KB target → 30KB slack covers the honest first-
+   *  session reality. v0.13 trim work targets <20KB. */
+  per_session_overhead_bytes: 24000,
 } as const;
 
 function verdict(actual: number, target: number): 'healthy' | 'warn' | 'over-budget' {
@@ -352,18 +378,17 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
     catch { return 0; }
   })();
 
-  // Tool-registry byte cost — derived from the project shape so it reflects
-  // what tools/list actually returns under tier-gating. Approximation rather
-  // than serializing the full ToolDef array to avoid a circular import on
-  // tools.ts (which depends on handlers.ts via detectProjectShape). The
-  // ~280-byte-per-tool figure is the empirical post-v0.7-trim average from
-  // measuring the actual dist output; close enough for a budget verdict.
+  // Tool-registry byte cost — v0.12.1 computes the exact serialized byte
+  // length of the active ToolDef array via tools.ts. Pre-v0.12.1 used a
+  // hardcoded 280-byte-per-tool average that understated real defs (~370
+  // average) and silently masked an over-budget condition. The estimator
+  // function lives in tools.ts to avoid duplicating tool descriptions here;
+  // see import note at the top of this file re: the circular dep.
   const shape = detectProjectShape(brain);
   const listing = computeFeatureListing(shape);
   const activeToolCount = listing.totals.active;
   const totalToolCount = listing.totals.total;
-  const AVG_TOOL_DEF_BYTES = 280;
-  const toolRegistryBytes = activeToolCount * AVG_TOOL_DEF_BYTES;
+  const toolRegistryBytes = estimateActiveToolRegistryBytes(shape);
 
   // MCP server instructions — same string the Server constructor surfaces at handshake.
   const instructionsBytes = KNIT_INSTRUCTIONS.length;
@@ -1255,7 +1280,23 @@ export function handleDisableFeature(params: Record<string, string>, brain: Brai
  *  Action verbs ("fix this", "implement X", "refactor Y") override even if an
  *  inquiry word appears, because "fix it" is a command despite containing
  *  no question word. Conservative on purpose — when in doubt, fall through
- *  to the write-bearing tiers so Protocol Guard stays engaged. */
+ *  to the write-bearing tiers so Protocol Guard stays engaged.
+ *
+ *  v0.12.1: widened action-verb override after observing that descriptions
+ *  like "Reduce budget by trimming tools, consolidate learnings, and audit
+ *  codebase" misclassified as inquiry. Three changes:
+ *    1. Extended verb list with: reduce, trim, shrink, consolidate, demote,
+ *       promote, harden, secure, polish, clean, tidy, prune, optimize,
+ *       repair, resolve, address, sharpen, tighten, wire, hook, gate.
+ *    2. Loosened the determiner requirement: action verb followed by ANY
+ *       word (\w+) counts, not just determiner pronouns. "consolidate
+ *       learnings" is just as much a command as "consolidate the learnings".
+ *    3. Multi-verb override: if the description contains ≥2 action verbs
+ *       from the extended list, treat as write-bearing regardless of any
+ *       inquiry words present. "Reduce X, consolidate Y, and audit Z" has
+ *       2 actions + 1 inquiry → still a write task. */
+const ACTION_VERB = '(?:fix|implement|build|add|refactor|ship|deploy|write|create|update|modify|change|edit|migrate|rename|delete|remove|install|setup|configure|merge|publish|release|patch|reduce|trim|shrink|consolidate|demote|promote|harden|secure|polish|clean|tidy|prune|optimi[sz]e|repair|resolve|address|sharpen|tighten|wire|hook|gate)';
+
 function detectsInquiryIntent(description: string): boolean {
   if (!description) return false;
 
@@ -1263,14 +1304,31 @@ function detectsInquiryIntent(description: string): boolean {
   const inquiryStart = /^\s*(what|where|how|why|when|which|who|can|could|should|does|do|is|are|will|would|tell\s+me|show\s+me|find|list|status\s+of|audit|explain|investigate|analyze|review|describe|summari[sz]e|inspect)\b/i;
   // Inquiry verbs anywhere in the description (caught even if the user starts mid-sentence).
   const inquiryVerb = /\b(audit|explain|investigate|analy[sz]e|review|examine|describe|summari[sz]e|enumerate|inspect)\b/i;
-  // Action commands that override inquiry signals. "fix this/that/it/the…" is a
-  // directive, not a question. We require the action verb to be followed by an
-  // object so "what can be fixed" (passive voice, no object after "fix") stays
-  // classified as inquiry.
-  const actionDirective = /\b(fix|implement|build|add|refactor|ship|deploy|write|create|update|modify|change|edit|migrate|rename|delete|remove|install|setup|configure|merge|publish|release|patch)\s+(this|that|it|the|a|an|all|every|my|our|your)\b/i;
+  // Action commands that override mid-sentence inquiry signals. Action verb
+  // + any following word (object/target). "consolidate learnings",
+  // "demote diagnostics", "reduce budget" all count.
+  const actionDirective = new RegExp(`\\b${ACTION_VERB}\\s+\\w+`, 'i');
+  // Count distinct action verbs in the description.
+  const actionVerbMatches = description.match(new RegExp(`\\b${ACTION_VERB}\\b`, 'gi')) || [];
+  const distinctActionVerbs = new Set(actionVerbMatches.map((v) => v.toLowerCase())).size;
 
+  // ≥2 distinct action verbs = unambiguously a multi-step write task,
+  // even if "audit" or "review" appears in the same sentence.
+  // ("Reduce budget, consolidate learnings, and audit codebase" → not inquiry.)
+  if (distinctActionVerbs >= 2) return false;
+
+  // Question-word lead wins — if the description starts with a question word
+  // ("what should I fix before shipping"), it's inquiry even when an action
+  // verb appears later. The user is asking, not commanding.
+  if (inquiryStart.test(description)) return true;
+
+  // No question lead. A single action-directive ("fix the bug", "consolidate
+  // learnings") is a write command — overrides any mid-sentence inquiry verb.
   if (actionDirective.test(description)) return false;
-  return inquiryStart.test(description) || inquiryVerb.test(description);
+
+  // Pure inquiry verb anywhere ("audit the codebase") with no action verb —
+  // read-only task.
+  return inquiryVerb.test(description);
 }
 
 /** v0.10 — Infer change kind from file existence + description verbs.
@@ -1750,14 +1808,12 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   if (mdFiles.length > 0) {
     const mdPath = join(learnDir, mdFiles[0]);
     const mdEntry = `\n## ${date} ${entry.summary}\n**Domain(s):** ${entry.domains.join(', ')}\n**Approach:** ${entry.approach}\n**Outcome:** ${entry.outcome}\n**Lesson:** ${entry.lesson}\n**Tags:** ${entry.tags.join(' ')}\n`;
-    // TODO(security/MEDIUM-5): Non-atomic read-modify-write. Two concurrent agents (e.g.
-    // parallel team worktrees) calling knit_record_learning simultaneously can interleave:
-    // both read the same `existing` content and one write silently clobbers the other's
-    // entry. Mitigation: use a temp file + atomic rename (writeFileSync to
-    // `${mdPath}.tmp`, then fs.renameSync) so at worst entries arrive out of order but
-    // never disappear; or serialize via a per-path lock (e.g. proper-lockfile).
-    const existing = readFileSync(mdPath, 'utf-8');
-    writeFileSync(mdPath, existing + mdEntry, 'utf-8');
+    // v0.12.1 (MEDIUM-5 closed): replaced the prior read-modify-write with
+    // O_APPEND. POSIX guarantees a single write(2) under PIPE_BUF (4096 bytes)
+    // is atomic against concurrent O_APPEND writers, so parallel
+    // knit_record_learning calls from team worktrees may interleave entry
+    // ordering but never clobber each other. mdEntry is well under PIPE_BUF.
+    appendFileSync(mdPath, mdEntry, 'utf-8');
   }
 
   return JSON.stringify({
@@ -1933,28 +1989,39 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   if (!filePath) {
     return errorResponse('file_path is required');
   }
-  // TODO(security/MEDIUM-4): TOCTOU — existsSync → statSync → readFileSync is three
-  // separate syscalls. A malicious agent with write access to the watched directory could
-  // swap in a symlink between the existsSync check and readFileSync, redirecting reads to
-  // an arbitrary file (e.g. /etc/passwd, ~/.ssh/id_rsa). Mitigation: open the file with
-  // O_NOFOLLOW using fs.openSync + fs.fstatSync before reading, or resolve the real path
-  // with fs.realpathSync and verify it stays within an allowed root before any read.
-  if (!existsSync(filePath)) {
-    return errorResponse(`file not found: ${filePath}`);
-  }
-  // H1: Reject non-regular-files and files exceeding 5 MB before reading.
-  const stat = statSync(filePath);
-  if (!stat.isFile()) {
-    return JSON.stringify({ status: 'error', error: 'Not a regular file' });
-  }
-  if (stat.size > 5 * 1024 * 1024) {
-    return JSON.stringify({ status: 'error', error: 'File exceeds 5MB limit; chunk-index your spec in pieces or contact maintainer' });
+  // v0.12.1 (MEDIUM-4 closed): open with O_NOFOLLOW, then fstat + read from
+  // the same fd. This collapses existsSync → statSync → readFileSync (three
+  // separate path resolutions) into one resolution against a single open
+  // file descriptor — eliminating the TOCTOU window where a symlink swap
+  // could redirect the read to /etc/passwd or ~/.ssh/id_rsa.
+  let fd: number;
+  try {
+    fd = openSync(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === 'ELOOP') {
+      return errorResponse(`refusing to follow symlink at ${filePath}`);
+    }
+    if (e.code === 'ENOENT') {
+      return errorResponse(`file not found: ${filePath}`);
+    }
+    return errorResponse(`open failed: ${e.message}`);
   }
   let content: string;
   try {
-    content = readFileSync(filePath, 'utf-8');
+    // H1: Reject non-regular-files and files exceeding 5 MB before reading.
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) {
+      return JSON.stringify({ status: 'error', error: 'Not a regular file' });
+    }
+    if (stat.size > 5 * 1024 * 1024) {
+      return JSON.stringify({ status: 'error', error: 'File exceeds 5MB limit; chunk-index your spec in pieces or contact maintainer' });
+    }
+    content = readFileSync(fd, 'utf-8');
   } catch (err) {
     return errorResponse(`read failed: ${(err as Error).message}`);
+  } finally {
+    try { closeSync(fd); } catch { /* defensive: fd may have been closed by an exception path — ignore */ }
   }
   const sourceBytes = Buffer.byteLength(content, 'utf-8');
   const minCharsRaw = parseInt(params.min_chars || '50', 10);
@@ -2107,12 +2174,14 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   const handoffPath = join(brain.rootPath, 'handoff.md');
   const r = (k: string, fallback: string): string => redactSecrets(params[k] || fallback);
   const content = `# Session Handoff\n\n**Goal:** ${r('goal', 'Not specified')}\n\n**Current State:** ${r('current_state', 'Not specified')}\n\n**Files in Flight:** ${r('files_in_flight', 'None')}\n\n**What Changed:** ${r('what_changed', 'Nothing')}\n\n**Failed Attempts:**\n${r('failed_attempts', 'None documented')}\n\n**Decisions Made:** ${r('decisions_made', 'None')}\n\n**Next Step:** ${r('next_step', 'Not specified')}\n\n---\n*Saved: ${new Date().toISOString()}*\n`;
-  // TODO(security/MEDIUM-5): Non-atomic write. If two concurrent agents both call
-  // knit_save_handoff simultaneously (e.g. parallel team worktrees), one write will
-  // silently clobber the other, losing a handoff entirely. Mitigation: write to a
-  // temp file first (e.g. handoff.md.tmp), then fs.renameSync to handoff.md — rename
-  // is atomic on POSIX/macOS so the file is always either old-complete or new-complete.
-  writeFileSync(handoffPath, content, 'utf-8');
+  // v0.12.1 (MEDIUM-5 closed): temp file + atomic rename. POSIX renameSync
+  // is atomic, so handoff.md is always either the prior complete file or the
+  // new complete file — never a partial write. Parallel handoff saves from
+  // team worktrees may overwrite (last-writer-wins) but cannot corrupt or
+  // truncate the file.
+  const tmpPath = `${handoffPath}.tmp.${process.pid}`;
+  writeFileSync(tmpPath, content, 'utf-8');
+  renameSync(tmpPath, handoffPath);
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
 

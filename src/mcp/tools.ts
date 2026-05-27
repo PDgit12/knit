@@ -455,6 +455,16 @@ export function getActiveToolDefinitionsForBrain(brain: BrainCache): ToolDef[] {
   return getActiveToolDefinitions(detectProjectShape(brain));
 }
 
+/** v0.12.1 — exact byte cost of the active tool registry as the MCP server
+ *  serializes it. Used by handleBrainStatus to compute per_session_kb honestly
+ *  instead of multiplying activeCount by a hardcoded average (pre-v0.12.1 used
+ *  280 bytes, which understated real definitions averaging ~370 bytes and
+ *  hid an over-budget condition). */
+export function estimateActiveToolRegistryBytes(shape: ProjectShape): number {
+  const defs = getActiveToolDefinitions(shape);
+  return Buffer.byteLength(JSON.stringify(defs), 'utf-8');
+}
+
 /** Handler routing table */
 const handlers: Record<string, (params: Record<string, string>, brain: BrainCache) => string> = {
   knit_query_imports: handleQueryImports,

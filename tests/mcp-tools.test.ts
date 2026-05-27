@@ -407,6 +407,57 @@ describe('handleToolCall', () => {
     expect(result.auto_plan_mode).toBe(false);
   });
 
+  // v0.12.1 regression cases — pre-fix, the inquiry detector misclassified
+  // these as inquiry because the action-verb override was too narrow.
+
+  it('knit_classify_task — multi-action plan must NOT classify as inquiry (v0.12.1)', () => {
+    // 3 distinct action verbs (reduce, trim, consolidate) + 1 inquiry verb
+    // (audit). Pre-v0.12.1 the lone "audit" won and the whole plan ended up
+    // as inquiry, forcing the agent to re-classify with reworded input.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/mcp/tools.ts,src/mcp/features.ts,src/engine/learnings.ts',
+      description: 'Reduce handshake tool registry budget by trimming Tier-2 tools, consolidate learnings, and audit codebase for v0.12 quality issues',
+    }, brain));
+    expect(result.tier).not.toBe('inquiry');
+  });
+
+  it('knit_classify_task — single action verb + noun (no determiner) is NOT inquiry (v0.12.1)', () => {
+    // Pre-v0.12.1 the action override required a determiner like "the/this/it",
+    // so "consolidate learnings" misclassified as inquiry. "consolidate" is
+    // clearly a write command here.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/engine/learnings.ts',
+      description: 'consolidate learnings into pattern entries',
+    }, brain));
+    expect(result.tier).not.toBe('inquiry');
+  });
+
+  it('knit_classify_task — extended action verbs (reduce/trim/harden) work without determiner', () => {
+    for (const desc of [
+      'reduce bundle size',
+      'trim unused exports',
+      'harden the API endpoints',
+      'demote diagnostics tools',
+      'prune stale entries',
+    ]) {
+      const result = JSON.parse(handleToolCall('knit_classify_task', {
+        files_to_touch: 'src/api.ts',
+        description: desc,
+      }, brain));
+      expect(result.tier, `desc="${desc}" should be a write task`).not.toBe('inquiry');
+    }
+  });
+
+  it('knit_classify_task — question-word lead still wins over action verb (v0.12.1 preserves)', () => {
+    // "what should I fix before shipping?" — the user is asking, not
+    // commanding, even though "fix" appears. Question lead overrides.
+    const result = JSON.parse(handleToolCall('knit_classify_task', {
+      files_to_touch: 'src/api.ts',
+      description: 'what should I fix before shipping?',
+    }, brain));
+    expect(result.tier).toBe('inquiry');
+  });
+
   // ── v0.7 step 7 — minimal response mode ─────────────────────────
   //
   // Default classify_task returns the lean response (tier, phases, auto_plan_mode,
@@ -785,7 +836,7 @@ describe('getActiveToolDefinitions — filters by ProjectShape', () => {
     // Recoverability invariant: if these were ever hidden, a user who
     // disabled "admin" by accident would have no path back. Pin it here so
     // a refactor that moves them to a lower tier breaks loud.
-    for (const shape of [emptyShape, { ...emptyShape, domainCount: 5, enabledFeatures: new Set<'teams'|'subagents'|'admin'>(['teams','subagents','admin']) }]) {
+    for (const shape of [emptyShape, { ...emptyShape, domainCount: 5, enabledFeatures: new Set<'teams'|'subagents'|'admin'|'diagnostics'>(['teams','subagents','admin','diagnostics']) }]) {
       const names = new Set(getActiveToolDefinitions(shape).map((t) => t.name));
       expect(names.has('knit_list_features')).toBe(true);
       expect(names.has('knit_enable_feature')).toBe(true);

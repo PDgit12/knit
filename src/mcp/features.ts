@@ -68,9 +68,9 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_generate_test_cases', tier: 1, category: 'memory', rationale: 'Query indexed requirements; returns top-N relevant chunks + test-generation template. Companion to knit_index_requirements.' },
   { tool: 'knit_list_requirements', tier: 1, category: 'memory', rationale: 'List indexed requirements sources (header info only). Cheap discovery tool.' },
   { tool: 'knit_delete_requirements', tier: 1, category: 'memory', rationale: 'Cleanup tool — remove an outdated/wrong indexed source by id. Companion to knit_list_requirements + knit_index_requirements.' },
-  { tool: 'knit_get_fingerprint', tier: 1, category: 'diagnostics', rationale: 'v0.12 — project fingerprint (lang/framework/test/lint/build/CI). Foundation for auto-config and per-project template generation.' },
-  { tool: 'knit_infer_domains', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 1 — ranks candidate domains via RRF fusion of git co-change + import-graph centrality + test colocation. Feeds template composition.' },
-  { tool: 'knit_compose_template', tier: 1, category: 'diagnostics', rationale: 'v0.12 phase 2 — generates CLAUDE.md sections (Project Identity, Build & Verify, Domain Architecture) from fingerprint + domains. Preview only; user accepts manually.' },
+  { tool: 'knit_get_fingerprint', tier: 2, category: 'diagnostics', rationale: 'v0.12 — project fingerprint (lang/framework/test/lint/build/CI). One-shot setup aid; auto-exposed on first run.', enable_via: 'Auto-exposed on first session OR knit_enable_feature("diagnostics")' },
+  { tool: 'knit_infer_domains', tier: 2, category: 'diagnostics', rationale: 'v0.12 phase 1 — ranks candidate domains via RRF fusion of git co-change + import-graph centrality + test colocation. One-shot template input; auto-exposed on first run.', enable_via: 'Auto-exposed on first session OR knit_enable_feature("diagnostics")' },
+  { tool: 'knit_compose_template', tier: 2, category: 'diagnostics', rationale: 'v0.12 phase 2 — generates CLAUDE.md sections from fingerprint + domains. One-shot preview; auto-exposed on first run.', enable_via: 'Auto-exposed on first session OR knit_enable_feature("diagnostics")' },
   { tool: 'knit_get_false_positives', tier: 1, category: 'fp-reflection', rationale: 'Universal' },
   { tool: 'knit_reflect', tier: 1, category: 'fp-reflection', rationale: 'Returns "not enough data" on sparse projects; always available' },
 
@@ -83,9 +83,9 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_list_features', tier: 1, category: 'diagnostics', rationale: 'The discoverability escape hatch itself' },
   { tool: 'knit_enable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip on a Tier-2/3 feature flag — must always be reachable so hidden tools are recoverable' },
   { tool: 'knit_disable_feature', tier: 1, category: 'diagnostics', rationale: 'Flip off a previously-enabled feature flag' },
-  { tool: 'knit_scan_integrations', tier: 1, category: 'diagnostics', rationale: 'Re-detect existing user workflow frameworks (Ruflo, gstack, CodeTour, custom CLAUDE.md) so Knit can integrate rather than overlap' },
-  { tool: 'knit_compounding_metrics', tier: 1, category: 'diagnostics', rationale: 'Quantifies "Knit gets cheaper over time" — sessions, learnings, reuse ratio, estimated tokens saved. Companion to knit_brain_status budget surface.' },
-  { tool: 'knit_get_metrics_history', tier: 1, category: 'diagnostics', rationale: 'Weekly snapshots + week-over-week deltas. Pure read of metrics-history.jsonl; companion to knit_compounding_metrics for trend charts.' },
+  { tool: 'knit_scan_integrations', tier: 2, category: 'diagnostics', rationale: 'Re-detect existing user workflow frameworks (Ruflo, gstack, CodeTour, custom CLAUDE.md). Setup-time aid; auto-exposed on first run.', enable_via: 'Auto-exposed on first session OR knit_enable_feature("diagnostics")' },
+  { tool: 'knit_compounding_metrics', tier: 2, category: 'diagnostics', rationale: 'ROI dashboard — sessions, learnings, reuse ratio, estimated tokens saved. Review/audit tool; opt-in.', enable_via: 'knit_enable_feature("diagnostics")' },
+  { tool: 'knit_get_metrics_history', tier: 2, category: 'diagnostics', rationale: 'Weekly snapshots + WoW deltas (trend charts). Review/audit tool; opt-in.', enable_via: 'knit_enable_feature("diagnostics")' },
   { tool: 'knit_verify_claim', tier: 1, category: 'knowledge-graph', rationale: 'On-demand fact-check against the knowledge graph. Companion to knit_query_* — those tools answer "what?"; this one answers "is the agent\'s claim about it true?"' },
   { tool: 'knit_get_learning', tier: 1, category: 'memory', rationale: 'Hierarchical-retrieval companion: fetch one full learning by id after knit_search_learnings returned a headline. Saves tokens on the upfront list, pays per-detail.' },
   { tool: 'knit_consolidate_learnings', tier: 1, category: 'memory', rationale: 'Cluster similar learnings via tag-Jaccard, propose a single pattern entry, optionally commit. Keeps the working set lean as the KB grows.' },
@@ -123,7 +123,7 @@ export interface ProjectShape {
   /** Number of sessions accumulated. */
   sessionCount: number;
   /** Per-feature opt-ins the user has flipped on. */
-  enabledFeatures: Set<'teams' | 'subagents' | 'admin'>;
+  enabledFeatures: Set<'teams' | 'subagents' | 'admin' | 'diagnostics'>;
 }
 
 export interface FeatureListing {
@@ -146,6 +146,14 @@ export function isToolActive(info: FeatureInfo, shape: ProjectShape): boolean {
   }
   if (info.category === 'subagents') {
     return shape.hasInstalledSubagents || shape.enabledFeatures.has('subagents');
+  }
+  if (info.category === 'diagnostics') {
+    // v0.12.1 — setup/onboarding diagnostics are exposed on the first session
+    // (when sessionCount <= 1) so users discover fingerprint/domain/template
+    // tools during onboarding, then they drop out of the active surface to
+    // keep the handshake budget healthy. Re-enable explicitly with
+    // knit_enable_feature("diagnostics") for review/audit workflows.
+    return shape.sessionCount <= 1 || shape.enabledFeatures.has('diagnostics');
   }
   // Any new Tier-2 category added without an explicit rule defaults to hidden
   // so the agent surface stays narrow until someone codes the detection.
@@ -193,8 +201,8 @@ export function computeFeatureListing(shape: ProjectShape): FeatureListing {
 }
 
 /** Valid feature-flag names users can flip on via knit_enable_feature. */
-export type EnableableFeature = 'teams' | 'subagents' | 'admin';
+export type EnableableFeature = 'teams' | 'subagents' | 'admin' | 'diagnostics';
 
 export function isEnableableFeature(name: string): name is EnableableFeature {
-  return name === 'teams' || name === 'subagents' || name === 'admin';
+  return name === 'teams' || name === 'subagents' || name === 'admin' || name === 'diagnostics';
 }
