@@ -4,6 +4,7 @@ import { ProjectView } from './views/ProjectView';
 import { MetricsView } from './views/MetricsView';
 import { GlobalView } from './views/GlobalView';
 import { DoctorView } from './views/DoctorView';
+import { GraphView } from './views/GraphView';
 import { UpdateBanner } from './components/UpdateBanner';
 
 // Tiny hash-based router. No external dep. Routes:
@@ -40,6 +41,8 @@ function renderRoute(route: string): React.ReactElement {
   if (route === '#/doctor') return <DoctorView />;
   const projectMetrics = route.match(/^#\/p\/([a-f0-9]+)\/metrics\/?$/);
   if (projectMetrics) return <MetricsView projectId={projectMetrics[1]} />;
+  const projectGraph = route.match(/^#\/p\/([a-f0-9]+)\/graph\/?$/);
+  if (projectGraph) return <GraphView projectId={projectGraph[1]} />;
   const project = route.match(/^#\/p\/([a-f0-9]+)\/?$/);
   if (project) return <ProjectView projectId={project[1]} />;
   return (

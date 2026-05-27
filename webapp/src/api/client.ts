@@ -70,6 +70,33 @@ export interface ProjectMetrics {
   verdict: 'cold' | 'warming' | 'compounding' | 'strong';
 }
 
+export interface GraphNode {
+  id: string;
+  label: string;
+  domain: string;
+  tagCount: number;
+  accessCount: number;
+  date: string;
+  size: number;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+}
+
+export interface BrainGraph {
+  projectId: string;
+  projectName: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  nodeCount: number;
+  edgeCount: number;
+  isolatedCount: number;
+  threshold: number;
+}
+
 export interface GlobalDoctorCheck {
   name: string;
   status: 'ok' | 'warn' | 'error' | 'info';
@@ -123,6 +150,8 @@ export const api = {
   projects: () => get<{ projects: ProjectSummary[] }>('/api/projects'),
   projectLearnings: (id: string) => get<ProjectLearnings>(`/api/projects/${id}/learnings`),
   projectMetrics: (id: string) => get<ProjectMetrics>(`/api/projects/${id}/metrics`),
+  projectGraph: (id: string, threshold?: number) =>
+    get<BrainGraph>(`/api/projects/${id}/graph${threshold !== undefined ? `?threshold=${threshold}` : ''}`),
   globalLearnings: () => get<{ learnings: GlobalLearning[] }>('/api/global/learnings'),
   doctor: () => get<GlobalDoctorReport>('/api/doctor'),
 };

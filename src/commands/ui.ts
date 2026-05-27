@@ -493,6 +493,97 @@ function runGlobalDoctor(): GlobalDoctorReport {
   };
 }
 
+// ─── Brain graph ────────────────────────────────────────────────────────
+// Nodes = learnings (one per KB entry). Edges = pairs with non-trivial
+// Jaccard similarity over their tag+domain sets. The threshold (default
+// 0.25) keeps the graph from devolving into a complete-graph hairball
+// while still surfacing genuine clusters (e.g. five #v0.10 entries get
+// strong mutual edges).
+
+interface GraphNode {
+  id: string;
+  label: string;
+  domain: string;          // primary (first) domain for color binding
+  tagCount: number;
+  accessCount: number;
+  date: string;
+  size: number;            // visual scale, derived from accessCount
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+  weight: number;          // 0–1 Jaccard
+}
+
+interface BrainGraph {
+  projectId: string;
+  projectName: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  nodeCount: number;
+  edgeCount: number;
+  isolatedCount: number;   // nodes with no edges (no shared tags with anyone)
+  threshold: number;
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersect = 0;
+  for (const x of a) if (b.has(x)) intersect++;
+  const union = a.size + b.size - intersect;
+  return union === 0 ? 0 : intersect / union;
+}
+
+function buildBrainGraph(projectId: string, threshold = 0.25): BrainGraph | null {
+  const data = readProjectLearnings(projectId);
+  if (!data) return null;
+  const nodes: GraphNode[] = [];
+  const tagSets: Array<{ id: string; set: Set<string> }> = [];
+  for (const e of data.entries) {
+    const sig = new Set<string>([
+      ...e.tags.map((t) => t.toLowerCase()),
+      ...e.domains.map((d) => `#${d.toLowerCase()}`),
+    ]);
+    tagSets.push({ id: e.id, set: sig });
+    nodes.push({
+      id: e.id,
+      label: e.summary,
+      domain: e.domains[0] ?? 'general',
+      tagCount: sig.size,
+      accessCount: e.accessCount,
+      date: e.date,
+      // Log-scale size so a single 50-access node doesn't dominate a corpus of 1-access nodes.
+      size: 6 + Math.min(18, Math.log2((e.accessCount || 0) + 1) * 4),
+    });
+  }
+
+  const edges: GraphEdge[] = [];
+  for (let i = 0; i < tagSets.length; i++) {
+    for (let j = i + 1; j < tagSets.length; j++) {
+      const w = jaccard(tagSets[i].set, tagSets[j].set);
+      if (w >= threshold) {
+        edges.push({ source: tagSets[i].id, target: tagSets[j].id, weight: Number(w.toFixed(3)) });
+      }
+    }
+  }
+
+  const connected = new Set<string>();
+  for (const e of edges) { connected.add(e.source); connected.add(e.target); }
+  const isolatedCount = nodes.filter((n) => !connected.has(n.id)).length;
+
+  return {
+    projectId,
+    projectName: data.name,
+    nodes,
+    edges,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    isolatedCount,
+    threshold,
+  };
+}
+
 function readGlobalLearnings(): GlobalLearning[] {
   const path = join(knitRoot(), 'global', 'learnings.jsonl');
   if (!existsSync(path)) return [];
@@ -791,7 +882,8 @@ export async function uiCommand(): Promise<void> {
             endpoints: [
               '/api/version', '/api/brain/summary', '/api/brain/aggregate',
               '/api/projects', '/api/projects/:id/learnings',
-              '/api/projects/:id/metrics', '/api/global/learnings',
+              '/api/projects/:id/metrics', '/api/projects/:id/graph',
+              '/api/global/learnings',
               '/api/doctor', '/api/events (SSE)',
             ],
             security: {
@@ -810,7 +902,7 @@ export async function uiCommand(): Promise<void> {
 
         // /api/projects/:id/learnings and /api/projects/:id/metrics
         // Path is split on '/' and validated against the project hash format.
-        const projectMatch = url.match(/^\/api\/projects\/([a-f0-9]+)\/(learnings|metrics)\/?$/);
+        const projectMatch = url.match(/^\/api\/projects\/([a-f0-9]+)\/(learnings|metrics|graph)(?:\?.*)?\/?$/);
         if (projectMatch) {
           const [, id, kind] = projectMatch;
           if (kind === 'learnings') {
@@ -822,6 +914,14 @@ export async function uiCommand(): Promise<void> {
             const metrics = computeProjectMetrics(id);
             if (!metrics) return jsonResponse(res, 404, { error: 'Project not found' });
             return jsonResponse(res, 200, metrics);
+          }
+          if (kind === 'graph') {
+            // Optional ?threshold= override (0.0 - 1.0).
+            const thrMatch = url.match(/[?&]threshold=([0-9.]+)/);
+            const threshold = thrMatch ? Math.max(0, Math.min(1, parseFloat(thrMatch[1]))) : 0.25;
+            const graph = buildBrainGraph(id, threshold);
+            if (!graph) return jsonResponse(res, 404, { error: 'Project not found' });
+            return jsonResponse(res, 200, graph);
           }
         }
         return notFound(res);

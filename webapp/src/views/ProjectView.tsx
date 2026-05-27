@@ -101,19 +101,34 @@ export function ProjectView({ projectId }: { projectId: string }) {
               <MiniStat label="High-score hits" value={metrics.highScoreHits} hint="BM25 > 5.0" />
             </div>
           </Card>
-          <a href={`#/p/${projectId}/metrics`} style={{ textDecoration: 'none' }}>
-            <Card variant="mint" padding="normal" onClick={() => { /* navigated via href */ }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <Eyebrow>See full ROI breakdown</Eyebrow>
-                  <div style={{ marginTop: 4, fontSize: 'var(--size-h3)', fontWeight: 'var(--weight-semibold)' }}>
-                    Compounding analysis
+          <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+            <a href={`#/p/${projectId}/metrics`} style={{ textDecoration: 'none' }}>
+              <Card variant="mint" padding="normal" onClick={() => { /* navigated via href */ }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <Eyebrow>See full ROI breakdown</Eyebrow>
+                    <div style={{ marginTop: 4, fontSize: 'var(--size-h3)', fontWeight: 'var(--weight-semibold)' }}>
+                      Compounding analysis
+                    </div>
                   </div>
+                  <ArrowUpRight size={18} />
                 </div>
-                <ArrowUpRight size={18} />
-              </div>
-            </Card>
-          </a>
+              </Card>
+            </a>
+            <a href={`#/p/${projectId}/graph`} style={{ textDecoration: 'none' }}>
+              <Card variant="lavender" padding="normal" onClick={() => { /* navigated via href */ }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <Eyebrow>Visualize relationships</Eyebrow>
+                    <div style={{ marginTop: 4, fontSize: 'var(--size-h3)', fontWeight: 'var(--weight-semibold)' }}>
+                      Brain graph
+                    </div>
+                  </div>
+                  <ArrowUpRight size={18} />
+                </div>
+              </Card>
+            </a>
+          </div>
         </div>
       </div>
 
