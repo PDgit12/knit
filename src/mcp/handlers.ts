@@ -2938,7 +2938,9 @@ export function handleInstallAgent(params: Record<string, string>, brain: BrainC
   const refresh = (params.refresh || '').toLowerCase() === 'true';
   if (!name) return errorResponse('name is required');
 
-  // Fire-and-forget install. Callers get an immediate ack.
+  const targetPath = join(brain.rootPath, '.claude', 'agents', `knit-${name}.md`);
+
+  // Fire the install. Background-safe — caller doesn't await.
   installAgentsForProject(
     brain.rootPath,
     brain.config,
@@ -2949,11 +2951,28 @@ export function handleInstallAgent(params: Record<string, string>, brain: BrainC
     process.stderr.write(`[knit] handleInstallAgent background error for ${name}: ${err?.message ?? err}\n`);
   });
 
+  // v0.12.2 — block up to ~2s for the file to appear so the response is
+  // honest about whether the agent is invocable. Pre-v0.12.2 returned
+  // `queued` immediately, and an agent that tried to invoke the subagent
+  // right after would race a not-yet-written file. The audit flagged this
+  // as `partial`. The wait uses Atomics.wait on a SharedArrayBuffer for a
+  // proper kernel-level sleep (no busy-wait, no CPU burn). Bundled/cached
+  // installs land in <100ms; network fetches usually within 2s. Beyond
+  // that we return `pending` honestly so the caller knows to retry later.
+  const deadline = Date.now() + 2000;
+  const waitBuf = new Int32Array(new SharedArrayBuffer(4));
+  while (Date.now() < deadline && !existsSync(targetPath)) {
+    Atomics.wait(waitBuf, 0, 0, 50);
+  }
+  const installed = existsSync(targetPath);
+
   return JSON.stringify({
-    status: 'queued',
+    status: installed ? 'installed' : 'pending',
     agent: name,
     target: `<project>/.claude/agents/knit-${name}.md`,
-    instruction: 'Install started in background. File will be ready within a few seconds. If it fails, see stderr — Knit does not throw from this handler.',
+    instruction: installed
+      ? `Agent ${name} installed and available for invocation.`
+      : 'Install queued but file not yet on disk after 2s wait. Likely a slow network fetch; retry invocation in ~5s, or check stderr for fetch errors.',
   });
 }
 
