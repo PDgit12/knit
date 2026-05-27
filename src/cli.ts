@@ -14,7 +14,7 @@ import { Command } from 'commander';
 import { VERSION } from './version.js';
 
 const args = process.argv.slice(2);
-const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', 'doctor', '--help', '-h', '--version', '-V'].includes(args[0]);
+const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install-agents', 'export', 'doctor', 'ui', '--help', '-h', '--version', '-V'].includes(args[0]);
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
@@ -38,6 +38,7 @@ async function runCLI() {
   const { installAgentsCommand } = await import('./commands/install-agents.js');
   const { exportCommand } = await import('./commands/export.js');
   const { doctorCommand } = await import('./commands/doctor.js');
+  const { uiCommand } = await import('./commands/ui.js');
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
@@ -155,6 +156,18 @@ async function runCLI() {
         await exportCommand(format, vaultPath, options);
       } catch (error) {
         reportCliError('export', error);
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('ui')
+    .description('Launch the local Knit dashboard in your browser (v1.0-alpha — read-only)')
+    .action(async () => {
+      try {
+        await uiCommand();
+      } catch (error) {
+        reportCliError('ui', error);
         process.exit(1);
       }
     });
