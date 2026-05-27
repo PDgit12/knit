@@ -466,17 +466,30 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, webappDist: stri
   if (!fullPath.startsWith(resolve(webappDist))) {
     res.writeHead(403); res.end('Forbidden'); return;
   }
+  // Vite emits hashed asset filenames (index-BSCR26jO.js etc) — those CAN
+  // cache aggressively. But index.html references those by name and must
+  // ALWAYS be the latest, otherwise the browser keeps loading a stale
+  // bundle reference after the user upgrades knit-mcp. no-store on .html
+  // is the right call; long cache on hashed assets is safe.
+  const ext = fullPath.split('.').pop()?.toLowerCase() ?? '';
+  const isHtml = ext === 'html';
+  const cacheHeader = isHtml
+    ? 'no-store, no-cache, must-revalidate, max-age=0'
+    : 'public, max-age=31536000, immutable';
+
   if (!existsSync(fullPath)) {
     // SPA fallback for client-side routes.
     const indexPath = join(webappDist, 'index.html');
     if (existsSync(indexPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      });
       res.end(readFileSync(indexPath));
       return;
     }
     res.writeHead(404); res.end('Not found'); return;
   }
-  const ext = fullPath.split('.').pop()?.toLowerCase() ?? '';
   const mime: Record<string, string> = {
     html: 'text/html; charset=utf-8',
     js: 'text/javascript; charset=utf-8',
@@ -486,7 +499,10 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, webappDist: stri
     png: 'image/png',
     ico: 'image/x-icon',
   };
-  res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream' });
+  res.writeHead(200, {
+    'Content-Type': mime[ext] || 'application/octet-stream',
+    'Cache-Control': cacheHeader,
+  });
   res.end(readFileSync(fullPath));
 }
 
@@ -527,6 +543,15 @@ export async function uiCommand(): Promise<void> {
     // API surface — local-first, read-only in v1.0-alpha.
     if (url.startsWith('/api/')) {
       try {
+        if (url === '/api/version') return jsonResponse(res, 200, {
+          knitVersion: VERSION,
+          dashboardApi: 'v1',
+          endpoints: [
+            '/api/version', '/api/brain/summary', '/api/projects',
+            '/api/projects/:id/learnings', '/api/projects/:id/metrics',
+            '/api/global/learnings', '/api/doctor',
+          ],
+        });
         if (url === '/api/brain/summary') return jsonResponse(res, 200, brainSummary());
         if (url === '/api/projects') return jsonResponse(res, 200, { projects: listProjects() });
         if (url === '/api/global/learnings') return jsonResponse(res, 200, { learnings: readGlobalLearnings() });
