@@ -85,8 +85,9 @@ describe('knit_brain_status — token_budget surface', () => {
 
     const result = JSON.parse(handleBrainStatus({}, buildMinimalBrain()));
     expect(result.token_budget.budgets.claude_md.verdict).toBe('healthy');
-    // Tool registry sits right at the 8500-byte target line with 30 v0.9
-    // Tier-1 tools — accept healthy or warn (within 25% slack).
+    // v0.12.1: honest tool-registry measurement (~15.5KB on first session)
+    // against the 14KB target → "warn" within 25% slack. Tier-1 sits
+    // healthy post-onboarding once setup diagnostics auto-drop.
     expect(['healthy', 'warn']).toContain(result.token_budget.overall_verdict);
   });
 
@@ -119,11 +120,15 @@ describe('knit_brain_status — token_budget surface', () => {
 
     const result = JSON.parse(handleBrainStatus({}, buildMinimalBrain()));
     const tr = result.token_budget.budgets.tool_registry;
-    // Empty-shape project → only Tier 1 visible. v0.12 phase 0 has 37
-    // Tier-1 tools. Range 28-42 catches drift in either direction.
+    // Empty-shape project → 34 Tier-1 + 6 auto-exposed setup diagnostics
+    // (v0.12.1 demotion lands diagnostics in Tier-2 with first-session
+    // auto-expose). Range 28-42 catches drift in either direction.
     expect(tr.active_tool_count).toBeGreaterThanOrEqual(28);
     expect(tr.active_tool_count).toBeLessThanOrEqual(42);
-    // 30 tools * 280 bytes ≈ 8400 bytes — within 25% slack of the 8500 target.
+    // v0.12.1: honest serialized byte count (~15.5KB for 40 active tools)
+    // against 14KB target → warn within 25% slack. The pre-v0.12.1
+    // estimator used a hardcoded 280B/tool average that understated by
+    // ~30%; correcting that surfaces the real budget surface.
     expect(['healthy', 'warn']).toContain(tr.verdict);
   });
 

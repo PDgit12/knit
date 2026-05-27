@@ -41,6 +41,16 @@ async function runCLI() {
 
   const ENGRAM_GRADIENT = gradient(['#7c3aed', '#2563eb', '#06b6d4']);
 
+  // v0.12.1 — every CLI catch block routes through this so users see the
+  // command that failed + an actionable next step. Raw `error.message`
+  // alone (e.g. "Cannot read property X of undefined") leaves users stuck
+  // and burns Discord support cycles.
+  const reportCliError = (command: string, error: unknown): void => {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red(`  Error in 'knit ${command}':`), msg);
+    console.error(chalk.dim('  Next: run `knit doctor` to diagnose, or file an issue at https://github.com/PDgit12/knit/issues with the message above.'));
+  };
+
   const banner = `
   ╔═══════════════════════════════════════╗
   ║                                       ║
@@ -75,7 +85,7 @@ async function runCLI() {
       try {
         await setupCommand(options);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('setup', error);
         process.exit(1);
       }
     });
@@ -88,7 +98,7 @@ async function runCLI() {
       try {
         await statusCommand(directory);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('status', error);
         process.exit(1);
       }
     });
@@ -101,7 +111,7 @@ async function runCLI() {
       try {
         await refreshCommand(directory);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('refresh', error);
         process.exit(1);
       }
     });
@@ -116,7 +126,7 @@ async function runCLI() {
       try {
         await installAgentsCommand(directory, options);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('install-agents', error);
         process.exit(1);
       }
     });
@@ -129,7 +139,7 @@ async function runCLI() {
       try {
         await doctorCommand(directory);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('doctor', error);
         process.exit(1);
       }
     });
@@ -144,7 +154,7 @@ async function runCLI() {
       try {
         await exportCommand(format, vaultPath, options);
       } catch (error) {
-        console.error(chalk.red('  Error:'), error instanceof Error ? error.message : error);
+        reportCliError('export', error);
         process.exit(1);
       }
     });

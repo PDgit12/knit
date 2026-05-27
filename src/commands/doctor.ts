@@ -14,7 +14,7 @@
  * not an error).
  */
 
-import { existsSync, lstatSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, statSync, accessSync, constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -73,15 +73,46 @@ export function runDoctor(rootPath: string): DoctorReport {
   }
 
   // ── Project data dir ──
+  // v0.12.1 — explicitly probe write access. Pre-v0.12.1 we only checked
+  // existence; a read-only ~/.knit (shared homes, network mounts, restored
+  // backups with wrong perms) would pass doctor green, then the very first
+  // MCP call would fail with an opaque EACCES. Surface the real state up
+  // front so the user can chmod before opening Claude Code.
   const dataDir = projectDataDir(rootPath);
   if (existsSync(dataDir)) {
-    checks.push({ name: 'Project data dir', status: 'ok', detail: dataDir });
+    try {
+      accessSync(dataDir, fsConstants.W_OK);
+      checks.push({ name: 'Project data dir', status: 'ok', detail: dataDir });
+    } catch (err) {
+      checks.push({
+        name: 'Project data dir',
+        status: 'error',
+        detail: `${dataDir} exists but is not writable (${(err as NodeJS.ErrnoException).code ?? 'EACCES'}) — fix with: chmod -R u+w "${dataDir}"`,
+      });
+    }
   } else {
-    checks.push({
-      name: 'Project data dir',
-      status: 'info',
-      detail: `${dataDir} — will be created on first MCP call`,
-    });
+    // Probe the nearest existing ancestor's write permission so we know
+    // whether the data dir can actually be created on first MCP call.
+    let probeDir = dataDir;
+    while (probeDir && !existsSync(probeDir)) {
+      const parent = join(probeDir, '..');
+      if (parent === probeDir) break;
+      probeDir = parent;
+    }
+    try {
+      if (probeDir) accessSync(probeDir, fsConstants.W_OK);
+      checks.push({
+        name: 'Project data dir',
+        status: 'info',
+        detail: `${dataDir} — will be created on first MCP call`,
+      });
+    } catch (err) {
+      checks.push({
+        name: 'Project data dir',
+        status: 'error',
+        detail: `cannot create ${dataDir} — parent ${probeDir} is not writable (${(err as NodeJS.ErrnoException).code ?? 'EACCES'}). Fix with: chmod u+w "${probeDir}"`,
+      });
+    }
   }
 
   // ── HOOKS_VERSION in settings.local.json ──
