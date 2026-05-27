@@ -4,6 +4,7 @@ import { ProjectView } from './views/ProjectView';
 import { MetricsView } from './views/MetricsView';
 import { GlobalView } from './views/GlobalView';
 import { DoctorView } from './views/DoctorView';
+import { UpdateBanner } from './components/UpdateBanner';
 
 // Tiny hash-based router. No external dep. Routes:
 //   #/           → HomeView (cross-project landing)
@@ -25,6 +26,7 @@ export function App() {
   return (
     <div style={{ minHeight: '100vh' }}>
       <Nav route={route} />
+      <UpdateBanner />
       <main style={{ maxWidth: 1240, margin: '0 auto', padding: 'var(--space-5) var(--space-5) var(--space-8)' }}>
         {renderRoute(route)}
       </main>

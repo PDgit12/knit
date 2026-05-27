@@ -95,6 +95,21 @@ export interface GlobalLearning {
   sourceProjectId: string;
 }
 
+export interface VersionInfo {
+  knitVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  updateCommand: string | null;
+  dashboardApi: string;
+  endpoints: string[];
+  security: {
+    host: string;
+    origin: string;
+    csp: string;
+    auth: string;
+  };
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
@@ -102,6 +117,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 export const api = {
+  version: () => get<VersionInfo>('/api/version'),
   brainSummary: () => get<BrainSummary>('/api/brain/summary'),
   brainAggregate: () => get<BrainAggregate>('/api/brain/aggregate'),
   projects: () => get<{ projects: ProjectSummary[] }>('/api/projects'),

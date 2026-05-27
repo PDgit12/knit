@@ -23,9 +23,40 @@ import { exec } from 'node:child_process';
 
 import { knitRoot } from '../engine/paths.js';
 import { VERSION } from '../version.js';
+import { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } from '../mcp/update-check.js';
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7421;
+
+// ─── Local-first security boundary ──────────────────────────────────────
+// The dashboard binds to 127.0.0.1, but that alone doesn't stop DNS
+// rebinding: a malicious website you visit could resolve `evil.com` to
+// 127.0.0.1 and have your browser send requests to the dashboard from a
+// non-knit origin. Defense: validate the Host header (only accept
+// localhost variants) and reject any Origin/Referer that isn't ours.
+// This is the same defense PostgreSQL, Redis, Docker daemon, and the
+// React dev server all use.
+const ALLOWED_HOST_PREFIXES = ['127.0.0.1', 'localhost', '[::1]', '::1'] as const;
+
+function allowedHost(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  const host = hostHeader.split(':')[0].toLowerCase();
+  // Strip IPv6 brackets if present.
+  const normalized = host.startsWith('[') ? host.slice(1, host.lastIndexOf(']')) : host;
+  return ALLOWED_HOST_PREFIXES.some((p) => normalized === p || normalized === p.replace(/[\[\]]/g, ''));
+}
+
+function allowedOrigin(originHeader: string | undefined, port: number): boolean {
+  if (!originHeader) return true; // direct nav / curl has no Origin — fine
+  try {
+    const url = new URL(originHeader);
+    if (!ALLOWED_HOST_PREFIXES.some((p) => url.hostname === p.replace(/[\[\]]/g, ''))) return false;
+    if (url.port && url.port !== String(port)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 interface ProjectSummary {
   id: string;
@@ -530,6 +561,16 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, webappDist: stri
       res.writeHead(200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+        // Strict CSP — Vite produces a tiny inline boot snippet in index.html
+        // but everything else loads from /assets/ (same-origin). Blocking
+        // 'unsafe-inline' for scripts would break Vite's hydration boot;
+        // 'unsafe-inline' for styles is needed because React inline-style
+        // props compile to runtime style strings. No 'unsafe-eval', no
+        // external sources — XSS in a learning's text can't escape.
+        'Content-Security-Policy': cspHeader(),
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'no-referrer',
+        'X-Frame-Options': 'DENY',
       });
       res.end(readFileSync(indexPath));
       return;
@@ -545,11 +586,39 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, webappDist: stri
     png: 'image/png',
     ico: 'image/x-icon',
   };
-  res.writeHead(200, {
+  const headers: Record<string, string> = {
     'Content-Type': mime[ext] || 'application/octet-stream',
     'Cache-Control': cacheHeader,
-  });
+    'X-Content-Type-Options': 'nosniff',
+  };
+  // CSP applies on the document load; static assets just inherit the
+  // policy. Frame-options + referrer-policy belong on every response so
+  // they survive a browser-fetched asset.
+  if (isHtml) {
+    headers['Content-Security-Policy'] = cspHeader();
+    headers['X-Frame-Options'] = 'DENY';
+    headers['Referrer-Policy'] = 'no-referrer';
+  }
+  res.writeHead(200, headers);
   res.end(readFileSync(fullPath));
+}
+
+function cspHeader(): string {
+  // Same-origin only; no external scripts, no inline event handlers, no
+  // eval. style-src 'unsafe-inline' is required because the React app
+  // uses inline style props throughout (compiled to inline-style strings
+  // at runtime). connect-src includes the SSE endpoint pattern.
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+  ].join('; ');
 }
 
 function openBrowser(url: string): void {
@@ -682,20 +751,57 @@ export async function uiCommand(): Promise<void> {
 
   const server = createServer((req, res) => {
     const url = req.url || '/';
+
+    // Defense-in-depth: reject any request whose Host or Origin doesn't
+    // resolve to localhost. Blocks DNS rebinding attacks where a malicious
+    // site you visit tries to read the dashboard via your browser. Loopback
+    // bind alone isn't enough — same defense pattern as the React dev
+    // server, Docker daemon, PostgreSQL etc.
+    if (!allowedHost(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden: invalid host header');
+      return;
+    }
+    if (!allowedOrigin(req.headers.origin as string | undefined, port)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden: cross-origin request blocked');
+      return;
+    }
+
     // API surface — local-first, read-only in v1.0-alpha.
     if (url.startsWith('/api/')) {
       try {
         if (url === '/api/events') { handleSseConnect(res); return; }
-        if (url === '/api/version') return jsonResponse(res, 200, {
-          knitVersion: VERSION,
-          dashboardApi: 'v1',
-          endpoints: [
-            '/api/version', '/api/brain/summary', '/api/brain/aggregate',
-            '/api/projects', '/api/projects/:id/learnings',
-            '/api/projects/:id/metrics', '/api/global/learnings',
-            '/api/doctor', '/api/events (SSE)',
-          ],
-        });
+        if (url === '/api/version') {
+          // Best-effort npm registry check. Kicks off async in the
+          // background on first call and caches; subsequent calls read
+          // the cache without blocking. No outbound call on the hot
+          // path of the dashboard request itself.
+          prewarmLatestVersion();
+          const latest = getCachedLatestVersion();
+          const updateAvailable = latest ? isNewerVersion(latest, VERSION) : false;
+          return jsonResponse(res, 200, {
+            knitVersion: VERSION,
+            latestVersion: latest,
+            updateAvailable,
+            updateCommand: updateAvailable
+              ? 'npm install -g knit-mcp@latest && rm -rf ~/.npm/_npx/'
+              : null,
+            dashboardApi: 'v1',
+            endpoints: [
+              '/api/version', '/api/brain/summary', '/api/brain/aggregate',
+              '/api/projects', '/api/projects/:id/learnings',
+              '/api/projects/:id/metrics', '/api/global/learnings',
+              '/api/doctor', '/api/events (SSE)',
+            ],
+            security: {
+              host: 'loopback-only',
+              origin: 'localhost-only',
+              csp: 'strict-same-origin',
+              auth: 'none-by-design',
+            },
+          });
+        }
         if (url === '/api/brain/summary') return jsonResponse(res, 200, brainSummary());
         if (url === '/api/brain/aggregate') return jsonResponse(res, 200, computeBrainAggregate());
         if (url === '/api/projects') return jsonResponse(res, 200, { projects: listProjects() });
