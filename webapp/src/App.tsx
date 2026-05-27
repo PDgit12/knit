@@ -5,6 +5,7 @@ import { MetricsView } from './views/MetricsView';
 import { GlobalView } from './views/GlobalView';
 import { DoctorView } from './views/DoctorView';
 import { GraphView } from './views/GraphView';
+import { GraphPickerView } from './views/GraphPickerView';
 import { UpdateBanner } from './components/UpdateBanner';
 
 // Tiny hash-based router. No external dep. Routes:
@@ -37,6 +38,7 @@ export function App() {
 
 function renderRoute(route: string): React.ReactElement {
   if (route === '#/' || route === '') return <HomeView />;
+  if (route === '#/graph') return <GraphPickerView />;
   if (route === '#/global') return <GlobalView />;
   if (route === '#/doctor') return <DoctorView />;
   const projectMetrics = route.match(/^#\/p\/([a-f0-9]+)\/metrics\/?$/);
@@ -54,6 +56,7 @@ function renderRoute(route: string): React.ReactElement {
 
 function Nav({ route }: { route: string }) {
   const isHome = route === '#/' || route === '';
+  const isGraph = route === '#/graph' || /^#\/p\/[a-f0-9]+\/graph\/?$/.test(route);
   const isGlobal = route === '#/global';
   const isDoctor = route === '#/doctor';
   return (
@@ -70,6 +73,7 @@ function Nav({ route }: { route: string }) {
         Knit<span style={{ color: 'var(--surface-lavender)' }}>.</span>
       </a>
       <NavLink href="#/" active={isHome}>Brain</NavLink>
+      <NavLink href="#/graph" active={isGraph}>Graph</NavLink>
       <NavLink href="#/global" active={isGlobal}>Cross-project</NavLink>
       <NavLink href="#/doctor" active={isDoctor}>Health</NavLink>
     </nav>

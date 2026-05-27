@@ -286,65 +286,72 @@ function RecentActivityList({ projects }: { projects: ProjectSummary[] }) {
 }
 
 function SavedVsSpentBars({ saved, spent }: { saved: number; spent: number }) {
-  // Two stacked-bar columns showing saved (mint) and spent (lavender) — echoes
-  // the Monetir "Sales statistics" two-month comparison bars.
-  const max = Math.max(saved, spent, 1);
-  const savedH = Math.round((saved / max) * 120);
-  const spentH = Math.round((spent / max) * 120);
+  // Horizontal proportion ribbon. The two-column comparison in the Monetir
+  // reference was period-over-period (Sept vs Nov); we don't have a periodic
+  // split here, just a single saved-vs-spent ratio. When the ratio is
+  // extreme (e.g. 255K saved vs 200 spent), bar columns make spent
+  // invisible — a percentage ribbon stays honest at any scale.
+  const total = saved + spent;
+  const savedPct = total > 0 ? (saved / total) * 100 : 0;
+  const spentPct = 100 - savedPct;
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-      <BarColumn label="Saved" colorTop="var(--surface-mint)" colorBottom="var(--surface-lavender)" topH={savedH * 0.7} bottomH={savedH * 0.3} />
-      <BarColumn label="Spent" colorTop="var(--surface-mint)" colorBottom="var(--surface-lavender)" topH={spentH * 0.25} bottomH={spentH * 0.75} />
-    </div>
-  );
-}
-
-function BarColumn({ label, colorTop, colorBottom, topH, bottomH }: { label: string; colorTop: string; colorBottom: string; topH: number; bottomH: number }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+    <div style={{ width: 200, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{
-        color: 'var(--text-mute-light)', fontSize: 'var(--size-eyebrow)',
-        textTransform: 'uppercase', letterSpacing: '0.06em',
-      }}>{label}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: 140 }}>
-        <div style={{ width: 48, background: colorTop, height: Math.max(topH, 8), borderRadius: '10px 10px 4px 4px' }} />
-        <div style={{ width: 48, background: colorBottom, height: Math.max(bottomH, 8), borderRadius: '4px 4px 10px 10px' }} />
+        height: 12, borderRadius: 999, overflow: 'hidden',
+        background: 'rgba(255, 255, 255, 0.08)',
+        display: 'flex',
+      }}>
+        <div style={{ width: `${Math.max(savedPct, spentPct === 0 ? 100 : 0.6)}%`, background: 'var(--surface-mint)' }} />
+        <div style={{ flex: 1, background: 'var(--surface-lavender)' }} />
+      </div>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        fontSize: 'var(--size-eyebrow)', textTransform: 'uppercase',
+        letterSpacing: '0.06em', color: 'var(--text-mute-light)',
+      }}>
+        <span><span style={{ color: 'var(--surface-mint)' }}>■</span> Saved {savedPct.toFixed(1)}%</span>
+        <span>Spent {spentPct.toFixed(1)}% <span style={{ color: 'var(--surface-lavender)' }}>■</span></span>
       </div>
     </div>
   );
 }
 
 function HitRateArc({ value }: { value: number }) {
-  // Half-donut showing the % filled. Mint background, dark arc.
-  const size = 130;
-  const stroke = 18;
+  // Half-donut. Pre-fix had a near-invisible mint-on-mint track —
+  // hard to read on the screenshot. Now the track is solid dark with
+  // light opacity for contrast against the mint card; the filled arc
+  // is the same dark color at full opacity so the proportion reads
+  // immediately. Endpoint marker stays lavender for the third color.
+  const size = 150;
+  const stroke = 22;
   const r = (size - stroke) / 2;
   const cx = size / 2;
   const cy = size - stroke / 2;
-  const startAngle = Math.PI; // 180°
+  const startAngle = Math.PI; // 180° — start at left
   const endAngle = Math.PI - (value / 100) * Math.PI;
   const x1 = cx + r * Math.cos(startAngle);
   const y1 = cy + r * Math.sin(startAngle);
   const x2 = cx + r * Math.cos(endAngle);
   const y2 = cy + r * Math.sin(endAngle);
   const largeArc = value > 50 ? 1 : 0;
+  const trackPath = `M ${stroke / 2} ${cy} A ${r} ${r} 0 0 1 ${size - stroke / 2} ${cy}`;
+  const filledPath = `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
   return (
-    <svg width={size} height={size / 2 + stroke}>
-      <path
-        d={`M ${stroke / 2} ${cy} A ${r} ${r} 0 0 1 ${size - stroke / 2} ${cy}`}
-        stroke="rgba(13, 13, 13, 0.12)"
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        fill="none"
-      />
-      <path
-        d={`M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`}
-        stroke="var(--text-dark)"
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        fill="none"
-      />
-      <circle cx={x2} cy={y2} r={stroke / 3} fill="var(--surface-lavender)" stroke="var(--text-dark)" strokeWidth={2} />
+    <svg width={size} height={size / 2 + stroke + 4} style={{ overflow: 'visible' }}>
+      <defs>
+        <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(13, 13, 13, 0.18)" strokeWidth="3" />
+        </pattern>
+      </defs>
+      {/* Track: solid dark base + hatched overlay echoes the Monetir
+          reference's striped "previous-period" pattern, gives texture
+          even when value is 0%. */}
+      <path d={trackPath} stroke="rgba(13, 13, 13, 0.18)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
+      <path d={trackPath} stroke="url(#hatch)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
+      {/* Filled portion */}
+      <path d={filledPath} stroke="var(--text-dark)" strokeWidth={stroke} strokeLinecap="round" fill="none" />
+      {/* End cap dot */}
+      <circle cx={x2} cy={y2} r={stroke / 3.2} fill="var(--surface-lavender)" stroke="var(--text-dark)" strokeWidth={2.5} />
     </svg>
   );
 }
