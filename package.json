@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "build": "tsup src/cli.ts --format esm --dts --clean && npm run vendor-agents",
+    "build": "tsup src/cli.ts --format esm --dts --clean && npm run vendor-agents && npm run build:webapp",
+    "build:webapp": "cd webapp && (npm install --prefer-offline --no-audit --no-fund || npm install) && npm run build",
     "vendor-agents": "node scripts/vendor-agents.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ tests/ --ext .ts",
@@ -71,6 +72,8 @@
   },
   "files": [
     "dist",
+    "webapp/dist",
+    "webapp/index.html",
     "THIRD-PARTY-NOTICES.md"
   ]
 }

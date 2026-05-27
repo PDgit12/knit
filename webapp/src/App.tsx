@@ -3,6 +3,7 @@ import { HomeView } from './views/HomeView';
 import { ProjectView } from './views/ProjectView';
 import { MetricsView } from './views/MetricsView';
 import { GlobalView } from './views/GlobalView';
+import { DoctorView } from './views/DoctorView';
 
 // Tiny hash-based router. No external dep. Routes:
 //   #/           → HomeView (cross-project landing)
@@ -34,6 +35,7 @@ export function App() {
 function renderRoute(route: string): React.ReactElement {
   if (route === '#/' || route === '') return <HomeView />;
   if (route === '#/global') return <GlobalView />;
+  if (route === '#/doctor') return <DoctorView />;
   const projectMetrics = route.match(/^#\/p\/([a-f0-9]+)\/metrics\/?$/);
   if (projectMetrics) return <MetricsView projectId={projectMetrics[1]} />;
   const project = route.match(/^#\/p\/([a-f0-9]+)\/?$/);
@@ -57,6 +59,7 @@ function Nav({ route }: { route: string }) {
   });
   const isHome = route === '#/' || route === '';
   const isGlobal = route === '#/global';
+  const isDoctor = route === '#/doctor';
   return (
     <nav style={{
       borderBottom: '1px solid var(--border)',
@@ -76,6 +79,7 @@ function Nav({ route }: { route: string }) {
       </a>
       <a href="#/" style={linkStyle(isHome)}>Projects</a>
       <a href="#/global" style={linkStyle(isGlobal)}>Cross-project</a>
+      <a href="#/doctor" style={linkStyle(isDoctor)}>Health</a>
     </nav>
   );
 }

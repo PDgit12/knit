@@ -15,7 +15,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, accessSync, constants as fsConstants } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -87,6 +87,20 @@ interface GlobalLearning {
   outcome: 'success' | 'partial' | 'failure' | null;
   sourceProjectName: string;
   sourceProjectId: string;
+}
+
+interface GlobalDoctorCheck {
+  name: string;
+  status: 'ok' | 'warn' | 'error' | 'info';
+  detail: string;
+}
+
+interface GlobalDoctorReport {
+  knitVersion: string;
+  nodeVersion: string;
+  knitHome: string;
+  checks: GlobalDoctorCheck[];
+  summary: { ok: number; warn: number; error: number; info: number };
 }
 
 // Token economics constants — kept in sync with src/mcp/handlers.ts
@@ -266,6 +280,142 @@ function computeProjectMetrics(projectId: string): ProjectMetrics | null {
   }
 }
 
+function runGlobalDoctor(): GlobalDoctorReport {
+  const checks: GlobalDoctorCheck[] = [];
+  const home = knitRoot();
+
+  // 1. ~/.knit exists?
+  if (!existsSync(home)) {
+    checks.push({
+      name: '~/.knit directory',
+      status: 'warn',
+      detail: `${home} does not exist yet — will be created on first MCP call from any project.`,
+    });
+  } else {
+    checks.push({ name: '~/.knit directory', status: 'ok', detail: home });
+    // 2. Is it writable?
+    try {
+      accessSync(home, fsConstants.W_OK);
+      checks.push({ name: '~/.knit writable', status: 'ok', detail: 'Write access confirmed.' });
+    } catch {
+      checks.push({
+        name: '~/.knit writable',
+        status: 'error',
+        detail: `EACCES on ${home} — fix with: chmod -R u+w "${home}"`,
+      });
+    }
+  }
+
+  // 3. Projects directory contents
+  const projectsDir = join(home, 'projects');
+  if (existsSync(projectsDir)) {
+    try {
+      const entries = readdirSync(projectsDir).filter((id) => {
+        try { return statSync(join(projectsDir, id)).isDirectory(); } catch { return false; }
+      });
+      checks.push({
+        name: 'Projects',
+        status: entries.length > 0 ? 'ok' : 'info',
+        detail: `${entries.length} project${entries.length === 1 ? '' : 's'} registered.`,
+      });
+    } catch (err) {
+      checks.push({
+        name: 'Projects',
+        status: 'error',
+        detail: `Could not read ${projectsDir}: ${(err as Error).message}`,
+      });
+    }
+  } else {
+    checks.push({
+      name: 'Projects',
+      status: 'info',
+      detail: 'No projects registered yet. Open a repo in Claude Code/Cursor/etc with Knit MCP connected.',
+    });
+  }
+
+  // 4. Global learnings pool
+  const globalLearningsFile = join(home, 'global', 'learnings.jsonl');
+  if (existsSync(globalLearningsFile)) {
+    try {
+      const count = readFileSync(globalLearningsFile, 'utf-8').split('\n').filter(Boolean).length;
+      checks.push({
+        name: 'Cross-project pool',
+        status: 'ok',
+        detail: `${count} learning${count === 1 ? '' : 's'} in ~/.knit/global/learnings.jsonl.`,
+      });
+    } catch (err) {
+      checks.push({
+        name: 'Cross-project pool',
+        status: 'warn',
+        detail: `~/.knit/global/learnings.jsonl exists but unreadable: ${(err as Error).message}`,
+      });
+    }
+  } else {
+    checks.push({
+      name: 'Cross-project pool',
+      status: 'info',
+      detail: 'No cross-project learnings yet. Use knit_record_global_learning for patterns that generalize.',
+    });
+  }
+
+  // 5. MCP server registration in ~/.claude.json
+  const claudeConfig = join(homedir(), '.claude.json');
+  if (existsSync(claudeConfig)) {
+    try {
+      const config = JSON.parse(readFileSync(claudeConfig, 'utf-8')) as { mcpServers?: Record<string, unknown> };
+      const servers = config.mcpServers ?? {};
+      const hasKnit = Object.keys(servers).some((k) => k.toLowerCase().includes('knit') || k.toLowerCase().includes('engram'));
+      if (hasKnit) {
+        checks.push({
+          name: 'MCP registration (Claude Code)',
+          status: 'ok',
+          detail: 'Knit is registered in ~/.claude.json.',
+        });
+      } else {
+        checks.push({
+          name: 'MCP registration (Claude Code)',
+          status: 'warn',
+          detail: 'Knit not found in ~/.claude.json mcpServers. Run `knit setup` to register.',
+        });
+      }
+    } catch (err) {
+      checks.push({
+        name: 'MCP registration (Claude Code)',
+        status: 'warn',
+        detail: `~/.claude.json unreadable: ${(err as Error).message}`,
+      });
+    }
+  } else {
+    checks.push({
+      name: 'MCP registration (Claude Code)',
+      status: 'info',
+      detail: 'No ~/.claude.json found. If you use Claude Code, run `knit setup` to register.',
+    });
+  }
+
+  // 6. Update availability — we don't fetch from npm here (no outbound calls per
+  // local-first invariant); the MCP server's own update-check writes a marker.
+  // Just surface the currently-running version.
+  checks.push({
+    name: 'Running version',
+    status: 'info',
+    detail: `Knit v${VERSION} (Node ${process.version}).`,
+  });
+
+  const summary = checks.reduce(
+    (acc, c) => ({ ...acc, [c.status]: acc[c.status] + 1 }),
+    { ok: 0, warn: 0, error: 0, info: 0 },
+  );
+
+  return {
+    knitVersion: VERSION,
+    nodeVersion: process.version,
+    knitHome: home.replace(homedir(), '~'),
+    checks,
+    summary,
+  };
+}
+
 function readGlobalLearnings(): GlobalLearning[] {
   const path = join(knitRoot(), 'global', 'learnings.jsonl');
   if (!existsSync(path)) return [];
@@ -356,9 +506,9 @@ export async function uiCommand(): Promise<void> {
   // In an npm-installed package: <package>/dist/webapp.
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    resolve(here, '../../webapp/dist'),     // dev: src/commands/ui.ts -> ../../webapp/dist
-    resolve(here, '../webapp'),              // installed: dist/commands/ui.js -> ../webapp
-    resolve(here, '../../dist/webapp'),      // alt installed
+    resolve(here, '../../webapp/dist'),    // dev: src/commands/ui.ts -> ../../webapp/dist
+    resolve(here, '../webapp/dist'),       // installed: dist/cli.js -> ../webapp/dist (package ships webapp/dist/)
+    resolve(here, '../../webapp/dist'),    // dev tsx variant
   ];
   const webappDist = candidates.find((p) => existsSync(join(p, 'index.html')));
   if (!webappDist) {
@@ -380,6 +530,7 @@ export async function uiCommand(): Promise<void> {
         if (url === '/api/brain/summary') return jsonResponse(res, 200, brainSummary());
         if (url === '/api/projects') return jsonResponse(res, 200, { projects: listProjects() });
         if (url === '/api/global/learnings') return jsonResponse(res, 200, { learnings: readGlobalLearnings() });
+        if (url === '/api/doctor') return jsonResponse(res, 200, runGlobalDoctor());
 
         // /api/projects/:id/learnings and /api/projects/:id/metrics
         // Path is split on '/' and validated against the project hash format.

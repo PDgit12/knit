@@ -57,6 +57,20 @@ export interface ProjectMetrics {
   verdict: 'cold' | 'warming' | 'compounding' | 'strong';
 }
 
+export interface GlobalDoctorCheck {
+  name: string;
+  status: 'ok' | 'warn' | 'error' | 'info';
+  detail: string;
+}
+
+export interface GlobalDoctorReport {
+  knitVersion: string;
+  nodeVersion: string;
+  knitHome: string;
+  checks: GlobalDoctorCheck[];
+  summary: { ok: number; warn: number; error: number; info: number };
+}
+
 export interface GlobalLearning {
   id: string;
   date: string;
@@ -80,4 +94,5 @@ export const api = {
   projectLearnings: (id: string) => get<ProjectLearnings>(`/api/projects/${id}/learnings`),
   projectMetrics: (id: string) => get<ProjectMetrics>(`/api/projects/${id}/metrics`),
   globalLearnings: () => get<{ learnings: GlobalLearning[] }>('/api/global/learnings'),
+  doctor: () => get<GlobalDoctorReport>('/api/doctor'),
 };

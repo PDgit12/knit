@@ -117,6 +117,15 @@ export function getBrain(rootPath: string): BrainCache {
   const kbLoad = loadKnowledgeBaseSafe(knowledgebasePath(rootPath), projectName);
   const knowledgeBase = kbLoad.kb;
 
+  // v0.13: keep the stored projectName in sync with the current source of
+  // truth (package.json `name` if present, else dir basename). Pre-v0.13
+  // the bootstrap name was frozen at first init — a rename of the project
+  // (engram → knit, my-app → my-app-v2) left dashboards displaying the
+  // stale original. Now we drift-correct on every brain load.
+  if (!kbLoad.loadFailed && knowledgeBase.projectName !== projectName) {
+    knowledgeBase.projectName = projectName;
+  }
+
   const config: KnitConfig = {
     name: projectName,
     packageManager: scan.packageManager,
