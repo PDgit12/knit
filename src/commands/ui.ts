@@ -43,14 +43,14 @@ function allowedHost(hostHeader: string | undefined): boolean {
   const host = hostHeader.split(':')[0].toLowerCase();
   // Strip IPv6 brackets if present.
   const normalized = host.startsWith('[') ? host.slice(1, host.lastIndexOf(']')) : host;
-  return ALLOWED_HOST_PREFIXES.some((p) => normalized === p || normalized === p.replace(/[\[\]]/g, ''));
+  return ALLOWED_HOST_PREFIXES.some((p) => normalized === p || normalized === p.replace(/[[\]]/g, ''));
 }
 
 function allowedOrigin(originHeader: string | undefined, port: number): boolean {
   if (!originHeader) return true; // direct nav / curl has no Origin — fine
   try {
     const url = new URL(originHeader);
-    if (!ALLOWED_HOST_PREFIXES.some((p) => url.hostname === p.replace(/[\[\]]/g, ''))) return false;
+    if (!ALLOWED_HOST_PREFIXES.some((p) => url.hostname === p.replace(/[[\]]/g, ''))) return false;
     if (url.port && url.port !== String(port)) return false;
     return true;
   } catch {
