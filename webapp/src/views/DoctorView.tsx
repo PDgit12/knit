@@ -1,25 +1,32 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, type GlobalDoctorReport, type GlobalDoctorCheck } from '../api/client';
-import { Card, Loading, ErrorBanner } from '../components/Card';
+import { useBrainSync } from '../api/useBrainSync';
+import {
+  Card, Eyebrow, StatNumber,
+  Loading, ErrorBanner,
+} from '../components/Card';
 
-const STATUS_COLOR: Record<GlobalDoctorCheck['status'], string> = {
-  ok: '#22c55e',
-  warn: '#eab308',
+const STATUS_BG: Record<GlobalDoctorCheck['status'], string> = {
+  ok: 'var(--surface-mint)',
+  warn: 'var(--surface-lavender)',
   error: '#ef4444',
-  info: '#8a9098',
+  info: 'var(--surface-glass)',
 };
-
-const STATUS_ICON: Record<GlobalDoctorCheck['status'], string> = {
-  ok: '✓',
-  warn: '!',
-  error: '✗',
-  info: 'i',
+const STATUS_FG: Record<GlobalDoctorCheck['status'], string> = {
+  ok: 'var(--text-dark)',
+  warn: 'var(--text-dark)',
+  error: '#ffffff',
+  info: 'var(--text-dark)',
+};
+const STATUS_GLYPH: Record<GlobalDoctorCheck['status'], string> = {
+  ok: '✓', warn: '!', error: '✗', info: 'i',
 };
 
 export function DoctorView() {
   const [report, setReport] = useState<GlobalDoctorReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const sync = useBrainSync();
 
   const load = useCallback(() => {
     setRefreshing(true);
@@ -30,100 +37,149 @@ export function DoctorView() {
       .finally(() => setRefreshing(false));
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, sync.tick]);
+
+  if (error) return <ErrorBanner message={error} />;
+  if (!report) return <Loading />;
+
+  const overall: GlobalDoctorCheck['status'] = report.summary.error > 0 ? 'error' : report.summary.warn > 0 ? 'warn' : 'ok';
+  const heroVariant: 'dark' | 'lavender' | 'mint' = overall === 'error' ? 'dark' : overall === 'warn' ? 'lavender' : 'mint';
 
   return (
-    <>
-      <header style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 600, margin: 0 }}>Install health</h1>
-          <button
-            type="button"
-            onClick={load}
-            disabled={refreshing}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              padding: '0.4rem 0.9rem',
-              borderRadius: 8,
-              fontSize: '0.8125rem',
-              cursor: refreshing ? 'wait' : 'pointer',
-              opacity: refreshing ? 0.6 : 1,
-            }}
-          >
-            {refreshing ? 'Running…' : 'Re-run checks'}
-          </button>
+    <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+        <div>
+          <h1 style={{ fontSize: 'var(--size-h1)', fontWeight: 'var(--weight-bold)', margin: 0, letterSpacing: '-0.01em' }}>
+            Install health
+          </h1>
+          <p style={{ color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)', margin: '4px 0 0' }}>
+            Local environment checks. Per-project doctor still on the terminal — <code>knit doctor</code>.
+          </p>
         </div>
-        <p style={{ color: 'var(--text-dim)', marginTop: '0.5rem', fontSize: '0.875rem' }}>
-          Local environment checks. Per-project doctor (touching CLAUDE.md, hooks, etc.) is still on the terminal — <code>knit doctor</code> from your repo.
-        </p>
-      </header>
+        <button
+          type="button"
+          onClick={load}
+          disabled={refreshing}
+          style={{
+            background: 'var(--surface-dark)', color: 'var(--text-light)',
+            border: 'none', padding: '10px 18px',
+            borderRadius: 'var(--radius-pill)',
+            fontSize: 'var(--size-label)', fontWeight: 'var(--weight-semibold)',
+            cursor: refreshing ? 'wait' : 'pointer',
+            opacity: refreshing ? 0.6 : 1,
+          }}
+        >
+          {refreshing ? 'Running…' : 'Re-run checks'}
+        </button>
+      </div>
 
-      {error && <ErrorBanner message={error} />}
-      {!report && !error && <Loading />}
-
-      {report && (
-        <>
-          <section style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem',
-            marginBottom: '1.5rem',
-          }}>
-            <Counter label="OK" count={report.summary.ok} color={STATUS_COLOR.ok} />
-            <Counter label="Warnings" count={report.summary.warn} color={STATUS_COLOR.warn} />
-            <Counter label="Errors" count={report.summary.error} color={STATUS_COLOR.error} />
-            <Counter label="Info" count={report.summary.info} color={STATUS_COLOR.info} />
-          </section>
-
-          <Card style={{ marginBottom: '1.5rem' }}>
-            <dl style={{
-              display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '0.375rem 1rem', margin: 0,
-              fontSize: '0.875rem',
+      {/* Hero verdict + summary counters */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 'var(--space-4)' }}>
+        <div style={{ gridColumn: 'span 5' }}>
+          <Card variant={heroVariant} padding="large" style={{ minHeight: 200 }}>
+            <Eyebrow style={{ color: heroVariant === 'dark' ? 'var(--text-mute-light)' : 'var(--text-mute-dark)' }}>
+              Overall verdict
+            </Eyebrow>
+            <div style={{
+              marginTop: 'var(--space-3)', fontSize: 'var(--size-hero)',
+              fontWeight: 'var(--weight-bold)', lineHeight: 0.95,
+              letterSpacing: '-0.02em',
             }}>
-              <dt style={{ color: 'var(--text-dim)' }}>Knit version</dt>
-              <dd style={{ margin: 0, fontFamily: 'ui-monospace, monospace' }}>{report.knitVersion}</dd>
-              <dt style={{ color: 'var(--text-dim)' }}>Node version</dt>
-              <dd style={{ margin: 0, fontFamily: 'ui-monospace, monospace' }}>{report.nodeVersion}</dd>
-              <dt style={{ color: 'var(--text-dim)' }}>Knit home</dt>
-              <dd style={{ margin: 0, fontFamily: 'ui-monospace, monospace' }}>{report.knitHome}</dd>
-            </dl>
+              {overall === 'ok' ? 'Healthy' : overall === 'warn' ? 'Warnings' : 'Errors'}
+            </div>
+            <div style={{
+              marginTop: 'var(--space-3)', fontSize: 'var(--size-label)',
+              color: heroVariant === 'dark' ? 'var(--text-mute-light)' : 'var(--text-mute-dark)',
+            }}>
+              {report.summary.ok} OK · {report.summary.warn} warn · {report.summary.error} error · {report.summary.info} info
+            </div>
           </Card>
+        </div>
+        <div style={{ gridColumn: 'span 7', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-3)' }}>
+          <CounterCard label="OK" count={report.summary.ok} variant={report.summary.ok > 0 ? 'mint' : 'neutral'} />
+          <CounterCard label="Warnings" count={report.summary.warn} variant={report.summary.warn > 0 ? 'lavender' : 'neutral'} />
+          <CounterCard label="Errors" count={report.summary.error} variant={report.summary.error > 0 ? 'dark' : 'neutral'} />
+          <CounterCard label="Info" count={report.summary.info} variant="neutral" />
+        </div>
+      </div>
 
-          <div style={{ display: 'grid', gap: '0.5rem' }}>
-            {report.checks.map((c, i) => (
-              <Card key={i}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                  <div style={{
-                    width: 24, height: 24, borderRadius: 999,
-                    background: STATUS_COLOR[c.status],
-                    color: c.status === 'warn' ? '#000' : '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 700, fontSize: '0.75rem', flexShrink: 0,
-                  }}>{STATUS_ICON[c.status]}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>{c.name}</div>
-                    <div style={{ color: 'var(--text-dim)', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-                      {c.detail}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </>
-      )}
-    </>
+      {/* Environment facts */}
+      <Card variant="neutral" padding="normal">
+        <Eyebrow>Environment</Eyebrow>
+        <div style={{
+          marginTop: 'var(--space-3)',
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)',
+        }}>
+          <FactRow label="Knit version" value={report.knitVersion} mono />
+          <FactRow label="Node version" value={report.nodeVersion} mono />
+          <FactRow label="Knit home" value={report.knitHome} mono />
+        </div>
+      </Card>
+
+      {/* Check list */}
+      <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+        {report.checks.map((c, i) => (
+          <CheckRow key={i} check={c} />
+        ))}
+      </div>
+    </div>
   );
 }
 
-function Counter({ label, count, color }: { label: string; count: number; color: string }) {
+function CounterCard({ label, count, variant }: { label: string; count: number; variant: 'mint' | 'lavender' | 'dark' | 'neutral' }) {
   return (
-    <Card style={{ borderColor: count > 0 ? color : 'var(--border)' }}>
-      <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)' }}>
+    <Card variant={variant} padding="normal" style={{ minHeight: 96 }}>
+      <Eyebrow style={{ color: variant === 'dark' ? 'var(--text-mute-light)' : 'var(--text-mute-dark)' }}>
         {label}
+      </Eyebrow>
+      <div style={{ marginTop: 'var(--space-2)' }}>
+        <StatNumber>{count}</StatNumber>
       </div>
-      <div style={{ fontSize: '1.5rem', fontWeight: 600, color: count > 0 ? color : 'var(--text-dim)', marginTop: '0.25rem' }}>
-        {count}
+    </Card>
+  );
+}
+
+function FactRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 'var(--size-eyebrow)', textTransform: 'uppercase',
+        letterSpacing: '0.06em', color: 'var(--text-mute-dark)',
+        marginBottom: 4,
+      }}>{label}</div>
+      <div style={{
+        fontSize: 'var(--size-body)', fontWeight: 'var(--weight-medium)',
+        fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>{value}</div>
+    </div>
+  );
+}
+
+function CheckRow({ check }: { check: GlobalDoctorCheck }) {
+  return (
+    <Card variant="neutral" padding="normal">
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 999,
+          background: STATUS_BG[check.status],
+          color: STATUS_FG[check.status],
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontWeight: 'var(--weight-bold)', fontSize: 14, flexShrink: 0,
+          border: check.status === 'info' ? '1px solid var(--hairline)' : 'none',
+        }}>{STATUS_GLYPH[check.status]}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--size-body)' }}>
+            {check.name}
+          </div>
+          <div style={{
+            color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)',
+            marginTop: 4, lineHeight: 1.5,
+            wordBreak: 'break-word',
+          }}>
+            {check.detail}
+          </div>
+        </div>
       </div>
     </Card>
   );
