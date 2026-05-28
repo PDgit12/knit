@@ -22,6 +22,7 @@ import { HOOKS_VERSION } from '../generators/settings.js';
 import { knowledgebasePath, projectDataDir } from '../engine/paths.js';
 import { VERSION } from '../version.js';
 import { CLAUDE_MD_BUDGET_BYTES } from '../mcp/instructions.js';
+import { detectAllAgents } from '../engine/agent-detector.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'error' | 'info';
 
@@ -44,32 +45,34 @@ export interface DoctorReport {
 export function runDoctor(rootPath: string): DoctorReport {
   const checks: DoctorCheck[] = [];
 
-  // ── MCP registration in ~/.claude.json ──
-  const claudeJson = join(homedir(), '.claude.json');
-  if (existsSync(claudeJson)) {
-    try {
-      const config = JSON.parse(readFileSync(claudeJson, 'utf-8')) as { mcpServers?: Record<string, unknown> };
-      const hasKnit = Boolean(config.mcpServers?.['knit-brain']);
+  // ── MCP registration per agent (v0.14 — covers all 6 MCP-speaking agents) ──
+  // The original v0.13 doctor only checked ~/.claude.json. Now we surface
+  // a row per agent so users with Cursor / Codex / Cline / Continue / VS
+  // Code can see which ones are wired up at a glance.
+  const agents = detectAllAgents(rootPath);
+  for (const a of agents) {
+    const name = `MCP — ${a.displayName}`;
+    if (!a.present) {
       checks.push({
-        name: 'MCP registered',
-        status: hasKnit ? 'ok' : 'warn',
-        detail: hasKnit
-          ? 'knit-brain entry present in ~/.claude.json'
-          : 'no knit-brain entry — run `npx knit-mcp setup`',
+        name,
+        status: 'info',
+        detail: 'not detected on this machine',
       });
-    } catch (err) {
+      continue;
+    }
+    if (a.registered) {
       checks.push({
-        name: 'MCP registered',
+        name,
+        status: 'ok',
+        detail: `knit-brain present in ${a.configPath.replace(homedir(), '~')}`,
+      });
+    } else {
+      checks.push({
+        name,
         status: 'warn',
-        detail: `~/.claude.json exists but is unreadable: ${(err as Error).message}`,
+        detail: `detected but not registered — run \`knit setup\` to add Knit to ${a.configPath.replace(homedir(), '~')}`,
       });
     }
-  } else {
-    checks.push({
-      name: 'MCP registered',
-      status: 'warn',
-      detail: '~/.claude.json missing — run `npx knit-mcp setup`',
-    });
   }
 
   // ── Project data dir ──

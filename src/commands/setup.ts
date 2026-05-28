@@ -1,9 +1,19 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
 import ora from 'ora';
 import { runDoctor } from './doctor.js';
+import { detectAllAgents, type AgentStatus } from '../engine/agent-detector.js';
+import {
+  writeCursorMcp,
+  writeClineMcp,
+  writeVscodeMcp,
+  type WriteResult,
+} from '../generators/agent-mcp-writers.js';
+import { writeCodexMcp } from '../generators/codex-mcp.js';
+import { writeContinueMcp } from '../generators/continue-mcp.js';
+import { mergeAgentsMd } from '../generators/agents-md.js';
 
 interface SetupOptions {
   global?: boolean;
@@ -16,6 +26,110 @@ const MCP_CONFIG = {
     args: ['-y', 'knit-mcp@latest'],
   },
 };
+
+/** Register Knit in every detected MCP-speaking agent other than Claude Code.
+ *  Idempotent: writers no-op if Knit is already registered. Skipped agents
+ *  (not present on this machine) are silently passed over. */
+async function registerInOtherAgents(workspaceRoot: string): Promise<void> {
+  const agents = detectAllAgents(workspaceRoot);
+  const other = agents.filter((a) => a.agent !== 'claude-code' && a.present);
+  if (other.length === 0) return;
+
+  console.log();
+  console.log(chalk.bold('  Detected additional MCP-speaking agents'));
+  console.log();
+
+  let writeAgentsMdFlag = false;
+  for (const status of other) {
+    const result = registerOne(status, workspaceRoot);
+    const icon = result.error
+      ? chalk.red('✗')
+      : result.written
+        ? chalk.green('✓')
+        : chalk.dim('·');
+    const verb = result.error
+      ? chalk.red(`failed: ${result.error}`)
+      : result.written
+        ? `registered (${result.path.replace(homedir(), '~')})`
+        : result.alreadyRegistered
+          ? chalk.dim('already configured')
+          : chalk.dim('skipped');
+    console.log(`  ${icon} ${status.displayName.padEnd(28)} ${verb}`);
+
+    // Codex CLI documents AGENTS.md; Cline auto-detects it. Write a
+    // shared project-rules file when either is present so the agent
+    // reads Knit protocol guidance even without hook enforcement.
+    if ((status.agent === 'codex' || status.agent === 'cline') && status.present) {
+      writeAgentsMdFlag = true;
+    }
+  }
+
+  if (writeAgentsMdFlag) {
+    const agentsMdPath = join(workspaceRoot, 'AGENTS.md');
+    try {
+      const projectName = basename(workspaceRoot);
+      const existing = existsSync(agentsMdPath) ? readFileSync(agentsMdPath, 'utf-8') : '';
+      const { content, mode } = mergeAgentsMd(existing, { projectName });
+      if (content !== existing) {
+        writeFileSync(agentsMdPath, content, 'utf-8');
+        const icon = chalk.green('✓');
+        const verb = mode === 'replaced' ? 'updated existing AGENTS.md' : 'wrote AGENTS.md';
+        console.log(`  ${icon} AGENTS.md${' '.repeat(20)} ${verb} (${agentsMdPath.replace(homedir(), '~')})`);
+      }
+    } catch (err) {
+      console.log(`  ${chalk.yellow('⚠')} AGENTS.md${' '.repeat(20)} ${chalk.yellow(`skipped: ${(err as Error).message}`)}`);
+    }
+  }
+}
+
+interface AgentRegisterResult extends WriteResult {
+  error?: string;
+}
+
+function registerOne(status: AgentStatus, workspaceRoot: string): AgentRegisterResult {
+  // Each writer receives the user-level config path by default. The
+  // workspace-level path is also written for agents where workspace
+  // config is the common case (Cursor + Continue + VS Code).
+  try {
+    if (status.agent === 'cursor') {
+      // Prefer workspace config when we have a workspace; fall back to user.
+      const path = status.workspaceConfigPath ?? status.configPath;
+      return writeCursorMcp(path);
+    }
+    if (status.agent === 'cline') {
+      return writeClineMcp(status.configPath);
+    }
+    if (status.agent === 'codex') {
+      return writeCodexMcp(status.configPath);
+    }
+    if (status.agent === 'continue') {
+      // Continue uses one YAML file per server. Prefer workspace location
+      // if the user has a workspace .continue/ already; else user-level.
+      const wsDir = join(workspaceRoot, '.continue');
+      const path = existsSync(wsDir)
+        ? (status.workspaceConfigPath ?? status.configPath)
+        : status.configPath;
+      return writeContinueMcp(path);
+    }
+    if (status.agent === 'vscode') {
+      // Workspace MCP is the common case for VS Code Agent mode in a repo;
+      // fall back to user-level if no .vscode/ exists.
+      const wsDir = join(workspaceRoot, '.vscode');
+      const path = existsSync(wsDir)
+        ? (status.workspaceConfigPath ?? status.configPath)
+        : status.configPath;
+      return writeVscodeMcp(path);
+    }
+    return { written: false, alreadyRegistered: false, path: status.configPath };
+  } catch (err) {
+    return {
+      written: false,
+      alreadyRegistered: false,
+      path: status.configPath,
+      error: (err as Error).message,
+    };
+  }
+}
 
 export async function setupCommand(options: SetupOptions): Promise<void> {
   const isGlobal = options.global || !options.local; // default to global
@@ -102,6 +216,12 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     writeFileSync(globalClaudeMd, `# Claude Code Global Instructions${knitInstruction}`, 'utf-8');
     console.log(`  ${chalk.green('✓')} Created ${chalk.cyan('~/.claude/CLAUDE.md')} with Knit instructions`);
   }
+
+  // v0.14 — register Knit in every other detected MCP-speaking agent
+  // (Cursor, Codex CLI, Cline, Continue, VS Code / GitHub Copilot).
+  // Skips agents the user doesn't have installed. Idempotent: each
+  // writer no-ops if Knit is already registered.
+  await registerInOtherAgents(process.cwd());
 
   console.log();
   console.log(chalk.bold('  How it works'));
