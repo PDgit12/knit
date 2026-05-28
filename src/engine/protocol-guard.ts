@@ -1,7 +1,7 @@
 /**
  * Protocol Guard — runtime enforcement layer for the engram protocol.
  *
- * Three layers (see plan: /Users/piyushdua/.claude/plans/snappy-sprouting-nova.md):
+ * Three layers (the v0.5 Protocol Guard design):
  *   1. SessionStart hook auto-loads context.
  *   2. PreToolUse hook on Edit/Write blocks when no classification marker exists.
  *   3. CLAUDE.md ships a system-reminder override paragraph.

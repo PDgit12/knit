@@ -411,7 +411,7 @@ function generateHooks(config: KnitConfig, rootPath: string) {
               if (size <= TARGET) return;
               const kb = Math.round(size/1024*10)/10;
               const verdict = size > SLACK ? "over-budget" : "warn";
-              process.stderr.write("[knit] BUDGET " + verdict + ": " + f + " is now " + kb + "KB (target 6.5KB). Move long-form content to .claude/MARKETING.md or run \\\`engram refresh\\\`.\\n");
+              process.stderr.write("[knit] BUDGET " + verdict + ": " + f + " is now " + kb + "KB (target 6.5KB). Trim CLAUDE.md or run \\\`knit refresh\\\` to regenerate.\\n");
             } catch (e) { try { process.stderr.write('[knit] claude-md size watch hook failed: ' + (e && e.message ? e.message : e) + '\\n'); } catch {} }
           });
         `),

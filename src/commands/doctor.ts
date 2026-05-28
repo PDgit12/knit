@@ -224,7 +224,7 @@ export function runDoctor(rootPath: string): DoctorReport {
         checks.push({
           name: 'Token budget',
           status: 'error',
-          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget by >25%. Move long-form content to .claude/MARKETING.md or run \`engram refresh\`.`,
+          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget by >25%. Trim CLAUDE.md (move long-form release notes / marketing prose to a sidecar file outside the Knit-managed block) or run \`knit refresh\` to regenerate.`,
         });
       }
     } catch (err) {
