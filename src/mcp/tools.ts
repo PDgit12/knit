@@ -118,7 +118,7 @@ export function getToolDefinitions(): ToolDef[] {
     },
     {
       name: 'knit_record_learning',
-      description: '[MEMORY-WRITE] Record a non-obvious project insight. Search first to skip duplicates.',
+      description: '[MEMORY-WRITE] Record a non-obvious project insight. Refuses duplicates by substring match on summary.',
       inputSchema: { type: 'object', properties: { summary: { type: 'string' }, domains: { type: 'string' }, approach: { type: 'string' }, outcome: { type: 'string', description: 'success | partial | failure.' }, lesson: { type: 'string' }, tags: { type: 'string' } }, required: ['summary', 'lesson', 'tags'] },
     },
     {

@@ -1,7 +1,7 @@
 {
   "name": "knit-mcp",
-  "version": "0.14.0",
-  "description": "Knit — second brain for Claude Code. MCP server giving any AI agent project-scoped memory, tiered workflow protocol, and parallel team worktrees.",
+  "version": "0.14.1",
+  "description": "Knit — second brain for any MCP-speaking AI coding agent (Claude Code, Cursor, Codex CLI, Cline, Continue, GitHub Copilot). Per-project memory, tier-routed workflow protocol, parallel team worktrees.",
   "type": "module",
   "bin": {
     "knit": "dist/cli.js"
@@ -19,7 +19,8 @@
     "bench:retrieval": "tsx benchmarks/retrieval-synthetic.ts",
     "bench:tokens": "tsx benchmarks/token-economy.ts",
     "bench:all": "npm run bench:retrieval && npm run bench:tokens",
-    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "check:leaks": "node scripts/check-leaks.mjs",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run bench && npm run check:leaks && npm run build"
   },
   "keywords": [
     "ai",

@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, statSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, statSync, existsSync } from 'node:fs';
+import { writeFileAtomic } from './atomic-write.js';
 import type { AgentTeam, TeamFinding, TeamBoard, Domain } from './types.js';
 import { teamsPath } from './paths.js';
 
@@ -243,8 +243,5 @@ export function loadCustomTeams(rootPath: string): AgentTeam[] | null {
 
 /** Save custom teams to project config */
 export function saveCustomTeams(rootPath: string, teams: AgentTeam[]): void {
-  const teamsFile = teamsPath(rootPath);
-  const dir = dirname(teamsFile);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(teamsFile, JSON.stringify(teams, null, 2), 'utf-8');
+  writeFileAtomic(teamsPath(rootPath), JSON.stringify(teams, null, 2));
 }

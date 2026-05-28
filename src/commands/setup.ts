@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
+import { writeFileAtomic } from '../engine/atomic-write.js';
 import chalk from 'chalk';
 import ora from 'ora';
 import { runDoctor } from './doctor.js';
@@ -71,7 +72,7 @@ async function registerInOtherAgents(workspaceRoot: string): Promise<void> {
       const existing = existsSync(agentsMdPath) ? readFileSync(agentsMdPath, 'utf-8') : '';
       const { content, mode } = mergeAgentsMd(existing, { projectName });
       if (content !== existing) {
-        writeFileSync(agentsMdPath, content, 'utf-8');
+        writeFileAtomic(agentsMdPath, content);
         const icon = chalk.green('✓');
         const verb = mode === 'replaced' ? 'updated existing AGENTS.md' : 'wrote AGENTS.md';
         console.log(`  ${icon} AGENTS.md${' '.repeat(20)} ${verb} (${agentsMdPath.replace(homedir(), '~')})`);
@@ -155,7 +156,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
         if (old.mcpServers?.['knit-brain']) {
           delete old.mcpServers['knit-brain'];
           if (Object.keys(old.mcpServers).length === 0) delete old.mcpServers;
-          writeFileSync(oldPath, JSON.stringify(old, null, 2), 'utf-8');
+          writeFileAtomic(oldPath, JSON.stringify(old, null, 2));
         }
       } catch { /* skip if can't read */ }
     }
@@ -187,7 +188,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   }
 
   mcpServers['knit-brain'] = MCP_CONFIG['knit-brain'];
-  writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+  writeFileAtomic(settingsPath, JSON.stringify(settings, null, 2));
 
   spinner.succeed(chalk.dim('Knit MCP configured'));
 
@@ -207,13 +208,11 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     // Dedup against both the current "Knit Brain" heading and the legacy "Engram Brain" heading
     // so users upgrading from v0.5.x / v0.6.<3 don't get a duplicate block appended.
     if (!existing.includes('Knit Brain (MCP)') && !existing.includes('Engram Brain (MCP)')) {
-      writeFileSync(globalClaudeMd, existing + knitInstruction, 'utf-8');
+      writeFileAtomic(globalClaudeMd, existing + knitInstruction);
       console.log(`  ${chalk.green('✓')} Knit instructions added to ${chalk.cyan('~/.claude/CLAUDE.md')}`);
     }
   } else {
-    const dir = join(homedir(), '.claude');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(globalClaudeMd, `# Claude Code Global Instructions${knitInstruction}`, 'utf-8');
+    writeFileAtomic(globalClaudeMd, `# Claude Code Global Instructions${knitInstruction}`);
     console.log(`  ${chalk.green('✓')} Created ${chalk.cyan('~/.claude/CLAUDE.md')} with Knit instructions`);
   }
 

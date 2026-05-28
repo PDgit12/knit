@@ -85,7 +85,7 @@ describe('buildInstructions', () => {
     expect((out.match(/General rule:/g) || []).length).toBe(1);
   });
 
-  it('stays under the v0.11.1 budget (~1300 token target ≈ 5.5KB with v0.11 tool surface + all addenda)', () => {
+  it('stays under the v0.14 budget (~1500 token target ≈ 6.0KB with v0.14 tool surface + soft-gate doc + all addenda)', () => {
     const scan = emptyScan();
     scan.detected.ruflo = { present: true, via: ['mcp-server'] };
     scan.detected.gstack = { present: true, via: ['home-dir'] };
@@ -93,6 +93,10 @@ describe('buildInstructions', () => {
     scan.detected.conductor = { present: true, via: ['home-dir'] };
     scan.detected.custom_workflow_sections = ['Engineering Workflow'];
     const out = buildInstructions(scan);
-    expect(out.length).toBeLessThan(5500);
+    // v0.14.1: budget bumped from 5500 → 6000 to fit the new soft-gate
+    // documentation paragraph (F1). The soft-gate is the universal MCP
+    // enforcement surface for the 5 non-Claude agents that lack hooks,
+    // so the handshake-time bytes are load-bearing — worth the +500.
+    expect(out.length).toBeLessThan(6000);
   });
 });

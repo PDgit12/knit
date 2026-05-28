@@ -47,7 +47,7 @@ When to reach for other Knit tools:
 - knit_get_fingerprint — detected stack (lang/framework/test/lint/build/CI) for choosing the right tooling per project.
 - knit_infer_domains + knit_compose_template — propose CLAUDE.md auto-config sections from git co-change + import-graph + colocation signals.
 - knit_get_calibration / knit_record_false_positive (with a direction tag like #complex-was-trivial) — feed the self-healing classifier so it tunes per-project over time.
-- knit_scan_agent_commands / knit_suggest_command — v0.14. Scans the host agent's slash-command directories (.claude/commands/, .cursor/rules/, .clinerules/, etc.) and surfaces user-defined commands. Before phases that commonly have a user command (test, lint, review, ship), call knit_suggest_command({phase}) — if it returns one, invoke that command via the agent's native slash-command mechanism instead of describing the work yourself. Honors the user's existing setup; never executes commands directly.
+- knit_scan_agent_commands / knit_suggest_command — v0.14. Surfaces the host agent's user-defined slash commands. Before phases like test/lint/review/ship, call knit_suggest_command({phase}); if it returns a match, invoke it via the agent's native slash-command mechanism instead of describing the work yourself.
 
 The protocol enforces a 4-tier classifier:
 - Inquiry: read-only "what / where / audit / explain" — just answer.
@@ -56,6 +56,8 @@ The protocol enforces a 4-tier classifier:
 - Complex: cross-domain, types/auth-touching, high-fanout, or any task spanning more than one commit — full 6 phases with auto plan mode on RESEARCH.
 
 Knit provides inputs; you make the calls. When in doubt, under-classify — easier to escalate mid-task than to downgrade.
+
+Protocol soft-gate: if a handler returns {status: 'protocol_required', next_action: '<tool>'}, call that next_action then retry — not a permanent failure. Only strictness='block' returns this gate (knit_set_protocol_strictness).
 
 Citation rule: when you state a fact about this codebase ("file X imports Y", "function Z is defined in W", "tests for A live in B"), cite the Knit tool result that verified it — e.g. "(per knit_query_imports)". If you can't cite a tool result, mark the claim as 'unverified' explicitly. This makes hallucinations visible at the claim level instead of letting them ship as confident-sounding prose. The verifier exists; use it.`;
 

@@ -76,6 +76,19 @@ export function errorResponse(error: string, extra: Record<string, unknown> = {}
   return JSON.stringify({ status: 'error', error, ...extra });
 }
 
+// Best-effort side-effects (marker writes, pre-emptive search) used to
+// silently swallow failures. v0.14.1 audit E1: log to stderr so the
+// failure is debuggable while preserving the never-crash-the-handler
+// contract. Sample-rate-limited via the handlers.ts module scope so a
+// failing disk doesn't drown the user's terminal.
+let bestEffortFailuresLogged = 0;
+function logBestEffortFailure(site: string, e: unknown): void {
+  if (bestEffortFailuresLogged >= 3) return;
+  bestEffortFailuresLogged++;
+  const msg = e instanceof Error ? e.message : String(e);
+  process.stderr.write(`[knit] ${site} (best-effort) failed: ${msg}\n`);
+}
+
 
 export function detectDomainsFromFiles(files: string[]): Set<string> {
   const domains = new Set<string>();
@@ -1474,8 +1487,8 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
         tier: 'inquiry',
         files,
       });
-    } catch {
-      // Best-effort: never let marker IO break classification.
+    } catch (e) {
+      logBestEffortFailure('classification-marker', e);
     }
     // v0.10 slice 3 — count every classification (inquiry too).
     bumpMetric(brain.knowledgeBase, 'totalClassifications');
@@ -1584,8 +1597,8 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
           recordCacheHit(brain.knowledgeBase);
         }
       }
-    } catch {
-      // Best-effort: never let pre-emptive search break classification.
+    } catch (e) {
+      logBestEffortFailure('pre-emptive-search', e);
     }
   }
 
@@ -1823,6 +1836,28 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
     lesson: redactSecrets(params.lesson || ''),
     tags: (params.tags || '').split(/\s+/).filter((t) => t.startsWith('#')).map((t) => redactSecrets(t)),
   };
+
+  // v0.14.1 audit C1 — substring dedup. Prior versions advertised "skip
+  // duplicates" via tool description but the handler did no actual check;
+  // the soft-gate above (block strictness only) was the only enforcement.
+  // Now: refuse if a recent entry's summary is a substring of the new one
+  // (or vice versa) after lowercasing. Skips the dedup if the new summary
+  // is very short (<24 chars) — too small to be a meaningful match.
+  const normSummary = entry.summary.toLowerCase().trim();
+  if (normSummary.length >= 24) {
+    const duplicate = brain.knowledgeBase.entries.find((existing) => {
+      const existingSummary = (existing.summary || '').toLowerCase().trim();
+      if (existingSummary.length < 24) return false;
+      return existingSummary.includes(normSummary) || normSummary.includes(existingSummary);
+    });
+    if (duplicate) {
+      return JSON.stringify({
+        status: 'duplicate',
+        existing: { id: duplicate.id, summary: duplicate.summary, date: duplicate.date },
+        instruction: 'A learning with substantially overlapping summary already exists. Either refine the new summary to capture what is genuinely new, or call knit_get_learning on the existing id to extend it instead of duplicating.',
+      });
+    }
+  }
 
   addEntry(brain.knowledgeBase, entry);
   saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
@@ -2214,14 +2249,20 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
 
 
 export function handleSetupProject(params: Record<string, string>, brain: BrainCache): string {
-  const description = params.description || '';
-  const projectType = params.project_type || 'auto';
-  const domainNames = params.domains
+  // User-supplied description/domains/team_roles flow into teams.json and the
+  // KB. Redact at the persistence boundary — same rule every sibling record_*
+  // handler follows. v0.14 setup-orchestration introduced this gap; v0.14.1
+  // closes it (audit B1).
+  const description = redactSecrets(params.description || '');
+  const projectType = redactSecrets(params.project_type || 'auto');
+  const domainNames = (params.domains
     ? params.domains.split(',').map((d) => d.trim())
-    : inferDomainsFromDescription(description, projectType);
-  const teamRoles = params.team_roles
+    : inferDomainsFromDescription(params.description || '', params.project_type || 'auto')
+  ).map((d) => redactSecrets(d));
+  const teamRoles = (params.team_roles
     ? params.team_roles.split(',').map((r) => r.trim())
-    : domainNames;
+    : domainNames
+  ).map((r) => redactSecrets(r));
 
   // Build teams from the description
   const teams = domainNames.map((domain, i) => ({

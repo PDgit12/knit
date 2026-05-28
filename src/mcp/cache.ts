@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, copyFileSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
+import { writeFileAtomic } from '../engine/atomic-write.js';
 import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../engine/types.js';
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
@@ -119,9 +120,9 @@ export function getBrain(rootPath: string): BrainCache {
 
   // v0.13: keep the stored projectName in sync with the current source of
   // truth (package.json `name` if present, else dir basename). Pre-v0.13
-  // the bootstrap name was frozen at first init — a rename of the project
-  // (engram → knit, my-app → my-app-v2) left dashboards displaying the
-  // stale original. Now we drift-correct on every brain load.
+  // the bootstrap name was frozen at first init — a project rename left
+  // dashboards displaying the stale original. Now we drift-correct on
+  // every brain load.
   if (!kbLoad.loadFailed && knowledgeBase.projectName !== projectName) {
     knowledgeBase.projectName = projectName;
   }
@@ -138,7 +139,7 @@ export function getBrain(rootPath: string): BrainCache {
   // Save refreshed knowledge index to disk.
   // CRITICAL: never re-save the knowledgebase when the load failed — we'd
   // be overwriting the user's recoverable data with an empty shell.
-  writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
+  writeFileAtomic(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2));
   if (!kbLoad.loadFailed) {
     saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
   }
@@ -234,7 +235,7 @@ function autoInitialize(rootPath: string): void {
   // Learnings markdown (centralized)
   const learningsPath = learningsFilePath(rootPath, projectName);
   if (!existsSync(learningsPath)) {
-    writeFileSync(learningsPath, generateLearningsContent(config), 'utf-8');
+    writeFileAtomic(learningsPath, generateLearningsContent(config));
   }
 
   // Knowledgebase JSON (centralized) — import any seed learnings.
@@ -248,7 +249,7 @@ function autoInitialize(rootPath: string): void {
   saveKnowledgeBase(kbPath, kb);
 
   // Knowledge index (centralized)
-  writeFileSync(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2), 'utf-8');
+  writeFileAtomic(knowledgePath(rootPath), JSON.stringify(knowledge, null, 2));
 }
 
 /**
@@ -291,7 +292,7 @@ can be deleted at your discretion. Future learnings, knowledge indexes, and
 session memory live in the new path.
 `;
     try {
-      writeFileSync(breadcrumb, note, 'utf-8');
+      writeFileAtomic(breadcrumb, note);
     } catch { /* breadcrumb is best-effort */ }
   }
 }
@@ -315,27 +316,26 @@ function writeProjectClaudeMd(
   const block = generateClaudeMd(config, knowledge);
 
   if (!existsSync(claudeMdPath)) {
-    writeFileSync(claudeMdPath, block, 'utf-8');
+    writeFileAtomic(claudeMdPath, block);
     return;
   }
 
   const existing = readFileSync(claudeMdPath, 'utf-8');
   if (existing.includes(KNIT_MARKER_START)) {
     const { content } = spliceKnitBlock(existing, block);
-    writeFileSync(claudeMdPath, content, 'utf-8');
+    writeFileAtomic(claudeMdPath, content);
     return;
   }
 
   // User-curated CLAUDE.md exists with no engram markers — never clobber.
   const sidecarDir = join(rootPath, '.claude');
   const sidecarPath = join(sidecarDir, 'KNIT.md');
-  mkdirSync(sidecarDir, { recursive: true });
   const sidecar = `<!-- This file is Knit's per-project workflow. -->
 <!-- Your CLAUDE.md exists without Knit markers, so Knit wrote here instead of clobbering it. -->
 <!-- To include this content in CLAUDE.md, add: @.claude/KNIT.md -->
 
 ${block}`;
-  writeFileSync(sidecarPath, sidecar, 'utf-8');
+  writeFileAtomic(sidecarPath, sidecar);
 }
 
 function copyIfExists(src: string, dst: string): void {
@@ -380,8 +380,7 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
 
   // Case A — no file: write fresh
   if (!existsSync(settingsPath)) {
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(settingsPath, JSON.stringify(fresh, null, 2), 'utf-8');
+    writeFileAtomic(settingsPath, JSON.stringify(fresh, null, 2));
     return;
   }
 
@@ -446,8 +445,7 @@ function writeKnitHooks(rootPath: string, config: KnitConfig): void {
   // Drop the legacy v0.5.x marker so the file no longer advertises engram ownership.
   delete (merged as { _engramHooks?: unknown })._engramHooks;
 
-  mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(settingsPath, JSON.stringify(merged, null, 2), 'utf-8');
+  writeFileAtomic(settingsPath, JSON.stringify(merged, null, 2));
 }
 
 

@@ -766,6 +766,68 @@ describe('handleToolCall', () => {
 
     rmSync(tmpRoot, { recursive: true, force: true });
   });
+
+  // ── C1 (v0.14.1 audit): knit_record_learning substring dedup ────
+  it('knit_record_learning rejects substring duplicates (C1)', () => {
+    // Existing entry id "1" has summary "Fixed auth bug" — too short (14 chars)
+    // to trigger dedup. Add a long one then attempt to insert a substring.
+    handleToolCall('knit_record_learning', {
+      summary: 'Auth middleware now validates session tokens before downstream handlers',
+      lesson: 'Tokens must be checked at the middleware layer for consistent 401 responses',
+      tags: '#auth',
+    }, brain);
+    const dup = JSON.parse(handleToolCall('knit_record_learning', {
+      summary: 'now validates session tokens before downstream',
+      lesson: 'redundant insertion attempt',
+      tags: '#auth',
+    }, brain));
+    expect(dup.status).toBe('duplicate');
+    expect(dup.existing.summary).toContain('validates session tokens');
+  });
+
+  it('knit_record_learning still records when summaries differ (C1 false-positive guard)', () => {
+    const before = brain.knowledgeBase.entries.length;
+    const result = JSON.parse(handleToolCall('knit_record_learning', {
+      summary: 'Distinct insight about retry backoff configuration in the queue worker',
+      lesson: 'Use exponential backoff with jitter to avoid thundering herd',
+      tags: '#queue',
+    }, brain));
+    expect(result.status).toBe('recorded');
+    expect(brain.knowledgeBase.entries.length).toBe(before + 1);
+  });
+
+  // ── B1 (v0.14.1 audit): knit_setup_project must redact secrets ───
+  it('knit_setup_project redacts secrets in description/domains/team_roles before persisting (B1)', async () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-b1-setup-'));
+    const sandboxBrain: BrainCache = { ...brain, rootPath: tmpRoot };
+    const fakeStripe = 'sk_' + 'live_' + 'ABCDEFGHIJ1234567890abcd';
+
+    const result = JSON.parse(handleToolCall(
+      'knit_setup_project',
+      {
+        description: `marketing site, billing keys ${fakeStripe} migrating soon`,
+        project_type: 'marketing',
+        domains: 'frontend,billing',
+      },
+      sandboxBrain,
+    ));
+    expect(result.status).toBe('configured');
+
+    // teams.json on disk: secret must be redacted, not stored in plaintext.
+    const { teamsPath } = await import('../src/engine/paths.js');
+    const teamsJson = readFileSync(teamsPath(tmpRoot), 'utf-8');
+    expect(teamsJson).not.toContain(fakeStripe);
+    expect(teamsJson).toContain('[REDACTED:stripe-key]');
+
+    // KB entry persisted in-memory also redacted.
+    const recent = sandboxBrain.knowledgeBase.entries.find(
+      (e) => e.summary?.startsWith('Project setup'),
+    );
+    expect(recent).toBeDefined();
+    expect(JSON.stringify(recent)).not.toContain(fakeStripe);
+
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
 });
 
 // ── v0.7 step 4 — getActiveToolDefinitions direct unit coverage ─────

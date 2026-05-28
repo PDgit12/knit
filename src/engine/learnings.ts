@@ -1,6 +1,16 @@
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LearningEntry } from './types.js';
+
+// POSIX guarantees O_APPEND writes ≤ PIPE_BUF (~4KB on Linux/macOS) are
+// atomic against concurrent O_APPEND writers. A learning with a long
+// lesson/approach can exceed PIPE_BUF; for those we acquire an exclusive
+// mkdir-based lock around the append so two concurrent MCP processes
+// can't interleave bytes mid-entry. The 3500-byte threshold leaves
+// headroom for the newline + framing.
+const APPEND_ATOMIC_THRESHOLD = 3500;
+const LOCK_RETRY_MS = 25;
+const LOCK_TIMEOUT_MS = 2000;
 
 const HEADER = `# Project Learnings
 
@@ -24,23 +34,49 @@ export function createLearningsFile(filePath: string, projectName: string): void
 }
 
 /**
- * Appends a learning entry to the learnings file. Atomic via O_APPEND —
- * concurrent appenders cannot truncate or interleave entry bodies because
- * each formatted entry is delivered as a single write() syscall.
+ * Appends a learning entry to the learnings file.
  *
- * TODO(v0.12): POSIX O_APPEND atomicity is only guaranteed for writes ≤ PIPE_BUF
- * (~4KB on Linux/macOS). A learning entry with a long lesson/approach can exceed
- * this limit, making interleaved writes from concurrent MCP processes possible.
- * sessions.ts and global-learnings.ts share the same risk. Fix: use the same
- * atomic temp+rename pattern already used in sessions.ts#pruneSessionsByAge and
- * worktrees.ts#saveRegistry, or use a file lock (e.g. proper-lockfile).
+ * For payloads ≤ PIPE_BUF, POSIX O_APPEND guarantees concurrent appenders
+ * cannot truncate or interleave entry bodies — fast path is appendFileSync.
+ *
+ * For larger payloads (long lesson/approach text), v0.14.1 audit D2 closes
+ * the prior PIPE_BUF race: acquire an exclusive mkdir-based lock first,
+ * then append. mkdir is atomic on POSIX so only one process wins the lock.
+ * Lock waits up to LOCK_TIMEOUT_MS before falling through to a best-effort
+ * append (data loss preferred over indefinite hang).
  */
 export function appendLearning(filePath: string, entry: LearningEntry): void {
   if (!existsSync(filePath)) {
     createLearningsFile(filePath, 'Unknown Project');
   }
 
-  appendFileSync(filePath, '\n' + formatEntry(entry), 'utf-8');
+  const payload = '\n' + formatEntry(entry);
+  if (Buffer.byteLength(payload, 'utf-8') <= APPEND_ATOMIC_THRESHOLD) {
+    appendFileSync(filePath, payload, 'utf-8');
+    return;
+  }
+
+  const lockPath = `${filePath}.lock`;
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  let locked = false;
+  while (Date.now() < deadline) {
+    try {
+      mkdirSync(lockPath);
+      locked = true;
+      break;
+    } catch {
+      // Lock held by another writer; sleep-spin briefly.
+      const wakeAt = Date.now() + LOCK_RETRY_MS;
+      while (Date.now() < wakeAt) { /* busy-wait — sync context */ }
+    }
+  }
+  try {
+    appendFileSync(filePath, payload, 'utf-8');
+  } finally {
+    if (locked) {
+      try { rmdirSync(lockPath); } catch { /* lock dir gone — ignore */ }
+    }
+  }
 }
 
 /**

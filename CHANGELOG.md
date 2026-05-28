@@ -2,6 +2,74 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.14.1] — 2026-05-28
+
+**Ship-readiness audit + atomicity hardening.** A six-dimension internal
+audit (leak hygiene, security, tool correctness, brain mechanics, slop,
+UX/instructions) flagged 14 P1 items before npm-publishing v0.14. This
+release closes them in a single audit-cleanup branch. Zero behavior
+changes for callers; substantial internal hardening.
+
+### Fixed — security
+
+- **`writeFileAtomic` helper** in `src/engine/atomic-write.ts` replaces 9+
+  bare `writeFileSync` sites that previously left torn files on a mid-write
+  crash. Highest impact: `setup.ts` writing `~/.claude.json` — a partial
+  write there used to break the user's entire Claude Code MCP config, not
+  just Knit. Now atomic.
+- **`handleSetupProject` redaction gap**: the v0.14 setup-orchestration
+  handler wrote user-supplied `description` / `domains` / `team_roles` into
+  `teams.json` and the KB without passing through `redactSecrets()`. Every
+  sibling record_* handler redacts at the persistence boundary; this one
+  didn't. Now matches. Regression test covers a Stripe-key fixture in the
+  setup description.
+
+### Fixed — brain
+
+- **`appendLearning` PIPE_BUF race** (open TODO since v0.12): POSIX
+  O_APPEND only guarantees atomicity for writes ≤ PIPE_BUF (~4KB). A
+  learning with a long lesson/approach could interleave bytes with a
+  concurrent MCP writer's payload. Now: small payloads keep the fast
+  `appendFileSync` path; payloads above the 3.5KB threshold acquire an
+  exclusive `mkdir`-based lock first. Bounded 2s timeout; regression test
+  fires 8 parallel ~5KB appends and asserts no entry is split mid-byte.
+
+### Fixed — protocol surface
+
+- **`KNIT_INSTRUCTIONS_BASE` now documents the soft-gate contract.** When
+  a handler returns `{status: 'protocol_required', next_action: '<tool>'}`,
+  the agent should call the named `next_action` and retry — not treat it
+  as a permanent failure. This is the universal cross-platform enforcement
+  layer for the 5 non-Claude MCP-speaking agents (Cursor, Codex CLI, Cline,
+  Continue, Copilot) which lack the host-side hook lifecycle.
+- **`knit_record_learning` now actually rejects substring duplicates.**
+  The description has long claimed "skip duplicates"; v0.12.1 audit caught
+  that no dedup code existed (only the block-strictness soft-gate). Fixed:
+  any entry whose summary is a case-insensitive substring of (or contains)
+  an existing entry's summary returns `{status: 'duplicate', existing:
+  {id, summary, date}}`. Tool description updated to match.
+
+### Fixed — release hygiene
+
+- **Maintainer-path leaks scrubbed from README and CHANGELOG.** Eight
+  references to internal-only maintainer artifacts (audit notes, planning
+  docs, marketing sidecar) had been carried into release notes —
+  invisible on the maintainer's machine, broken-looking to users on npm.
+  All rewritten to describe behavior inline or use neutral phrasing.
+- **`scripts/check-leaks.mjs`** added as a pre-publish CI gate. Scans
+  shipped files for references to maintainer-only paths and fails the
+  build if any match. Wired into `prepublishOnly` alongside the existing
+  typecheck → lint → test → bench → build chain.
+
+### Internal
+
+- **`logBestEffortFailure`** replaces three silent try-catch swallows
+  around classification-marker writes and pre-emptive learning search.
+  Stderr-logged with a 3-per-process rate limit so a failing disk
+  doesn't drown the terminal.
+- All gates green: typecheck 0 errors, lint 0 errors, bench top-1 86%
+  (≥85% threshold), build 226.93 kB JS / 66.18 kB gz.
+
 ## [0.14.0] — 2026-05-28
 
 **Universality release.** Six MCP-speaking agents wire up from a single
@@ -87,18 +155,16 @@ lets Knit compose with the commands you already wrote.
 - **`handlePostTeamFindings` redactSecrets coverage** — finding
   description / recommendation / file fields now redact.
 
-Audit doc + per-endpoint CBSE-concern verdicts kept in `.claude/AUDIT_V014.md`
-(not committed; internal review surface).
+Per-endpoint CBSE-concern verdicts kept in internal review docs (not
+committed; maintainer-only surface).
 
 ### Fixed — internal-doc leaks in shipped source
 
-User review caught 5 instances of source code referencing files that only
-existed on the maintainer's dev machine (`.claude/MARKETING.md` in two
-user-facing error strings, `.claude/AUDIT_V014.md` in module-doc comments,
-absolute `/Users/piyushdua/.claude/plans/` path in a code comment). All
-rewritten to describe behavior inline or cite public external docs. Re-grep
-across `src/` + `webapp/src/` + `tests/` confirms zero remaining references
-to internal `.claude/` docs or maintainer paths.
+User review caught 5 instances of source code referencing files and paths
+that only existed on the maintainer's dev machine. All rewritten to describe
+behavior inline or cite public external docs. Re-grep across `src/` +
+`webapp/src/` + `tests/` confirms zero remaining references to internal docs
+or maintainer paths.
 
 ### Internal
 
@@ -210,7 +276,7 @@ sync via SSE. The positioning shifts from "Claude Code companion" to
 ## [0.12.2] — 2026-05-27
 
 **Token-economy patch.** Two surgical fixes informed by the v0.12.1
-audit (`.claude/AUDIT.md`). Both produce immediate per-session wins
+internal audit. Both produce immediate per-session wins
 for users on Pro plans without changing protocol or API surface.
 
 ### Changed — handshake byte cost (~38% reduction)
@@ -376,9 +442,10 @@ Five phases, all shipped on this release:
   building Knit was hand-curating a 16KB CLAUDE.md and bypassing the
   generator it marketed. Now: lean project-essential content (build
   commands, domain architecture, cross-domain rules, git conventions).
-- **`.claude/MARKETING.md` (new, 12KB)** receives the release timeline,
-  v0.13+ deferred candidates, extended protocol reference, slash-command
-  routing, session handoff prose, token discipline narrative.
+- **Internal long-form sidecar (new, 12KB on the maintainer side)** receives
+  the release timeline, v0.13+ deferred candidates, extended protocol
+  reference, slash-command routing, session handoff prose, token discipline
+  narrative.
 - **Result**: `knit_brain_status` on this repo now reports
   `claude_md.verdict === 'healthy'`. Dogfooding is real and visible.
 
@@ -449,7 +516,7 @@ Zero-effort for existing users. On next Claude Code start:
 4. Next `engram setup` runs doctor as final step.
 
 To dogfood your own project: edit `CLAUDE.md` to ≤6.5KB and move
-long-form content to `.claude/MARKETING.md`, then run `engram doctor`
+long-form content to your own sidecar location, then run `engram doctor`
 to confirm `Token budget: ok`.
 
 ## [0.11.4] — 2026-05-25
