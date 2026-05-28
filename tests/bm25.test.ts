@@ -243,8 +243,9 @@ describe('BM25Index — Knit-shaped corpus (realistic smoke test)', () => {
     expect(results[0].id).toBe('l6');
   });
 
-  it('unrelated query returns empty', () => {
-    const idx = new BM25Index(knitCorpus());
+  it('unrelated query returns empty (pure BM25, no expansion)', () => {
+    // Disable v0.16 defaults to test the lexical-only baseline.
+    const idx = new BM25Index(knitCorpus(), { enableNgramFallback: false, enableSynonyms: false });
     expect(idx.search('quantum cryptography')).toEqual([]);
   });
 });
@@ -382,9 +383,10 @@ describe('diversifyByProject — global-learnings project capper', () => {
   });
 });
 
-// D1 (v0.15.0 audit) — opt-in 2-gram fallback rescues typo-only queries.
-// Default off → existing bench gates stay stable; turn on for typo-heavy
-// query distributions.
+// D1 — 2-gram fallback rescues typo-only queries.
+// v0.16: default ON. Bench-pinned non-regressive (synthetic 88%/100%,
+// learnings 86.7%/96.7%). Pass enableNgramFallback:false for explicit
+// lexical-only baseline.
 describe('BM25Index — enableNgramFallback (D1)', () => {
   const corpus: BM25Document[] = [
     { id: '1', text: 'knit_classify_task is the tier router for the workflow protocol' },
@@ -392,35 +394,88 @@ describe('BM25Index — enableNgramFallback (D1)', () => {
     { id: '3', text: 'POSIX append atomicity holds only under the PIPE_BUF threshold' },
   ];
 
-  it('default index returns zero hits for a typo-only query', () => {
-    const idx = new BM25Index(corpus);
+  it('with enableNgramFallback:false (explicit opt-out), zero hits for typo', () => {
+    const idx = new BM25Index(corpus, { enableNgramFallback: false, enableSynonyms: false });
     const hits = idx.search('knit_clasify');
     expect(hits.length).toBe(0);
   });
 
-  it('with enableNgramFallback=true, recovers the correct doc for a typo', () => {
-    const idx = new BM25Index(corpus, { enableNgramFallback: true });
+  it('default (ngram on) recovers the correct doc for a typo', () => {
+    const idx = new BM25Index(corpus);
     const hits = idx.search('knit_clasify');
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0].id).toBe('1');
   });
 
   it('ngram fallback does not override a genuine BM25 match', () => {
-    const idx = new BM25Index(corpus, { enableNgramFallback: true });
+    const idx = new BM25Index(corpus);
     const hits = idx.search('BM25 retrieval ranks queries');
     expect(hits[0].id).toBe('2');
   });
 
-  it('replacing a doc cleans up its ngram counters (no stale 2-gram contribution)', () => {
-    // Use deliberately exotic letters so the replacement content shares no
-    // 2-grams with the original doc — proves the old ngram counters were
-    // cleaned up on replace.
+  it('replacing a doc cleans up its ngram counters', () => {
     const idx = new BM25Index([
       { id: 'x', text: 'zzqqxxvvbbww' },
-    ], { enableNgramFallback: true });
+    ]);
     idx.add({ id: 'x', text: 'ppmmnnggkk' });
-    // Query targets only the old content's 2-grams. After cleanup, no rescue.
     const hits = idx.search('zzqqxx');
     expect(hits.length).toBe(0);
+  });
+});
+
+// v0.16 — synonym expansion via curated coding-domain dictionary.
+// Closes the most common "hook events ↔ webhook" lexical gap without
+// adding embeddings. Bench-verified non-regressive.
+describe('BM25Index — enableSynonyms (v0.16)', () => {
+  const corpus: BM25Document[] = [
+    { id: '1', text: 'Webhook signatures verified via HMAC SHA256 before processing' },
+    { id: '2', text: 'Database migrations run via prisma migrate deploy in CI' },
+    { id: '3', text: 'Atomic file writes via temp+rename never leave a torn file' },
+    { id: '4', text: 'Authentication tokens expire after 24 hours and require refresh' },
+    { id: '5', text: 'Cached responses use Redis with a one hour TTL' },
+  ];
+
+  it('hook → webhook synonym surfaces the webhook entry', () => {
+    const idx = new BM25Index(corpus);
+    const hits = idx.search('hook signatures');
+    expect(hits[0].id).toBe('1');
+  });
+
+  it('schema → migration synonym surfaces the migrations entry', () => {
+    const idx = new BM25Index(corpus);
+    const hits = idx.search('schema deploy');
+    expect(hits[0].id).toBe('2');
+  });
+
+  it('auth → authentication synonym surfaces the auth entry', () => {
+    const idx = new BM25Index(corpus);
+    const hits = idx.search('auth tokens expire');
+    expect(hits[0].id).toBe('4');
+  });
+
+  it('cache → memo synonym surfaces the cache entry', () => {
+    const idx = new BM25Index(corpus);
+    const hits = idx.search('memo with TTL');
+    // 'memo' is a synonym for 'cache'; 'TTL' matches directly.
+    expect(hits[0].id).toBe('5');
+  });
+
+  it('explicit opt-out (enableSynonyms:false) returns zero for synonym-only query', () => {
+    const idx = new BM25Index(corpus, { enableSynonyms: false, enableNgramFallback: false });
+    // 'schema' alone is absent from any doc text in the corpus — only
+    // 'migrations' appears. Without synonym expansion, BM25 finds nothing.
+    const hits = idx.search('schema');
+    expect(hits.length).toBe(0);
+  });
+
+  it('synonym match does NOT override a stronger direct match', () => {
+    const idx = new BM25Index([
+      { id: 'webhook-doc', text: 'webhook signatures verified via HMAC' },
+      { id: 'hook-doc', text: 'hook handlers are registered at startup' },
+    ]);
+    // Direct "hook handlers" match should beat the synonym-expanded
+    // "hook → webhook" hit.
+    const hits = idx.search('hook handlers');
+    expect(hits[0].id).toBe('hook-doc');
   });
 });

@@ -2,6 +2,74 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] — 2026-05-28
+
+**Semantic-lite release.** Two retrieval improvements that close the most
+common BM25 lexical gaps without adding an embedding model or breaking
+the local-first invariant. Both default ON, both bench-pinned non-
+regressive.
+
+### Added — curated synonym expansion
+
+- **`src/engine/retrieval/synonyms.ts`** — hand-curated dictionary of
+  ~50 coding-domain synonym pairs (`webhook` ↔ `hook`, `schema` ↔
+  `migration`, `auth` ↔ `authentication`, `cache` ↔ `memo`, `deploy` ↔
+  `ship` ↔ `release`, `error` ↔ `exception` ↔ `failure`, etc.). Symmetric
+  O(1) lookup via a built-at-import-time Map.
+- **`BM25Index.scoreSynonymExpansion`** — when a query token has known
+  synonyms in the dictionary, score documents containing those synonyms
+  with a 0.4× discount weight (higher than the 2-gram fallback's 0.25
+  because synonyms are conceptually closer than near-spelling matches).
+  Fires both as a fallback (term unmatched, synonym matched) and a
+  boost (term matched directly, synonym widens reach). New
+  `enableSynonyms?: boolean` option, default `true`.
+
+### Changed — 2-gram fallback default ON
+
+- `enableNgramFallback` flipped from default `false` → default `true`.
+  v0.15 introduced this as opt-in to avoid bench regression risk; v0.16
+  flips the default after both benches verified strictly stable.
+
+### Benchmarks
+
+Both retrieval benches improved with v0.16 defaults vs the v0.15 lexical-
+only baseline:
+
+| Bench | v0.15.0 | v0.16.0 | Δ |
+|---|---|---|---|
+| Synthetic top-1 | 86.0% | **88.0%** | +2.0pp |
+| Synthetic recall@5 | 96.0% | **100.0%** | **+4.0pp** |
+| Learnings top-1 | 83.3% | **86.7%** | +3.4pp |
+| Learnings recall@5 | 96.7% | 96.7% | unchanged |
+
+Synthetic recall@5 hit 100% because synonym expansion closed the
+"hook events authenticated" / "webhook signatures" miss that BM25
+alone couldn't bridge.
+
+### Updated — README "How search works"
+
+The boundary section now describes the new capability honestly: typo
+recovery via 2-gram fallback + synonym recovery via curated dictionary,
+both on by default. Lists the remaining boundaries (paraphrase,
+abstraction-level bridging, intent, negation, cross-entry synthesis)
+which need embeddings or an LLM call layer — both v0.20+ candidates.
+
+### Tests
+
+- 6 new BM25 synonym tests pin the dictionary behavior (hook→webhook,
+  schema→migration, auth→authentication, cache→memo) and the discount
+  weight invariant (synonym match must not override stronger direct
+  match).
+- Two pre-existing BM25 tests updated to pass `enableNgramFallback:
+  false, enableSynonyms: false` explicitly so they continue to test
+  the pure-lexical baseline.
+
+### Internal
+
+- All gates green: typecheck 0 errors, lint 0 errors / 21 pre-existing
+  test-file warnings, ~810 tests pass, build 228 kB / 66 kB gz, `npm
+  audit` 0 vulnerabilities.
+
 ## [0.15.0] — 2026-05-28
 
 **Deep-clean release.** A second six-dimension internal audit ran against the

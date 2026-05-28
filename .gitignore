@@ -17,6 +17,14 @@ handoff.md
 .claude/settings.json
 .claude/MIGRATED.txt
 
+# v0.14+ maintainer-only audit artifacts. Never committed; live only on
+# the maintainer's machine. The audit reports are useful for re-running
+# the analysis but are not part of the shipped product.
+.claude/AUDIT.md
+.claude/AUDIT_V*.md
+.claude/V*_RESEARCH.md
+.claude/audits/
+
 # Local-only scratch directory — sample MCP skeleton, draft notes, etc.
 # Anything in _local/ never goes to GitHub or npm.
 _local/

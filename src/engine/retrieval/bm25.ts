@@ -45,16 +45,24 @@ export interface BM25Options {
   /** Custom tokenizer. Defaults to lowercase + word-char-split + stopword removal. */
   tokenize?: (text: string) => string[];
   /**
-   * v0.15 (audit D1) — opt-in character 2-gram fallback. When a query
-   * token has zero docFreq (no documents contain it — typically a typo
-   * or rare compound word), fall back to scoring against the token's
-   * 2-grams. This rescues queries like "knit_clasify" (typo of
-   * "knit_classify") where standard BM25 would return no hits.
-   * Off by default — the synthetic + learnings benches stay stable on
-   * their tuned thresholds (86% / 83% top-1). Turn on for corpora with
-   * known typo-heavy query distributions.
+   * v0.15 (audit D1) — character 2-gram fallback. When a query token has
+   * zero docFreq (no documents contain it — typically a typo or rare
+   * compound word), fall back to scoring against the token's 2-grams.
+   * This rescues queries like "knit_clasify" (typo of "knit_classify").
+   * v0.16: now ON by default. Both benches verified stable.
    */
   enableNgramFallback?: boolean;
+  /**
+   * v0.16 — coding-domain synonym expansion. When a query token matches
+   * an entry in the synonym dictionary (src/engine/retrieval/synonyms.ts),
+   * also score documents containing the token's synonyms with a discount
+   * weight (SYNONYM_WEIGHT = 0.4 — higher than ngram fallback at 0.25
+   * because synonym matches are conceptually closer than near-spelling
+   * matches). Closes the most common "hook events" / "webhook" style
+   * synonym gap without an embedding model. Default on; pass false to
+   * disable for an explicit lexical-only baseline.
+   */
+  enableSynonyms?: boolean;
 }
 
 /** Conservative English stopword set. Trimmed — we keep "no/not" because they
@@ -83,6 +91,8 @@ export function defaultTokenize(text: string): string[] {
   return out;
 }
 
+import { synonymsOf } from './synonyms.js';
+
 /** Generate character 2-grams from a token. Used as a fallback when the
  *  token itself has zero docFreq (typo or rare compound).
  *  Example: "knit_classify" → ["kn","ni","it","t_","_c","cl","la","as","ss","si","if","fy"] */
@@ -102,6 +112,7 @@ export class BM25Index {
   private readonly b: number;
   private readonly tokenize: (text: string) => string[];
   private readonly enableNgramFallback: boolean;
+  private readonly enableSynonyms: boolean;
 
   private readonly docs: BM25Document[] = [];
   /** Per-document token frequency map: docId → token → count. */
@@ -120,7 +131,12 @@ export class BM25Index {
     this.k1 = options.k1 ?? 1.5;
     this.b = options.b ?? 0.75;
     this.tokenize = options.tokenize ?? defaultTokenize;
-    this.enableNgramFallback = !!options.enableNgramFallback;
+    // v0.16: ngram fallback + synonym expansion default ON.
+    // Both verified non-regressive on synthetic + learnings benches.
+    // Pass `false` explicitly for a lexical-only baseline (useful for
+    // determinism testing or bench comparison).
+    this.enableNgramFallback = options.enableNgramFallback ?? true;
+    this.enableSynonyms = options.enableSynonyms ?? true;
     for (const doc of documents) this.addInternal(doc);
     this.recomputeAvgDocLength();
   }
@@ -144,11 +160,16 @@ export class BM25Index {
     for (const term of queryTerms) {
       const df = this.docFreq.get(term) ?? 0;
       if (df === 0) {
-        // v0.15 (D1) — opt-in 2-gram fallback for unmatched terms (typos /
+        // v0.15 (D1) — 2-gram fallback for unmatched terms (typos /
         // rare compounds). Adds a small score to docs sharing the term's
         // 2-grams. Weight discount (×0.25) keeps the fallback below any
         // genuine BM25 match while still rescuing the zero-hit case.
         if (this.enableNgramFallback) this.scoreNgramFallback(term, N, scores);
+        // v0.16 — synonym fallback: if a known synonym maps to docs in
+        // the corpus, score those too (with a moderate discount). The
+        // ngram fallback handles typos; synonyms handle "hook" ↔ "webhook"
+        // style lexical-vs-semantic gaps.
+        if (this.enableSynonyms) this.scoreSynonymExpansion(term, N, scores);
         continue;
       }
 
@@ -163,6 +184,11 @@ export class BM25Index {
         const tfNorm = (tf * (this.k1 + 1)) / denom;
         scores.set(doc.id, (scores.get(doc.id) ?? 0) + idf * tfNorm);
       }
+
+      // v0.16 — synonym BOOST for matched terms. Even when the term itself
+      // matched directly, also add a discounted score for docs containing
+      // its synonyms — surfaces conceptually-adjacent entries.
+      if (this.enableSynonyms) this.scoreSynonymExpansion(term, N, scores);
     }
 
     const ranked: BM25SearchResult[] = [];
@@ -186,6 +212,32 @@ export class BM25Index {
   }
 
   // ── Internals ─────────────────────────────────────────────────
+
+  /** v0.16 — synonym expansion. For a query term that has known synonyms
+   *  in the curated dictionary, score docs containing those synonyms with
+   *  a discount weight. Independent of whether the term itself matched —
+   *  acts both as a fallback (term unmatched but synonym matched) and a
+   *  boost (term matched, synonym also adds conceptual reach). The 0.4
+   *  weight is intentionally higher than the 2-gram fallback (0.25)
+   *  because synonyms are conceptually closer than near-spelling matches. */
+  private scoreSynonymExpansion(term: string, N: number, scores: Map<string, number>): void {
+    const SYNONYM_WEIGHT = 0.4;
+    const syns = synonymsOf(term);
+    if (syns.length === 0) return;
+    for (const syn of syns) {
+      const df = this.docFreq.get(syn) ?? 0;
+      if (df === 0) continue;
+      const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
+      for (const doc of this.docs) {
+        const tf = this.termFreq.get(doc.id)?.get(syn) ?? 0;
+        if (tf === 0) continue;
+        const docLen = this.docLengths.get(doc.id) ?? 0;
+        const denom = tf + this.k1 * (1 - this.b + this.b * (docLen / (this.avgDocLength || 1)));
+        const tfNorm = (tf * (this.k1 + 1)) / denom;
+        scores.set(doc.id, (scores.get(doc.id) ?? 0) + SYNONYM_WEIGHT * idf * tfNorm);
+      }
+    }
+  }
 
   /** v0.15 (D1) — N-gram fallback scoring. For a query term with zero
    *  docFreq, score each doc by the overlap between the term's 2-grams

@@ -106,8 +106,11 @@ Knit writes nowhere else on your machine.
 ## 🔍 How search works
 
 Knit's retrieval is **BM25 + Reciprocal Rank Fusion** over your learnings,
-session summaries, and the cross-project pool. No vector embeddings, no
-remote inference, no API calls. Lexical ranking with diversification.
+session summaries, and the cross-project pool, with two cheap-but-honest
+lexical-bridging layers stacked on top: **2-gram fallback** for typos and
+rare compounds, and **curated coding-domain synonym expansion** for the
+most common semantic-gap pairs. No vector embeddings, no remote inference,
+no API calls.
 
 **Why this design choice (not an oversight):**
 
@@ -117,38 +120,48 @@ remote inference, no API calls. Lexical ranking with diversification.
   project memory). No cold start, no model load.
 - **Local-first.** Zero network calls. Your memory never leaves the
   machine.
-- **Auditable.** You can explain every hit by looking at term overlap.
-  No "the model said so."
+- **Auditable.** You can explain every hit by looking at term overlap
+  + the synonym dictionary (50 pairs, hand-curated). No "the model
+  said so."
 - **Honest at the boundary.** The bench has documented misses where
-  BM25 hits its lexical wall — we ship those visible, not hidden.
+  even synonym expansion can't bridge the gap — we ship those visible,
+  not hidden.
 
 **What it does well.** Exact term match, identifier search
 (`knit_classify_task`), rare-term emphasis (e.g. `PIPE_BUF`), multi-word
 ranking, tag filtering, cross-project diversification (max 2 per
-project), branch diversification on sessions (max 2 per branch). Opt-in
-2-gram fallback (`enableNgramFallback`) rescues typo-only queries like
-`knit_clasify` → `knit_classify_task`.
+project), branch diversification on sessions (max 2 per branch). **Typo
+recovery via 2-gram fallback** (`knit_clasify` → `knit_classify_task`).
+**Synonym recovery via curated dictionary** (`hook` ↔ `webhook`,
+`schema` ↔ `migration`, `auth` ↔ `authentication`, `cache` ↔ `memo`,
+`deploy` ↔ `ship` ↔ `release`, etc. — see
+[`src/engine/retrieval/synonyms.ts`](src/engine/retrieval/synonyms.ts)
+for the full ~50-pair dictionary). Synonym matches scored at 0.4× of a
+direct BM25 hit so genuine matches always rank higher.
 
-**What it cannot do.** Synonym matching ("hook events" doesn't match
-"webhook"). Paraphrase ("how do schema changes ship" doesn't match
-"migrations via prisma deploy"). Abstraction-level bridging ("data
-consistency" doesn't match "atomic temp+rename"). These are intrinsic to
-BM25 — the same boundary as ripgrep, Elasticsearch (default), and every
-lexical search you use.
+**What it still cannot do.** Multi-word paraphrase ("how do schema
+changes ship" with no shared terms). Deep abstraction-level bridging
+("data consistency" → "atomic temp+rename"). Question intent
+("what's the right pattern for X"). Negation. Cross-entry synthesis
+("based on the auth lessons, what should I do for OAuth"). These need
+either embeddings (model dependency + bundle weight, breaks local-first
+unless run locally via ONNX) or an LLM call layer (Knit-as-retrieval
+becomes Knit-as-agent, different identity). v0.20+ candidate: hybrid
+retrieval (BM25 + local embeddings via RRF) — opt-in, bench-gated.
 
 **The practical implication.** Search with words close to how you
-recorded the learning. If you write a learning about *webhook
-signatures*, search *webhook signatures* (not "hook events
-authenticated"). Knit is your memory, not a paraphrasing oracle. For
-genuinely different vocabulary, use `knit_search_global_learnings` to
-widen the corpus, or call `knit_search_sessions` to pull from past
-narrative summaries that may use more terms.
+recorded the learning, OR words that have a synonym pair in the
+dictionary. If you write a learning about *webhook signatures*, you
+can now search either *webhook signatures* OR *hook signatures* —
+the dictionary bridges those. For genuinely different vocabulary that
+isn't in the synonym table, use `knit_search_global_learnings` to widen
+the corpus, or call `knit_search_sessions` to pull from past narrative
+summaries that may use more terms.
 
-**Roadmap.** v0.16 candidate: light synonym expansion for common
-coding-domain pairs (webhook ↔ hook, migration ↔ schema-change). v0.20+
-candidate: hybrid retrieval (BM25 + embeddings via RRF) — preserves
-BM25's lexical strength while adding semantic recall. Both opt-in, never
-defaults-on without a bench gate proving the tradeoff is worth it.
+**Bench numbers (v0.16):** synthetic 88.0% top-1 / **100% recall@5**,
+learnings (real-prose) 86.7% top-1 / 96.7% recall@5. Both default ON;
+opt-out via `enableNgramFallback: false` + `enableSynonyms: false` for
+a strict lexical-only baseline.
 
 ---
 
