@@ -1,6 +1,8 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
+import { writeFileAtomic } from './atomic-write.js';
 import {
   categoryOf,
   isBundledCore,
@@ -102,10 +104,22 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
     throw new AgentFetchError(`Unknown agent: "${name}". Not in engram's registry.`);
   }
 
-  // Tier 2 — local cache (skip if refresh requested)
+  // Tier 2 — local cache (skip if refresh requested).
+  // v0.15 (audit B11): verify SHA256 against the integrity sidecar written
+  // at cache time. If the cached file has been tampered with, refuse to
+  // serve it and force a re-fetch from network.
   const cachePath = agentsCacheFile(ref, cat, bare);
   if (!opts.refresh && existsSync(cachePath)) {
-    return readFileSync(cachePath, 'utf-8');
+    const cached = readFileSync(cachePath, 'utf-8');
+    if (verifyCacheIntegrity(cachePath, cached)) {
+      return cached;
+    }
+    // Tampered — delete and fall through to a fresh fetch (with attribution).
+    process.stderr.write(
+      `[knit] agent cache integrity check failed for ${cachePath} — re-fetching\n`,
+    );
+    try { unlinkSync(cachePath); } catch { /* swallowed — will be overwritten */ }
+    try { unlinkSync(integrityPath(cachePath)); } catch { /* same */ }
   }
 
   // Tier 3 — network (respect KNIT_OFFLINE; legacy ENGRAM_OFFLINE still honored)
@@ -144,10 +158,66 @@ export async function fetchAgent(name: string, opts: FetcherOptions = {}): Promi
   const augmented = injectAttribution(body, bare, cat, refForAttribution);
 
   // Cache the augmented version so future reads carry the attribution too.
-  mkdirSync(dirname(cachePath), { recursive: true });
-  writeFileSync(cachePath, augmented, 'utf-8');
+  // v0.15 (audit B11): write a SHA256 sidecar so subsequent reads can detect
+  // post-cache tampering (someone editing the cached .md file on disk).
+  // v0.15.0 audit P2-002: atomic temp+rename for the body write so a
+  // process kill mid-write doesn't leave a torn cache file that would
+  // then be backfilled with a sidecar of its torn content. Sidecar
+  // remains a second write — a missing sidecar is self-healing.
+  writeFileAtomic(cachePath, augmented);
+  writeIntegrity(cachePath, augmented);
 
   return augmented;
+}
+
+// ── B11 integrity helpers ──────────────────────────────────────────
+
+/** Sidecar path: `<cache.md>.sha256`. Holds the SHA256 of the cached body. */
+function integrityPath(cachePath: string): string {
+  return `${cachePath}.sha256`;
+}
+
+/** Compute SHA256 of a string body, hex-encoded. */
+function sha256(body: string): string {
+  return createHash('sha256').update(body, 'utf-8').digest('hex');
+}
+
+/** Write the integrity sidecar next to the cached agent file. */
+function writeIntegrity(cachePath: string, body: string): void {
+  try {
+    writeFileSync(integrityPath(cachePath), sha256(body), 'utf-8');
+  } catch (err) {
+    // Best-effort: never let sidecar IO break the cache write. A missing
+    // sidecar just means future reads can't verify — they'll trust the
+    // cached file (same behavior as pre-B11).
+    process.stderr.write(
+      `[knit] could not write integrity sidecar for ${cachePath}: ${(err as Error).message}\n`,
+    );
+  }
+}
+
+/**
+ * Verify the cached body matches the SHA256 in its sidecar. If the sidecar
+ * is missing (pre-B11 cache or write failure), trust the body — preserves
+ * back-compat for caches populated by older Knit versions. If the sidecar
+ * exists and the SHA mismatches, return false → caller re-fetches.
+ */
+function verifyCacheIntegrity(cachePath: string, body: string): boolean {
+  const sidecar = integrityPath(cachePath);
+  if (!existsSync(sidecar)) {
+    // Backfill the sidecar for this pre-B11 cached file so subsequent
+    // reads can verify. Trust the body on this read (it's what we'd have
+    // returned anyway).
+    writeIntegrity(cachePath, body);
+    return true;
+  }
+  let expected: string;
+  try {
+    expected = readFileSync(sidecar, 'utf-8').trim();
+  } catch {
+    return true; // unreadable sidecar — fall back to trust
+  }
+  return sha256(body) === expected;
 }
 
 /** Synchronous existence check — useful for warnings without forcing a fetch. */

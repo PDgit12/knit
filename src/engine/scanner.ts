@@ -120,10 +120,6 @@ function detectStack(root: string): StackInfo {
   // Node/JS/TS projects
   const pkgPath = join(root, 'package.json');
   if (existsSync(pkgPath)) {
-    // TODO(v0.12): `pkg` is typed as `any` — add runtime shape validation (e.g., check
-    // that pkg.dependencies and pkg.devDependencies are objects or undefined before spread).
-    // Risk is low (try/catch handles parse errors; spread of undefined is safe), but
-    // a non-object `dependencies` value (e.g. a string) would silently produce NaN keys.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let pkg: any;
     try {
@@ -131,9 +127,14 @@ function detectStack(root: string): StackInfo {
     } catch {
       return stack; // malformed package.json — return what we have
     }
+    // Guard dependencies/devDependencies — a malformed package.json could ship
+    // a non-object value (e.g. a string), which would produce NaN-indexed keys
+    // on spread. Treat anything non-object-shaped as empty.
+    const isObj = (v: unknown): v is Record<string, unknown> =>
+      v !== null && typeof v === 'object' && !Array.isArray(v);
     const allDeps = {
-      ...pkg.dependencies,
-      ...pkg.devDependencies,
+      ...(isObj(pkg.dependencies) ? pkg.dependencies : {}),
+      ...(isObj(pkg.devDependencies) ? pkg.devDependencies : {}),
     };
 
     // Language
@@ -165,14 +166,15 @@ function detectStack(root: string): StackInfo {
     else if (allDeps.mocha) stack.testFramework = 'mocha';
     else if (allDeps.playwright || allDeps['@playwright/test']) stack.testFramework = 'playwright';
 
-    // Build/lint from scripts
-    // TODO(v0.12): when detectPackageManager returns 'unknown', these produce the literal
-    // string "unknown run build" / "unknown run lint". Guard with a check like
-    // `const pm = detectPackageManager(root); if (pm !== 'unknown') { ... }` before assigning.
-    const scripts = pkg.scripts || {};
-    if (scripts.build) stack.buildCommand = `${detectPackageManager(root)} run build`;
-    if (scripts.lint) stack.lintCommand = `${detectPackageManager(root)} run lint`;
-    if (scripts.typecheck) stack.typecheckCommand = `${detectPackageManager(root)} run typecheck`;
+    // Build/lint from scripts — skip when package manager is unknown so we
+    // don't emit the literal "unknown run build" as a runnable command.
+    const scripts = isObj(pkg.scripts) ? pkg.scripts : {};
+    const pm = detectPackageManager(root);
+    if (pm !== 'unknown') {
+      if (scripts.build) stack.buildCommand = `${pm} run build`;
+      if (scripts.lint) stack.lintCommand = `${pm} run lint`;
+      if (scripts.typecheck) stack.typecheckCommand = `${pm} run typecheck`;
+    }
 
     return stack;
   }

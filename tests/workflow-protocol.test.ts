@@ -79,4 +79,18 @@ describe('workflow-protocol', () => {
     expect(content).toContain('knit_record_learning');
     expect(content).toContain('knit_search_sessions');
   });
+
+  // F3 (v0.15.0 audit): workflow phases now embed knit_suggest_command hooks
+  // so agents check for a user-defined slash command before duplicating it.
+  it('EXECUTE phase suggests calling knit_suggest_command for test/lint/ship', () => {
+    const content = getWorkflowSection('execute')!;
+    expect(content).toContain('knit_suggest_command');
+    expect(content).toMatch(/test|lint|ship|qa/);
+  });
+
+  it('REVIEW phase suggests calling knit_suggest_command for review', () => {
+    const content = getWorkflowSection('review')!;
+    expect(content).toContain('knit_suggest_command');
+    expect(content).toMatch(/review/);
+  });
 });

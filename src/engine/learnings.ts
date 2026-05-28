@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rmdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LearningEntry } from './types.js';
 
@@ -89,12 +89,95 @@ export function readLearnings(filePath: string): LearningEntry[] {
   const entries: LearningEntry[] = [];
   const sections = content.split(/^## /m).slice(1); // Split by ## headers, skip preamble
 
+  // v0.15 (audit D3) — schema-validate on read. Skip empty-shell entries
+  // (missing summary or lesson) and rate-limit stderr logging of parse
+  // failures so a corrupted file doesn't drown the agent's terminal.
+  let parseFailures = 0;
+  let emptyShells = 0;
   for (const section of sections) {
     const entry = parseEntry(section);
-    if (entry) entries.push(entry);
+    if (!entry) {
+      parseFailures++;
+      continue;
+    }
+    if (!entry.summary.trim() || !entry.lesson.trim()) {
+      emptyShells++;
+      continue;
+    }
+    entries.push(entry);
+  }
+  if (parseFailures > 0 || emptyShells > 0) {
+    process.stderr.write(
+      `[knit] readLearnings(${filePath}): skipped ${parseFailures} unparseable, ${emptyShells} empty-shell entries\n`,
+    );
   }
 
   return entries;
+}
+
+/**
+ * v0.15 (audit D4) — pruneLearningsByAge.
+ *
+ * Sessions had pruneSessionsByAge since v0.8; learnings did not. Long-lived
+ * projects accumulate stale entries forever, hurting the BM25 retrieval
+ * signal (rare-but-current insights get drowned out by 100+ old entries
+ * matching the same domain).
+ *
+ * Conservative rules — same as sessions:
+ *   - Entry with no parseable date is KEPT (never lose data we can't
+ *     confidently classify as stale)
+ *   - Entry with #false-positive tag is KEPT regardless of age (calibration
+ *     signal is more valuable than retrieval freshness)
+ *   - Rewrite is atomic (temp + rename) so an interrupted prune leaves
+ *     either the prior or the new file, never a torn one
+ */
+export function pruneLearningsByAge(
+  filePath: string,
+  maxAgeDays: number,
+): { kept: number; pruned: number } {
+  if (!existsSync(filePath)) return { kept: 0, pruned: 0 };
+
+  const content = readFileSync(filePath, 'utf-8');
+  const preambleSplit = content.split(/^## /m);
+  const preamble = preambleSplit[0];
+  const sections = preambleSplit.slice(1);
+
+  const cutoffMs = Date.now() - maxAgeDays * 86400000;
+  const keptSections: string[] = [];
+  let pruned = 0;
+
+  for (const section of sections) {
+    const entry = parseEntry(section);
+    if (!entry) {
+      keptSections.push(section); // unparseable — keep
+      continue;
+    }
+    if (entry.tags.includes('#false-positive')) {
+      keptSections.push(section); // calibration signal — keep
+      continue;
+    }
+    const dateMs = Date.parse(entry.date);
+    if (!Number.isFinite(dateMs)) {
+      keptSections.push(section); // corrupted date — keep
+      continue;
+    }
+    if (dateMs >= cutoffMs) {
+      keptSections.push(section);
+    } else {
+      pruned++;
+    }
+  }
+
+  if (pruned === 0) {
+    return { kept: keptSections.length, pruned: 0 };
+  }
+
+  const body = preamble + keptSections.map((s) => '## ' + s).join('');
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmpPath, body, 'utf-8');
+  renameSync(tmpPath, filePath);
+
+  return { kept: keptSections.length, pruned };
 }
 
 /**

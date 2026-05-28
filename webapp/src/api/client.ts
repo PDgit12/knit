@@ -103,12 +103,22 @@ export interface GlobalDoctorCheck {
   detail: string;
 }
 
+export interface DoctorAgentRow {
+  agent: string;
+  displayName: string;
+  present: boolean;
+  registered: boolean;
+  configPath: string;
+  notes?: string;
+}
+
 export interface GlobalDoctorReport {
   knitVersion: string;
   nodeVersion: string;
   knitHome: string;
   checks: GlobalDoctorCheck[];
   summary: { ok: number; warn: number; error: number; info: number };
+  agents?: DoctorAgentRow[];
 }
 
 export interface AgentCommandSummary {

@@ -381,3 +381,46 @@ describe('diversifyByProject — global-learnings project capper', () => {
     expect(projects.filter((p) => p === 'proj-loud')).toHaveLength(2);
   });
 });
+
+// D1 (v0.15.0 audit) — opt-in 2-gram fallback rescues typo-only queries.
+// Default off → existing bench gates stay stable; turn on for typo-heavy
+// query distributions.
+describe('BM25Index — enableNgramFallback (D1)', () => {
+  const corpus: BM25Document[] = [
+    { id: '1', text: 'knit_classify_task is the tier router for the workflow protocol' },
+    { id: '2', text: 'BM25 retrieval with RRF fusion ranks learnings against queries' },
+    { id: '3', text: 'POSIX append atomicity holds only under the PIPE_BUF threshold' },
+  ];
+
+  it('default index returns zero hits for a typo-only query', () => {
+    const idx = new BM25Index(corpus);
+    const hits = idx.search('knit_clasify');
+    expect(hits.length).toBe(0);
+  });
+
+  it('with enableNgramFallback=true, recovers the correct doc for a typo', () => {
+    const idx = new BM25Index(corpus, { enableNgramFallback: true });
+    const hits = idx.search('knit_clasify');
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].id).toBe('1');
+  });
+
+  it('ngram fallback does not override a genuine BM25 match', () => {
+    const idx = new BM25Index(corpus, { enableNgramFallback: true });
+    const hits = idx.search('BM25 retrieval ranks queries');
+    expect(hits[0].id).toBe('2');
+  });
+
+  it('replacing a doc cleans up its ngram counters (no stale 2-gram contribution)', () => {
+    // Use deliberately exotic letters so the replacement content shares no
+    // 2-grams with the original doc — proves the old ngram counters were
+    // cleaned up on replace.
+    const idx = new BM25Index([
+      { id: 'x', text: 'zzqqxxvvbbww' },
+    ], { enableNgramFallback: true });
+    idx.add({ id: 'x', text: 'ppmmnnggkk' });
+    // Query targets only the old content's 2-grams. After cleanup, no rescue.
+    const hits = idx.search('zzqqxx');
+    expect(hits.length).toBe(0);
+  });
+});

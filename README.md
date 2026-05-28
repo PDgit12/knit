@@ -264,6 +264,12 @@ knit ui
 
 ## 🛠️ 55 MCP Tools
 
+> **49 active by default** at first handshake. The remaining 6 are tier-gated:
+> teams (9 tools, auto-on when ≥3 domains detected), subagents (1 tool, auto-on
+> when `.claude/agents/` exists), and admin (3 tools, opt-in via
+> `knit_enable_feature("admin")`). Call `knit_list_features` to see what's
+> available and how to enable.
+
 <details open>
 <summary><strong>🕸️ Knowledge graph</strong> <em>(Tier 1, ~5ms)</em></summary>
 

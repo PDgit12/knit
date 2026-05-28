@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, type GlobalDoctorReport, type GlobalDoctorCheck } from '../api/client';
+import { api, type GlobalDoctorReport, type GlobalDoctorCheck, type DoctorAgentRow } from '../api/client';
 import { useBrainSync } from '../api/useBrainSync';
 import {
   Card, Eyebrow, StatNumber,
@@ -116,6 +116,16 @@ export function DoctorView() {
         </div>
       </Card>
 
+      {/* v0.15 (audit F2) — per-agent rows. Mirrors CLI `knit doctor`. */}
+      {report.agents && report.agents.length > 0 && (
+        <Card variant="neutral" padding="normal">
+          <Eyebrow>Agents</Eyebrow>
+          <div style={{ marginTop: 'var(--space-3)', display: 'grid', gap: 'var(--space-2)' }}>
+            {report.agents.map((a) => <AgentRow key={a.agent} row={a} />)}
+          </div>
+        </Card>
+      )}
+
       {/* Check list */}
       <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
         {report.checks.map((c, i) => (
@@ -152,6 +162,58 @@ function FactRow({ label, value, mono }: { label: string; value: string; mono?: 
         fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>{value}</div>
+    </div>
+  );
+}
+
+function AgentRow({ row }: { row: DoctorAgentRow }) {
+  // Verdict ladder: registered > present-but-not-registered > not-installed.
+  const status: GlobalDoctorCheck['status'] = row.registered
+    ? 'ok'
+    : row.present
+      ? 'warn'
+      : 'info';
+  const verdictLabel = row.registered
+    ? 'Registered'
+    : row.present
+      ? 'Detected — run `knit setup`'
+      : 'Not installed';
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'auto 1fr auto',
+      gap: 'var(--space-3)',
+      alignItems: 'center',
+      padding: 'var(--space-2) var(--space-3)',
+      borderRadius: 'var(--radius-md)',
+      background: 'var(--surface-glass)',
+      border: '1px solid var(--hairline)',
+    }}>
+      <div style={{
+        width: 24, height: 24, borderRadius: 999,
+        background: STATUS_BG[status],
+        color: STATUS_FG[status],
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontWeight: 'var(--weight-bold)', fontSize: 12,
+        border: status === 'info' ? '1px solid var(--hairline)' : 'none',
+      }}>{STATUS_GLYPH[status]}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 'var(--weight-semibold)', fontSize: 'var(--size-body)' }}>
+          {row.displayName}
+        </div>
+        <div style={{
+          color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)',
+          fontFamily: 'var(--font-mono)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {row.configPath}
+        </div>
+      </div>
+      <div style={{
+        fontSize: 'var(--size-label)',
+        color: 'var(--text-mute-dark)',
+        whiteSpace: 'nowrap',
+      }}>{verdictLabel}</div>
     </div>
   );
 }

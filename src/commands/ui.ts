@@ -19,12 +19,13 @@ import { readFileSync, readdirSync, existsSync, statSync, accessSync, watch, typ
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 import { knitRoot } from '../engine/paths.js';
 import { VERSION } from '../version.js';
 import { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } from '../mcp/update-check.js';
 import { scanAllAgentCommands } from '../engine/agent-command-scanner.js';
+import { detectAllAgents } from '../engine/agent-detector.js';
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7421;
@@ -127,12 +128,24 @@ interface GlobalDoctorCheck {
   detail: string;
 }
 
+interface DoctorAgentRow {
+  agent: string;
+  displayName: string;
+  present: boolean;
+  registered: boolean;
+  configPath: string;
+  notes?: string;
+}
+
 interface GlobalDoctorReport {
   knitVersion: string;
   nodeVersion: string;
   knitHome: string;
   checks: GlobalDoctorCheck[];
   summary: { ok: number; warn: number; error: number; info: number };
+  // v0.15 (audit F2) — per-agent rows surface the same data the CLI
+  // `knit doctor` shows, so the webapp can render the 6-agent table.
+  agents: DoctorAgentRow[];
 }
 
 // Token economics constants — kept in sync with src/mcp/handlers.ts
@@ -485,12 +498,23 @@ function runGlobalDoctor(): GlobalDoctorReport {
     { ok: 0, warn: 0, error: 0, info: 0 },
   );
 
+  // v0.15 (audit F2) — per-agent rows for the webapp.
+  const agents: DoctorAgentRow[] = detectAllAgents(process.cwd()).map((a) => ({
+    agent: a.agent,
+    displayName: a.displayName,
+    present: a.present,
+    registered: a.registered,
+    configPath: a.configPath.replace(homedir(), '~'),
+    notes: a.notes,
+  }));
+
   return {
     knitVersion: VERSION,
     nodeVersion: process.version,
     knitHome: home.replace(homedir(), '~'),
     checks,
     summary,
+    agents,
   };
 }
 
@@ -723,14 +747,22 @@ function cspHeader(): string {
 }
 
 function openBrowser(url: string): void {
-  const cmd = process.platform === 'darwin' ? `open "${url}"`
-    : process.platform === 'win32' ? `start "" "${url}"`
-    : `xdg-open "${url}"`;
-  exec(cmd, (err) => {
+  // v0.15.0 audit P2-001: execFile with array args — no shell, no quoting
+  // surface even if the URL ever gains a user-supplied component.
+  const onErr = (err: Error | null): void => {
     if (err) {
       process.stderr.write(`[knit ui] Could not auto-open browser. Open manually: ${url}\n`);
     }
-  });
+  };
+  if (process.platform === 'darwin') {
+    execFile('open', [url], onErr);
+  } else if (process.platform === 'win32') {
+    // Windows `start` is a cmd builtin, not a standalone binary. Use cmd.exe
+    // with /c start "" <url> — empty title arg keeps it from being parsed as URL.
+    execFile('cmd.exe', ['/c', 'start', '', url], onErr);
+  } else {
+    execFile('xdg-open', [url], onErr);
+  }
 }
 
 // ─── Real-time sync via Server-Sent Events ──────────────────────────────

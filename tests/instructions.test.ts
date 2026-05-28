@@ -6,8 +6,14 @@ import {
   KNIT_INSTRUCTIONS,
   buildInstructions,
   buildBudgetVerdict,
+  buildUpdateNotice,
   CLAUDE_MD_BUDGET_BYTES,
 } from '../src/mcp/instructions.js';
+import {
+  __setCachedLatestForTests,
+  __resetUpdateCheckForTests,
+} from '../src/mcp/update-check.js';
+import { VERSION } from '../src/version.js';
 
 describe('KNIT_INSTRUCTIONS', () => {
   it('is a non-empty string', () => {
@@ -142,5 +148,46 @@ describe('buildInstructions — budget verdict surfacing', () => {
 
   it('back-compat: buildInstructions(null) with no rootPath returns clean baseline', () => {
     expect(buildInstructions(null)).toBe(KNIT_INSTRUCTIONS);
+  });
+});
+
+// F5 (v0.15.0 audit): update banner now surfaces in the MCP instructions
+// field so Cursor / Codex / Cline / Continue / VS Code users see the
+// notice at handshake — not just the webapp dashboard.
+describe('buildUpdateNotice — F5', () => {
+  beforeEach(() => __resetUpdateCheckForTests());
+  afterEach(() => __resetUpdateCheckForTests());
+
+  it('returns empty when no cached version yet (cold)', () => {
+    expect(buildUpdateNotice()).toBe('');
+  });
+
+  it('returns empty when cached version is older or equal to current', () => {
+    __setCachedLatestForTests(VERSION);
+    expect(buildUpdateNotice()).toBe('');
+    __setCachedLatestForTests('0.0.1');
+    expect(buildUpdateNotice()).toBe('');
+  });
+
+  it('returns a one-line notice when a newer version is available', () => {
+    __setCachedLatestForTests('99.0.0');
+    const notice = buildUpdateNotice();
+    expect(notice).toMatch(/UPDATE available: knit-mcp/);
+    expect(notice).toContain(VERSION);
+    expect(notice).toContain('99.0.0');
+    expect(notice).toContain('npm install -g knit-mcp@latest');
+  });
+
+  it('surfaces in buildInstructions handshake output when available', () => {
+    __setCachedLatestForTests('99.0.0');
+    const out = buildInstructions(null);
+    expect(out).toContain('— Update available —');
+    expect(out).toContain('99.0.0');
+  });
+
+  it('is omitted from buildInstructions when no update', () => {
+    __setCachedLatestForTests(VERSION);
+    const out = buildInstructions(null);
+    expect(out).not.toContain('— Update available —');
   });
 });

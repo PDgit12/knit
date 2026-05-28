@@ -44,6 +44,17 @@ export interface BM25Options {
   b?: number;
   /** Custom tokenizer. Defaults to lowercase + word-char-split + stopword removal. */
   tokenize?: (text: string) => string[];
+  /**
+   * v0.15 (audit D1) — opt-in character 2-gram fallback. When a query
+   * token has zero docFreq (no documents contain it — typically a typo
+   * or rare compound word), fall back to scoring against the token's
+   * 2-grams. This rescues queries like "knit_clasify" (typo of
+   * "knit_classify") where standard BM25 would return no hits.
+   * Off by default — the synthetic + learnings benches stay stable on
+   * their tuned thresholds (86% / 83% top-1). Turn on for corpora with
+   * known typo-heavy query distributions.
+   */
+  enableNgramFallback?: boolean;
 }
 
 /** Conservative English stopword set. Trimmed — we keep "no/not" because they
@@ -72,6 +83,16 @@ export function defaultTokenize(text: string): string[] {
   return out;
 }
 
+/** Generate character 2-grams from a token. Used as a fallback when the
+ *  token itself has zero docFreq (typo or rare compound).
+ *  Example: "knit_classify" → ["kn","ni","it","t_","_c","cl","la","as","ss","si","if","fy"] */
+export function ngrams(token: string, n = 2): string[] {
+  if (token.length < n) return [];
+  const out: string[] = [];
+  for (let i = 0; i <= token.length - n; i++) out.push(token.slice(i, i + n));
+  return out;
+}
+
 /** In-memory BM25 index. Cheap to construct (~100 docs/ms on typical hardware);
  *  callers can rebuild on every write rather than maintaining incremental state.
  *  Knit's corpora are project-scoped — typically <1000 entries — so this is fine.
@@ -80,6 +101,7 @@ export class BM25Index {
   private readonly k1: number;
   private readonly b: number;
   private readonly tokenize: (text: string) => string[];
+  private readonly enableNgramFallback: boolean;
 
   private readonly docs: BM25Document[] = [];
   /** Per-document token frequency map: docId → token → count. */
@@ -88,12 +110,17 @@ export class BM25Index {
   private readonly docLengths = new Map<string, number>();
   /** Document frequency: token → number of docs containing it. */
   private readonly docFreq = new Map<string, number>();
+  /** v0.15 (D1) — per-document 2-gram frequency, built lazily for the
+   *  ngram-fallback path. Empty unless enableNgramFallback was set. */
+  private readonly docNgramFreq = new Map<string, Map<string, number>>();
+  private readonly ngramDocFreq = new Map<string, number>();
   private avgDocLength = 0;
 
   constructor(documents: BM25Document[] = [], options: BM25Options = {}) {
     this.k1 = options.k1 ?? 1.5;
     this.b = options.b ?? 0.75;
     this.tokenize = options.tokenize ?? defaultTokenize;
+    this.enableNgramFallback = !!options.enableNgramFallback;
     for (const doc of documents) this.addInternal(doc);
     this.recomputeAvgDocLength();
   }
@@ -116,7 +143,14 @@ export class BM25Index {
 
     for (const term of queryTerms) {
       const df = this.docFreq.get(term) ?? 0;
-      if (df === 0) continue; // term not in corpus — contributes 0
+      if (df === 0) {
+        // v0.15 (D1) — opt-in 2-gram fallback for unmatched terms (typos /
+        // rare compounds). Adds a small score to docs sharing the term's
+        // 2-grams. Weight discount (×0.25) keeps the fallback below any
+        // genuine BM25 match while still rescuing the zero-hit case.
+        if (this.enableNgramFallback) this.scoreNgramFallback(term, N, scores);
+        continue;
+      }
 
       // BM25 IDF — never negative under the +1 inside log
       const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
@@ -153,6 +187,26 @@ export class BM25Index {
 
   // ── Internals ─────────────────────────────────────────────────
 
+  /** v0.15 (D1) — N-gram fallback scoring. For a query term with zero
+   *  docFreq, score each doc by the overlap between the term's 2-grams
+   *  and the doc's 2-grams (computed once per doc at index time). Score
+   *  is heavily discounted so it never outranks a genuine BM25 hit. */
+  private scoreNgramFallback(term: string, N: number, scores: Map<string, number>): void {
+    const queryNgrams = ngrams(term, 2);
+    if (queryNgrams.length === 0) return;
+    const NGRAM_WEIGHT = 0.25;
+    for (const qn of queryNgrams) {
+      const df = this.ngramDocFreq.get(qn) ?? 0;
+      if (df === 0) continue;
+      const idf = Math.log((N - df + 0.5) / (df + 0.5) + 1);
+      for (const doc of this.docs) {
+        const tf = this.docNgramFreq.get(doc.id)?.get(qn) ?? 0;
+        if (tf === 0) continue;
+        scores.set(doc.id, (scores.get(doc.id) ?? 0) + NGRAM_WEIGHT * idf * Math.log(1 + tf));
+      }
+    }
+  }
+
   private addInternal(doc: BM25Document): void {
     // Don't double-add the same id; replace instead.
     if (this.termFreq.has(doc.id)) {
@@ -168,6 +222,18 @@ export class BM25Index {
       tfMap.set(t, (tfMap.get(t) ?? 0) + 1);
     }
     this.termFreq.set(doc.id, tfMap);
+
+    // v0.15 (D1) — pre-compute 2-gram frequencies for ngram-fallback path.
+    if (this.enableNgramFallback) {
+      const ngFreq = new Map<string, number>();
+      for (const tok of tokens) {
+        for (const g of ngrams(tok, 2)) ngFreq.set(g, (ngFreq.get(g) ?? 0) + 1);
+      }
+      this.docNgramFreq.set(doc.id, ngFreq);
+      for (const g of ngFreq.keys()) {
+        this.ngramDocFreq.set(g, (this.ngramDocFreq.get(g) ?? 0) + 1);
+      }
+    }
 
     // Update document-frequency for each unique token in this doc.
     for (const t of tfMap.keys()) {
@@ -185,6 +251,16 @@ export class BM25Index {
     }
     this.termFreq.delete(docId);
     this.docLengths.delete(docId);
+    // v0.15 (D1) — clean up ngram counters for the removed doc.
+    const ngFreq = this.docNgramFreq.get(docId);
+    if (ngFreq) {
+      for (const g of ngFreq.keys()) {
+        const df = this.ngramDocFreq.get(g) ?? 0;
+        if (df <= 1) this.ngramDocFreq.delete(g);
+        else this.ngramDocFreq.set(g, df - 1);
+      }
+      this.docNgramFreq.delete(docId);
+    }
     const idx = this.docs.findIndex((d) => d.id === docId);
     if (idx !== -1) this.docs.splice(idx, 1);
   }

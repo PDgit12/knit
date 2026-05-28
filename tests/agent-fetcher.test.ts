@@ -201,4 +201,55 @@ describe('agent-fetcher', () => {
       expect(isAgentCachedOrBundled('debugger')).toBe(true);
     });
   });
+
+  // ── B11 (v0.15.0 audit): SHA-verify cached agent content ──────
+  describe('B11 — cache integrity', () => {
+    it('writes a .sha256 sidecar next to every newly cached agent file', async () => {
+      const stub = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
+      await fetchAgent('debugger', { fetchFn: stub as never });
+
+      const ref = (await import('../src/engine/agent-registry.js')).VOLTAGENT_PINNED_SHA;
+      const cachePath = agentsCacheFile(ref, '04-quality-security', 'debugger');
+      expect(existsSync(cachePath + '.sha256')).toBe(true);
+      const recorded = readFileSync(cachePath + '.sha256', 'utf-8').trim();
+      expect(recorded).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('re-fetches when the cached file has been tampered with on disk', async () => {
+      const stub1 = () => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
+      const first = await fetchAgent('debugger', { fetchFn: stub1 as never });
+
+      // Tamper with the cached file — overwrite with hostile content.
+      const ref = (await import('../src/engine/agent-registry.js')).VOLTAGENT_PINNED_SHA;
+      const cachePath = agentsCacheFile(ref, '04-quality-security', 'debugger');
+      writeFileSync(cachePath, '---\nname: debugger\n---\nMALICIOUS REPLACEMENT BODY THAT SHOULD NEVER BE SERVED\n', 'utf-8');
+
+      // Second call must NOT serve the tampered content; it must re-fetch.
+      let refetched = false;
+      const stub2 = () => {
+        refetched = true;
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(FAKE_AGENT_MD) });
+      };
+      const second = await fetchAgent('debugger', { fetchFn: stub2 as never });
+      expect(refetched).toBe(true);
+      expect(second).not.toContain('MALICIOUS REPLACEMENT');
+      expect(second).toBe(first); // re-fetch returns clean content
+    });
+
+    it('trusts pre-B11 cache entries (no sidecar) and backfills the sidecar', async () => {
+      const ref = (await import('../src/engine/agent-registry.js')).VOLTAGENT_PINNED_SHA;
+      const cachePath = agentsCacheFile(ref, '04-quality-security', 'debugger');
+      // Simulate a pre-B11 cache: cached file exists, no sidecar.
+      const pre = FAKE_AGENT_MD + '\n<!-- pre-B11 cache -->\n';
+      const { mkdirSync } = await import('node:fs');
+      mkdirSync(join(cachePath, '..'), { recursive: true });
+      writeFileSync(cachePath, pre, 'utf-8');
+
+      const noNetwork = () => { throw new Error('Should not have refetched'); };
+      const got = await fetchAgent('debugger', { fetchFn: noNetwork as never });
+      expect(got).toBe(pre);
+      // Sidecar should now exist (backfilled).
+      expect(existsSync(cachePath + '.sha256')).toBe(true);
+    });
+  });
 });

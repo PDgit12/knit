@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { worktreesRegistryPath, projectDataDir } from './paths.js';
@@ -76,11 +76,12 @@ export function spawnWorktree(
   }
 
   // git worktree add -b <branch> <path>
+  // v0.15 (audit B10): execFile + array args — no shell, no quoting surface.
   try {
-    execSync(
-      `git worktree add -b ${shellQuote(branch)} ${shellQuote(worktreePath)}`,
-      { cwd: repoRoot, stdio: 'pipe' },
-    );
+    execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath], {
+      cwd: repoRoot,
+      stdio: 'pipe',
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`git worktree add failed: ${msg}`);
@@ -143,10 +144,10 @@ export function finalizeWorktree(
 
   if (action === 'discard') {
     try {
-      execSync(`git worktree remove --force ${shellQuote(record.path)}`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync('git', ['worktree', 'remove', '--force', record.path], { cwd: repoRoot, stdio: 'pipe' });
     } catch { /* worktree may already be gone; continue */ }
     try {
-      execSync(`git branch -D ${shellQuote(record.branch)}`, { cwd: repoRoot, stdio: 'pipe' });
+      execFileSync('git', ['branch', '-D', record.branch], { cwd: repoRoot, stdio: 'pipe' });
     } catch { /* branch may already be gone; continue */ }
     record.status = 'discarded';
     saveRegistry(rootPath, registry);
@@ -155,12 +156,12 @@ export function finalizeWorktree(
 
   // Merge: try `git merge --no-ff <branch>` from the main repo's current branch.
   try {
-    execSync(`git merge --no-ff ${shellQuote(record.branch)}`, { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['merge', '--no-ff', record.branch], { cwd: repoRoot, stdio: 'pipe' });
   } catch (err) {
     // Detect merge conflicts and report them
     let conflictFiles: string[] = [];
     try {
-      const out = execSync('git diff --name-only --diff-filter=U', { cwd: repoRoot, encoding: 'utf-8' });
+      const out = execFileSync('git', ['diff', '--name-only', '--diff-filter=U'], { cwd: repoRoot, encoding: 'utf-8' });
       conflictFiles = out.split('\n').map((s) => s.trim()).filter(Boolean);
     } catch { /* ignore */ }
 
@@ -176,10 +177,10 @@ export function finalizeWorktree(
 
   // Merge succeeded — clean up the worktree and branch
   try {
-    execSync(`git worktree remove ${shellQuote(record.path)}`, { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['worktree', 'remove', record.path], { cwd: repoRoot, stdio: 'pipe' });
   } catch { /* worktree may have been removed manually */ }
   try {
-    execSync(`git branch -d ${shellQuote(record.branch)}`, { cwd: repoRoot, stdio: 'pipe' });
+    execFileSync('git', ['branch', '-d', record.branch], { cwd: repoRoot, stdio: 'pipe' });
   } catch { /* branch keep — it's already merged but not deletable */ }
 
   record.status = 'merged';
@@ -216,10 +217,9 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/** Naive shell quoting — single quotes, escape any embedded single quotes. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
+// v0.15 (audit B10): removed shellQuote() — all git invocations now use
+// execFileSync with array args, which never invokes a shell. No quoting
+// surface, no injection vector.
 
 // Re-exported for tests that need to inspect paths.
 export { join as _testJoin };

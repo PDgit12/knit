@@ -24,6 +24,8 @@
 import type { ScanResult } from '../engine/integration-scanner.js';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
+import { VERSION } from '../version.js';
+import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
 
 export const KNIT_INSTRUCTIONS_BASE = `Knit is a memory + workflow layer for this project. It provides per-project memory across sessions, a knowledge graph (imports/exports/tests), and a tier-routed workflow protocol.
 
@@ -89,6 +91,21 @@ export function buildBudgetVerdict(rootPath: string): string {
   return `BUDGET ${verdict}: CLAUDE.md is ${kb}KB / ${targetKb}KB target. Run \`engram doctor\` to see the full per-surface report and \`engram refresh\` to regenerate the marker block.`;
 }
 
+/**
+ * v0.15 — handshake-time update notice for agents that lack the webapp
+ * dashboard surface. Until v0.15 the npm-update banner surfaced only in the
+ * dashboard (and Claude Code's stderr nag); Cursor / Codex / Cline /
+ * Continue / VS Code users had no in-chat signal that a new version was
+ * available. Returns empty when up-to-date or when the registry check hasn't
+ * landed yet (cold first session).
+ */
+export function buildUpdateNotice(): string {
+  const latest = getCachedLatestVersion();
+  if (!latest) return '';
+  if (!isNewerVersion(latest, VERSION)) return '';
+  return `UPDATE available: knit-mcp ${VERSION} → ${latest}. Run \`npm install -g knit-mcp@latest\` (or restart the MCP host so npx picks up the new version).`;
+}
+
 /** Build the instructions string tailored to this project's detected
  *  integrations. Returns the universal baseline if no scan ran or nothing
  *  was detected; appends short addenda for each known framework otherwise.
@@ -98,7 +115,10 @@ export function buildBudgetVerdict(rootPath: string): string {
 export function buildInstructions(scan: ScanResult | null, rootPath?: string): string {
   const budgetLine = rootPath ? buildBudgetVerdict(rootPath) : '';
   const budgetSuffix = budgetLine ? `\n\n— Budget check —\n\n${budgetLine}` : '';
-  if (!scan) return KNIT_INSTRUCTIONS_BASE + budgetSuffix;
+  const updateLine = buildUpdateNotice();
+  const updateSuffix = updateLine ? `\n\n— Update available —\n\n${updateLine}` : '';
+  const trailingSuffix = budgetSuffix + updateSuffix;
+  if (!scan) return KNIT_INSTRUCTIONS_BASE + trailingSuffix;
   const addenda: string[] = [];
 
   if (scan.detected.ruflo.present) {
@@ -131,13 +151,13 @@ export function buildInstructions(scan: ScanResult | null, rootPath?: string): s
     );
   }
 
-  if (addenda.length === 0) return KNIT_INSTRUCTIONS_BASE + budgetSuffix;
+  if (addenda.length === 0) return KNIT_INSTRUCTIONS_BASE + trailingSuffix;
 
   return (
     KNIT_INSTRUCTIONS_BASE +
     '\n\n— Per-project integrations —\n\n' +
     addenda.join('\n\n') +
     '\n\nGeneral rule: when an integration above provides a higher-level routing primitive (slash command, swarm orchestrator, methodology framework), use it. Knit handles the substrate it doesn\'t cover: memory, classification, and the workflow protocol for tasks the integration doesn\'t route.' +
-    budgetSuffix
+    trailingSuffix
   );
 }

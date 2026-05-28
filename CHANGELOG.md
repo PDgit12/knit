@@ -2,6 +2,118 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] — 2026-05-28
+
+**Deep-clean release.** A second six-dimension internal audit ran against the
+post-v0.14.1 codebase to surface everything we deferred — defense-in-depth
+items, retrieval honesty, UX parity, and the trailing TODO debt — then a
+single audit-cleanup branch closed them all in five batches. Final pass:
+six parallel audits re-graded the post-fix code to confirm nothing new
+slipped in.
+
+### Fixed — security defense-in-depth
+
+- **`worktrees.ts` migrated to `execFileSync` with array args.** Every git
+  invocation (`worktree add`, `branch -D`, `merge --no-ff`, `worktree
+  remove`, `diff --name-only`) now skips the shell entirely. No quoting
+  surface, no injection vector even if a user-supplied team name or path
+  contained shell metacharacters. The old `shellQuote()` helper deleted.
+- **Agent fetcher cache writes now SHA256-verified.** Every cached agent
+  file gets a `<name>.md.sha256` sidecar; subsequent reads verify the
+  body's SHA256 against the sidecar before returning. Tampered cache
+  entries trigger a stderr warning and force a fresh fetch from VoltAgent.
+  Backfills sidecars for pre-v0.15 cached files on first read so the
+  upgrade path stays seamless.
+- **`qs` CVE closed via npm `overrides`.** GHSA-q8mj-m7cp-5q26 (moderate
+  DoS in `qs ≤6.15.1`, pulled transitively by `@modelcontextprotocol/sdk`
+  → `express` → `qs`) is pinned to `^6.15.2`. `npm audit` now reports
+  zero vulnerabilities at any severity.
+
+### Fixed — brain mechanics
+
+- **`pruneLearningsByAge` ships parallel to `pruneSessionsByAge`.** Same
+  conservative rules: unparseable dates kept, `#false-positive` entries
+  kept regardless of age (calibration signal more valuable than retrieval
+  freshness), atomic rewrite via temp+rename.
+- **`readLearnings` now schema-validates on read.** Empty-shell entries
+  (missing summary or lesson) are skipped instead of polluting BM25
+  results. One-line stderr log per call when the corpus has any noise so
+  the user knows.
+- **Opt-in BM25 2-gram fallback (`enableNgramFallback`).** When a query
+  term tokenizes to something with zero docFreq (typos like `knit_clasify`
+  for `knit_classify_task`, rare compound words), the fallback adds a
+  heavily discounted score for documents sharing the term's 2-grams.
+  `NGRAM_WEIGHT = 0.25` keeps fallback hits below any genuine BM25 match.
+  Default off — synthetic bench stays at 86%, learnings bench at 83.3%.
+
+### Added — retrieval benchmarks
+
+- **New `bench:learnings` regression bench.** 30 real-learning-shape
+  narrative-prose entries × 30 questions, ≥ 75% top-1 / 90% recall@5
+  gate. Pipeline scores 83.3% / 96.7% on this corpus. Wired into the
+  default `bench` script alongside the existing synthetic harness.
+
+### Added — UX & instructions surface
+
+- **Webapp DoctorView shows per-agent rows.** The `/api/doctor` endpoint
+  now returns an `agents: DoctorAgentRow[]` array (Claude Code, Cursor,
+  Codex CLI, Cline, Continue, VS Code Copilot) and the dashboard renders
+  each with status (Registered / Detected — run `knit setup` / Not
+  installed) + config path. Surface parity with the CLI `knit doctor`.
+- **Workflow protocol now wires `knit_suggest_command`.** EXECUTE phase
+  prompts the agent to call `knit_suggest_command({phase: "test" | "lint"
+  | "ship" | "qa"})` before duplicating user-defined slash commands.
+  REVIEW phase does the same for `/review` / `/qa` / `/audit`. Closes the
+  v0.14 surface where `knit_suggest_command` existed but no phase told
+  the agent when to use it.
+- **`buildUpdateNotice` surfaces npm updates in the MCP instructions
+  field.** Pre-v0.15, the update banner only appeared in the webapp
+  dashboard + Claude Code's stderr nag — Cursor / Codex / Cline /
+  Continue / VS Code Copilot users had no in-chat signal. Now: any agent
+  reading the MCP instructions surface sees "UPDATE available: knit-mcp
+  X → Y" the moment a newer version lands on npm.
+
+### Fixed — release hygiene & honesty
+
+- **README explains the 49-active / 6-tier-gated tool count.** The hero
+  "55 MCP Tools" header now notes that 49 are active at first handshake
+  with teams (9, auto-on when ≥3 domains), subagents (1, auto-on when
+  `.claude/agents/` exists), and admin (3, opt-in) gated by `tier`.
+- **Compounding-metrics response surfaces token-saved methodology.** The
+  per-cache-hit / per-FP / per-graph-query constants are now visible in
+  the response under `methodology`, with the origin: "Defaults
+  calibrated from instrumented Claude Code RESEARCH phases on Knit's own
+  repo (2026-05)." Users can override via env vars:
+  `KNIT_TOKENS_PER_CACHE_HIT`, `KNIT_TOKENS_PER_FP_SUPPRESSION`,
+  `KNIT_TOKENS_PER_GRAPH_QUERY`.
+
+### Fixed — slop & TODO debt
+
+- Closed three v0.12 TODOs in `knowledge.ts:398`, `scanner.ts:123`,
+  `scanner.ts:169`:
+  - `pkg.bin` values now filter to strings before push (no silent
+    cast-then-corrupt for malformed `bin` objects)
+  - `pkg.dependencies` / `pkg.devDependencies` shape-guarded before
+    spread (a non-object value used to produce NaN keys)
+  - Build/lint/typecheck commands now skip emission entirely when the
+    package manager is `'unknown'` (no more literal `"unknown run
+    build"` strings in fingerprint output)
+- One stray `engram` example reference in `cache.ts:123` neutralized to
+  generic phrasing. Two load-bearing legacy references kept
+  intentionally: `HOOKS_VERSION` migration history in `settings.ts:48`
+  and `LEGACY_ENGRAM_MARKER_*` constants in `claude-md.ts:29-33` (active
+  back-compat code).
+
+### Internal
+
+- 9+ stale feature/team-worktree branches deleted from local repo;
+  `release/v0.6.0` and the 4 live Claude Code agent worktree refs
+  preserved.
+- All gates green: typecheck 0 errors, lint 0 errors / 21 pre-existing
+  test-file warnings, ~800 tests pass (12 new), synthetic bench 86%,
+  learnings bench 83.3%, build 228.39 kB / 66.42 kB gz, `npm audit` 0
+  vulnerabilities.
+
 ## [0.14.1] — 2026-05-28
 
 **Ship-readiness audit + atomicity hardening.** A six-dimension internal

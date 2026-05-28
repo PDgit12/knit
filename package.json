@@ -1,6 +1,6 @@
 {
   "name": "knit-mcp",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Knit — second brain for any MCP-speaking AI coding agent (Claude Code, Cursor, Codex CLI, Cline, Continue, GitHub Copilot). Per-project memory, tier-routed workflow protocol, parallel team worktrees.",
   "type": "module",
   "bin": {
@@ -15,10 +15,11 @@
     "lint": "eslint src/ tests/ --ext .ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bench": "npm run bench:retrieval",
+    "bench": "npm run bench:retrieval && npm run bench:learnings",
     "bench:retrieval": "tsx benchmarks/retrieval-synthetic.ts",
+    "bench:learnings": "tsx benchmarks/retrieval-learnings.ts",
     "bench:tokens": "tsx benchmarks/token-economy.ts",
-    "bench:all": "npm run bench:retrieval && npm run bench:tokens",
+    "bench:all": "npm run bench:retrieval && npm run bench:learnings && npm run bench:tokens",
     "check:leaks": "node scripts/check-leaks.mjs",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run bench && npm run check:leaks && npm run build"
   },
@@ -61,6 +62,9 @@
     "commander": "^13.0.0",
     "gradient-string": "^3.0.0",
     "ora": "^8.0.0"
+  },
+  "overrides": {
+    "qs": "^6.15.2"
   },
   "engines": {
     "node": ">=18"

@@ -67,6 +67,7 @@ export function UpdateBanner() {
               navigator.clipboard?.writeText(info.updateCommand).catch(() => {});
             }
           }}
+          aria-label="Copy update command to clipboard"
           style={{
             background: 'var(--surface-mint)', color: 'var(--text-dark)',
             border: 'none', padding: '8px 14px',

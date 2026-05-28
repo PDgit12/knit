@@ -197,6 +197,8 @@ function execute(ctx: WorkflowContext): string {
 
 Follow the approved plan strictly. No scope creep — surprises go into LEARN, not into the diff.
 
+**Defer to user slash-commands when they exist.** Before describing a phase the user may already have a command for (test, lint, ship, qa), call \`knit_suggest_command({phase: "test" | "lint" | "ship" | "qa"})\`. If the response includes a matching command, invoke it via the agent's native slash-command mechanism instead of reimplementing the steps. The user's setup wins.
+
 **New features:** TDD when applicable (see \`knit_get_workflow({phase: "tdd"})\`). Failing test → minimum impl → refactor.
 
 **Bug fixes:** reproduce first. Write the failing test that captures the bug. Fix. Run full suite. No regressions.
@@ -248,7 +250,9 @@ function review(ctx: WorkflowContext): string {
 **Layer 3 — ship readiness (Complex + PR only):**
 - Plan-vs-done diff: anything missed?
 - Regression check: did existing functionality break?
-- Confidence signal: "ready to ship" only when ALL layers pass.`;
+- Confidence signal: "ready to ship" only when ALL layers pass.
+
+**Slash-command handoff:** before declaring REVIEW complete, call \`knit_suggest_command({phase: "review"})\`. If the user defined a /review (or /qa, /audit) command, invoke it via the agent's slash-command mechanism — that's the user's canonical review surface, not a generic re-run.`;
 }
 
 function tdd(_: WorkflowContext): string {
