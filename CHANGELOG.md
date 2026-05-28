@@ -2,6 +2,110 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] — 2026-05-28
+
+**Universality release.** Six MCP-speaking agents wire up from a single
+`knit setup`. Protocol enforcement works across all of them via server-side
+soft-gates (not just Claude Code's hook layer). Slash-command auto-detection
+lets Knit compose with the commands you already wrote.
+
+### Added — six-agent universality
+
+- **Per-agent detector** (`src/engine/agent-detector.ts`): finds each of
+  the 6 MCP-speaking agents on the user's filesystem (Claude Code, Cursor,
+  Codex CLI, Cline, Continue, GitHub Copilot via VS Code Agent mode) and
+  reports `{ present, registered, configPath }` for each.
+- **Six per-agent MCP-config writers** (`src/generators/`):
+  - `agent-mcp-writers.ts` — Cursor / Cline / VS Code (JSON; VS Code uses
+    the unique `servers` top-level key)
+  - `codex-mcp.ts` — TOML, hand-rolled emitter (no parser dep)
+  - `continue-mcp.ts` — YAML per-server file
+  - `agents-md.ts` — shared `AGENTS.md` for the Codex+Cline convention,
+    marker-wrapped + idempotent
+- **`knit setup` orchestration** — auto-registers Knit in every detected
+  agent. Idempotent: re-running is a no-op for already-configured agents.
+  Atomic writes; corrupted user configs are surfaced via `knit doctor`,
+  never silently clobbered.
+- **`knit doctor` per-agent rows** — one row per agent showing `ok` /
+  `warn` (detected but not registered) / `info` (not on this machine).
+
+### Added — slash-command auto-detection
+
+- **`knit_scan_agent_commands`** (Tier-1) — read-only scan of each
+  agent's command directory (`.claude/commands/`, `.cursor/rules/`,
+  `.clinerules/`, `~/.codex/prompts/`, `~/.continue/prompts/`,
+  `.github/prompts/`). YAML frontmatter recognized (`description:`,
+  `knit: skip`); falls back to first markdown heading.
+- **`knit_suggest_command({phase})`** (Tier-1) — fuzzy phase-name lookup
+  against scanned commands (`test → test/run-tests/tests/spec`,
+  `lint → lint/lint-fix/format/prettier`, `ship → release/publish/deploy`,
+  etc.). Returns matching commands so the agent invokes `/test` via the
+  host's native slash mechanism instead of describing the work in prose.
+- **Cache** at `~/.knit/projects/<hash>/agent-commands.json` with a
+  1-hour TTL. Atomic write via temp+rename.
+- **Hard constraints**: read-only filesystem ops, never executes,
+  honors per-file `knit: skip` frontmatter.
+
+### Added — cross-platform soft-gates
+
+- **Server-side enforcement** for the 5 agents without hook lifecycles.
+  When strictness is `block`, `handleRecordLearning` now returns
+  `{ status: 'protocol_required', next_action: 'knit_search_learnings' }`
+  if the search marker is absent — instead of silently recording a
+  potential duplicate of an existing learning. Default `warn` strictness
+  is unchanged; opt in via `knit_set_protocol_strictness({level: 'block'})`.
+- **Instructions-field addendum** — handshake primer now tells agents
+  about `knit_suggest_command({phase})` and the "invoke via host's
+  native slash mechanism" pattern.
+
+### Added — webapp `#/commands` view
+
+- New dashboard route at `#/commands` between Graph and Cross-project.
+  Bento layout, dark hero with discovered count, per-agent chips
+  color-coded by agent, searchable command list with agent badges +
+  `/name` + description + source path.
+- New `GET /api/commands` endpoint backs the view.
+
+### Changed — registry growth
+
+- Tier-1 tool count: 34 → 36 (new tools added to `workflow` category).
+- Total tool count: 53 → 55.
+- Test assertions updated in `features.test.ts` + `mcp-tools.test.ts`.
+
+### Fixed — P1 audit findings (commit `e4e1793`)
+
+- **`fs.watch` reset bug** in `src/commands/ui.ts` — error handler now
+  sets `watcher = null` so subsequent `handleSseConnect` calls can
+  restart the watcher. Pre-fix, dashboard real-time sync silently
+  stopped after any fs.watch error until `knit ui` was restarted.
+- **Security headers on JSON + SSE responses** — added
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer` to non-HTML responses
+  (previously only HTML had them).
+- **`handleDefineTeam` redactSecrets coverage** — all six user-supplied
+  team-metadata fields now redact before disk write.
+- **`handlePostTeamFindings` redactSecrets coverage** — finding
+  description / recommendation / file fields now redact.
+
+Audit doc + per-endpoint CBSE-concern verdicts kept in `.claude/AUDIT_V014.md`
+(not committed; internal review surface).
+
+### Fixed — internal-doc leaks in shipped source
+
+User review caught 5 instances of source code referencing files that only
+existed on the maintainer's dev machine (`.claude/MARKETING.md` in two
+user-facing error strings, `.claude/AUDIT_V014.md` in module-doc comments,
+absolute `/Users/piyushdua/.claude/plans/` path in a code comment). All
+rewritten to describe behavior inline or cite public external docs. Re-grep
+across `src/` + `webapp/src/` + `tests/` confirms zero remaining references
+to internal `.claude/` docs or maintainer paths.
+
+### Internal
+
+- New tests: `agent-detector` (17), `agent-mcp-writers` (11), `agent-mcp-writers-toml-yaml` (18), `agent-command-scanner` (24). 70 new tests across the new surface, all passing.
+- Webapp bundle: ~66KB gzipped (+1.3KB for `#/commands` view).
+- `KNIT_INSTRUCTIONS` length: 3886 / 4000 budget (within cap).
+
 ## [0.13.0] — 2026-05-27
 
 **Brain dashboard + universal positioning.** Knit gets a visual surface:

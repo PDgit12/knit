@@ -3,8 +3,9 @@
   <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PDgit12/knit/ci.yml?style=for-the-badge&label=CI&color=10b981" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
-  <img src="https://img.shields.io/badge/MCP%20tools-53-7c3aed?style=for-the-badge" alt="tools" />
-  <img src="https://img.shields.io/badge/local--first-100%25-10b981?style=for-the-badge" alt="local-first" />
+  <img src="https://img.shields.io/badge/MCP%20tools-55-7c3aed?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/agents-6-10b981?style=for-the-badge" alt="agents supported" />
+  <img src="https://img.shields.io/badge/local--first-100%25-3b82f6?style=for-the-badge" alt="local-first" />
 </p>
 
 <h1 align="center">🧶 knit</h1>
@@ -12,14 +13,14 @@
 <p align="center">
   <strong>Universal MCP brain for agentic coding platforms.</strong><br/>
   Project-scoped memory · on-demand workflow · parallel team worktrees · live analytics dashboard.<br/>
-  <em>Works with Claude Code, Cursor, Codex, Cline, Continue — anything that speaks MCP.</em>
+  <em>Works with Claude Code, Cursor, Codex CLI, Cline, Continue, and GitHub Copilot (via VS Code Agent mode) — anything that speaks MCP.</em>
 </p>
 
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-what-knit-is">What it is</a> ·
-  <a href="#-whats-new-in-v0130">v0.13</a> ·
-  <a href="#-53-mcp-tools">Tools</a> ·
+  <a href="#-whats-new-in-v0140">v0.14</a> ·
+  <a href="#-55-mcp-tools">Tools</a> ·
   <a href="#-the-dashboard">Dashboard</a> ·
   <a href="#-how-its-different">vs mem0/Letta</a>
 </p>
@@ -28,7 +29,7 @@
 
 ## 🧠 What knit is
 
-Knit gives **any MCP-speaking coding agent** the right defaults automatically — because you can't predict how a user will phrase a request, and every agent (Claude Code, Cursor, Codex, Cline, Continue) ends up burning tokens re-discovering the same project facts. Knit does four jobs at once:
+Knit gives **any MCP-speaking coding agent** the right defaults automatically — because you can't predict how a user will phrase a request, and every agent (Claude Code, Cursor, Codex CLI, Cline, Continue, GitHub Copilot) ends up burning tokens re-discovering the same project facts. Knit does four jobs at once:
 
 | | |
 |---|---|
@@ -55,14 +56,27 @@ knit ui          # opens the brain dashboard at http://127.0.0.1:7421 (optional 
 
 ### Adoption per agent
 
-| Agent | How to register | Verified |
-|---|---|---|
-| Claude Code | `knit setup` writes to `~/.claude.json` | ✅ Tier-1 |
-| Cursor | Settings → MCP → add `knit` server (stdio: `npx knit-mcp`) | ✅ |
-| Codex CLI | Add to `~/.codex/config.toml` MCP servers section | ✅ |
-| Cline | VS Code settings → Cline → MCP servers | ✅ |
-| Continue | `~/.continue/config.json` `mcpServers` | ✅ |
-| Other MCP clients | Anything that spawns stdio MCP servers works | ✅ |
+v0.14: a single `knit setup` detects **every** installed MCP-speaking agent on
+your machine and writes Knit's config into each one's native format. No
+per-agent manual setup, no copy-pasted JSON.
+
+| Agent | Auto-detected by `knit setup` | Config format written | Hook support |
+|---|---|---|---|
+| Claude Code | ✅ `~/.claude.json` | JSON · `mcpServers` | ✅ PreToolUse / PostToolUse / Stop |
+| Cursor | ✅ `.cursor/mcp.json` | JSON · `mcpServers` | ⚠️ approval flow only |
+| Codex CLI | ✅ `~/.codex/config.toml` | **TOML** · `[mcp_servers.knit-brain]` | ⚠️ approval flow only |
+| Cline | ✅ `~/.cline/mcp.json` + `AGENTS.md` | JSON · `mcpServers` | ⚠️ approval flow only |
+| Continue | ✅ `.continue/mcpServers/knit-brain.yaml` | **YAML** per-server | ⚠️ approval flow only |
+| GitHub Copilot (VS Code Agent mode) | ✅ `.vscode/mcp.json` | JSON · `servers` (unique key) | ⚠️ approval flow only |
+| Any other MCP client | ✅ stdio works universally | per the client's docs | varies |
+
+> **"Hook support" caveat:** only Claude Code has lifecycle hooks (PreToolUse /
+> PostToolUse / Stop). For the other 5 agents Knit enforces the protocol via
+> the MCP `instructions` field (handshake primer) + **server-side soft-gates**
+> in tool responses — same effect as hooks, transport-layer instead of host-layer.
+> Opt into block-strictness enforcement with `knit_set_protocol_strictness({level: 'block'})`.
+
+> **Supported shells:** macOS, Linux, WSL, Git Bash, PowerShell. Windows `cmd.exe` is not supported as the hook-runner shell — use PowerShell (default in modern Windows Terminal) or Git Bash.
 
 > **Supported shells:** macOS, Linux, WSL, Git Bash, PowerShell. Windows `cmd.exe` is not supported as the hook-runner shell — use PowerShell (default in modern Windows Terminal) or Git Bash.
 
@@ -88,6 +102,71 @@ Then:
 Knit writes nowhere else on your machine.
 
 ---
+
+## ✨ What's new in v0.14.0
+
+v0.14 is the **universality release**. Three coordinated shifts: every
+MCP-speaking agent works out of the box, Knit composes with the slash
+commands you already wrote, and enforcement works across all agents
+(not just Claude Code).
+
+### 🌍 Six agents, one install
+
+`knit setup` now detects every installed MCP-speaking agent and writes Knit's
+config into each one's native format — JSON for Claude Code / Cursor / Cline /
+VS Code (note: `servers` not `mcpServers` for VS Code), TOML for Codex CLI,
+YAML for Continue. If Codex CLI or Cline is detected, a marker-wrapped
+`AGENTS.md` is also written at project root (the cross-agent rules convention).
+`knit doctor` now reports per-agent registration status, so you can see
+which of your agents are wired up at a glance.
+
+### 🔧 Cross-platform protocol enforcement
+
+Only Claude Code has hook lifecycles (PreToolUse / PostToolUse / Stop). For
+the other 5 agents, v0.14 adds **server-side soft-gates** in MCP tool
+responses. When strictness is set to `block`, protocol-critical handlers
+return `{ status: 'protocol_required', next_action: '...' }` instead of
+proceeding — the agent reads the response, follows the breadcrumb, retries.
+This is the universality answer: same enforcement, transport layer instead
+of host layer. Default strictness stays `warn` so existing flows are unchanged.
+
+### ⚡ Agent-native slash-command auto-detection
+
+Two new Tier-1 MCP tools:
+
+- `knit_scan_agent_commands` — scans `.claude/commands/`, `.cursor/rules/`,
+  `.clinerules/`, `~/.codex/prompts/`, `~/.continue/prompts/`, `.github/prompts/`
+  and surfaces every user-defined slash command + its description.
+- `knit_suggest_command({phase})` — given a protocol phase (test/lint/review/
+  ship), returns matching commands so the agent can invoke `/test` (or
+  whatever you wrote) via the host's native slash mechanism, instead of
+  describing the work in prose.
+
+Cached at `~/.knit/projects/<hash>/agent-commands.json` with a 1-hour TTL
+(~10ms re-scan when stale). Read-only filesystem ops; Knit never executes
+commands — the host agent invokes via its own mechanism.
+
+Dashboard exposes the scan results at **`#/commands`** with searchable
+per-agent listing.
+
+### 🛡️ Audit + hardening before publish
+
+v0.14 included a deep-dive audit (`AUDIT_V014.md`) of every dashboard
+endpoint, MCP handler, fs.watch race condition, and supply-chain dep. Five
+inline fixes landed in commit `e4e1793`:
+- `fs.watch` error handler now resets `watcher = null` so SSE recovers
+  cleanly after a watcher death (pre-fix, real-time sync silently stopped
+  until `knit ui` restart).
+- JSON + SSE responses gained `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` (pre-fix only on
+  HTML).
+- `handleDefineTeam` + `handlePostTeamFindings` now call `redactSecrets` on
+  user-supplied team metadata + finding descriptions (pre-fix: raw write to
+  disk). 9 of 9 write handlers now redact uniformly.
+
+CBSE-style attack class verified PASS on every dashboard endpoint:
+Host-validation + Origin-validation + read-only contract + same-origin CSP
++ hex-only project-id regex. No malicious-page-can-read-your-brain vector.
 
 ## ✨ What's new in v0.13.0
 
@@ -183,7 +262,7 @@ knit ui
 
 ---
 
-## 🛠️ 53 MCP Tools
+## 🛠️ 55 MCP Tools
 
 <details open>
 <summary><strong>🕸️ Knowledge graph</strong> <em>(Tier 1, ~5ms)</em></summary>
