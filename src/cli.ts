@@ -70,7 +70,7 @@ async function runCLI() {
 
   program
     .name('knit')
-    .description('The second brain for Claude Code — MCP server + analytics dashboard')
+    .description('The second brain for any MCP-speaking AI coding agent — memory + workflow + analytics dashboard')
     .version(VERSION)
     .hook('preAction', () => {
       console.log(ENGRAM_GRADIENT.multiline(banner));
@@ -79,7 +79,7 @@ async function runCLI() {
 
   program
     .command('setup')
-    .description('Add Knit MCP to your Claude Code settings (one time)')
+    .description('Register Knit MCP in every detected agent (Claude Code, Cursor, Codex, Cline, Continue, VS Code Copilot)')
     .option('--global', 'Add to global ~/.claude/settings.json (default)', true)
     .option('--local', 'Add to project .claude/settings.json only', false)
     .action(async (options: Record<string, unknown>) => {
@@ -162,7 +162,7 @@ async function runCLI() {
 
   program
     .command('ui')
-    .description('Launch the local Knit dashboard in your browser (v1.0-alpha — read-only)')
+    .description('Launch the local Knit dashboard in your browser (http://127.0.0.1:7421)')
     .action(async () => {
       try {
         await uiCommand();
