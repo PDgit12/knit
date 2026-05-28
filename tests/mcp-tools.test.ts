@@ -261,7 +261,11 @@ describe('handleToolCall', () => {
   });
 
   it('knit_search_learnings — empty BM25 result returns helpful instruction', () => {
-    const result = JSON.parse(handleToolCall('knit_search_learnings', { query: 'xyzzy_no_match' }, brain));
+    // v0.16: 2-gram fallback + synonym expansion default on, so a short
+    // pseudo-word query like "xyzzy_no_match" can incidentally match
+    // 2-grams. Use a query that has no 2-gram overlap with the test
+    // corpus and isn't in the synonym dictionary.
+    const result = JSON.parse(handleToolCall('knit_search_learnings', { query: 'zzqqwwxxvv_zzqqwwxxvv' }, brain));
     expect(result.count).toBe(0);
     expect(result.instruction).toMatch(/No past learnings match this query/);
   });

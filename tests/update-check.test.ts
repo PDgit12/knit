@@ -147,7 +147,7 @@ describe('knit_brain_status — update_available surface', () => {
     expect(result.update_available).toBeDefined();
     expect(result.update_available.current).toBe(VERSION);
     expect(result.update_available.latest).toBe(newer);
-    expect(result.update_available.upgrade).toMatch(/Restart Claude Code/);
+    expect(result.update_available.upgrade).toMatch(/Restart your MCP host/);
     expect(result.update_available.changelog).toMatch(/CHANGELOG\.md/);
   });
 
