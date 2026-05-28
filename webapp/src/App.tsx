@@ -6,6 +6,7 @@ import { GlobalView } from './views/GlobalView';
 import { DoctorView } from './views/DoctorView';
 import { GraphView } from './views/GraphView';
 import { GraphPickerView } from './views/GraphPickerView';
+import { CommandsView } from './views/CommandsView';
 import { UpdateBanner } from './components/UpdateBanner';
 
 // Tiny hash-based router. No external dep. Routes:
@@ -41,6 +42,7 @@ function renderRoute(route: string): React.ReactElement {
   if (route === '#/graph') return <GraphPickerView />;
   if (route === '#/global') return <GlobalView />;
   if (route === '#/doctor') return <DoctorView />;
+  if (route === '#/commands') return <CommandsView />;
   const projectMetrics = route.match(/^#\/p\/([a-f0-9]+)\/metrics\/?$/);
   if (projectMetrics) return <MetricsView projectId={projectMetrics[1]} />;
   const projectGraph = route.match(/^#\/p\/([a-f0-9]+)\/graph\/?$/);
@@ -59,6 +61,7 @@ function Nav({ route }: { route: string }) {
   const isGraph = route === '#/graph' || /^#\/p\/[a-f0-9]+\/graph\/?$/.test(route);
   const isGlobal = route === '#/global';
   const isDoctor = route === '#/doctor';
+  const isCommands = route === '#/commands';
   return (
     <nav style={{
       maxWidth: 1240, margin: '0 auto',
@@ -74,6 +77,7 @@ function Nav({ route }: { route: string }) {
       </a>
       <NavLink href="#/" active={isHome}>Brain</NavLink>
       <NavLink href="#/graph" active={isGraph}>Graph</NavLink>
+      <NavLink href="#/commands" active={isCommands}>Commands</NavLink>
       <NavLink href="#/global" active={isGlobal}>Cross-project</NavLink>
       <NavLink href="#/doctor" active={isDoctor}>Health</NavLink>
     </nav>

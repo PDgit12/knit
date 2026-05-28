@@ -1791,6 +1791,28 @@ export function handleRecordLearning(params: Record<string, string>, brain: Brai
   if (!params.summary?.trim() && !params.lesson?.trim()) {
     return errorResponse('summary and lesson are required — cannot record empty learning');
   }
+
+  // v0.14 — cross-platform soft-gate. The existing PreToolUse search-gate
+  // hook only fires inside Claude Code; for the 5 other MCP-speaking
+  // agents (Cursor, Codex CLI, Cline, Continue, Copilot) the MCP
+  // response is the only enforcement surface. Pre-record_learning we
+  // expect knit_search_learnings to have fired so the agent isn't
+  // adding a duplicate of what's already in the brain.
+  //
+  // Only active in `block` strictness. Default `warn` + `off` preserve
+  // pre-v0.14 behavior — existing tests + UX unchanged. Users who want
+  // cross-platform enforcement opt in via knit_set_protocol_strictness.
+  const strictness = readProtocolConfig(brain.rootPath).level;
+  if (strictness === 'block' && !existsSync(searchMarkerPath(brain.rootPath))) {
+    return JSON.stringify({
+      status: 'protocol_required',
+      next_action: 'knit_search_learnings',
+      error: 'Block strictness active: call knit_search_learnings before knit_record_learning so the new learning is checked against existing ones.',
+      rationale: 'Recording without prior search risks duplicating an existing learning. Search first; if nothing similar exists, then record.',
+      strictness,
+    });
+  }
+
   const date = new Date().toISOString().split('T')[0];
   const entry = {
     date,

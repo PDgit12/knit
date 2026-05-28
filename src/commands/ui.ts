@@ -24,6 +24,7 @@ import { exec } from 'node:child_process';
 import { knitRoot } from '../engine/paths.js';
 import { VERSION } from '../version.js';
 import { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } from '../mcp/update-check.js';
+import { scanAllAgentCommands } from '../engine/agent-command-scanner.js';
 
 const HOST = '127.0.0.1';
 const DEFAULT_PORT = 7421;
@@ -903,7 +904,7 @@ export async function uiCommand(): Promise<void> {
               '/api/projects', '/api/projects/:id/learnings',
               '/api/projects/:id/metrics', '/api/projects/:id/graph',
               '/api/global/learnings',
-              '/api/doctor', '/api/events (SSE)',
+              '/api/doctor', '/api/commands', '/api/events (SSE)',
             ],
             security: {
               host: 'loopback-only',
@@ -918,6 +919,7 @@ export async function uiCommand(): Promise<void> {
         if (url === '/api/projects') return jsonResponse(res, 200, { projects: listProjects() });
         if (url === '/api/global/learnings') return jsonResponse(res, 200, { learnings: readGlobalLearnings() });
         if (url === '/api/doctor') return jsonResponse(res, 200, runGlobalDoctor());
+        if (url === '/api/commands') return jsonResponse(res, 200, scanAllAgentCommands(process.cwd()));
 
         // /api/projects/:id/learnings and /api/projects/:id/metrics
         // Path is split on '/' and validated against the project hash format.

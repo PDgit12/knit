@@ -111,6 +111,20 @@ export interface GlobalDoctorReport {
   summary: { ok: number; warn: number; error: number; info: number };
 }
 
+export interface AgentCommandSummary {
+  name: string;
+  agent: 'claude-code' | 'cursor' | 'codex' | 'cline' | 'continue' | 'vscode';
+  description?: string;
+  sourcePath: string;
+  commandText?: string;
+}
+
+export interface AgentCommandsResponse {
+  scannedAt: string;
+  workspace: string;
+  commands: AgentCommandSummary[];
+}
+
 export interface GlobalLearning {
   id: string;
   date: string;
@@ -154,4 +168,5 @@ export const api = {
     get<BrainGraph>(`/api/projects/${id}/graph${threshold !== undefined ? `?threshold=${threshold}` : ''}`),
   globalLearnings: () => get<{ learnings: GlobalLearning[] }>('/api/global/learnings'),
   doctor: () => get<GlobalDoctorReport>('/api/doctor'),
+  commands: () => get<AgentCommandsResponse>('/api/commands'),
 };

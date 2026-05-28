@@ -47,6 +47,7 @@ When to reach for other Knit tools:
 - knit_get_fingerprint — detected stack (lang/framework/test/lint/build/CI) for choosing the right tooling per project.
 - knit_infer_domains + knit_compose_template — propose CLAUDE.md auto-config sections from git co-change + import-graph + colocation signals.
 - knit_get_calibration / knit_record_false_positive (with a direction tag like #complex-was-trivial) — feed the self-healing classifier so it tunes per-project over time.
+- knit_scan_agent_commands / knit_suggest_command — v0.14. Scans the host agent's slash-command directories (.claude/commands/, .cursor/rules/, .clinerules/, etc.) and surfaces user-defined commands. Before phases that commonly have a user command (test, lint, review, ship), call knit_suggest_command({phase}) — if it returns one, invoke that command via the agent's native slash-command mechanism instead of describing the work yourself. Honors the user's existing setup; never executes commands directly.
 
 The protocol enforces a 4-tier classifier:
 - Inquiry: read-only "what / where / audit / explain" — just answer.
