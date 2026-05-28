@@ -2083,9 +2083,15 @@ export function handleIndexRequirements(params: Record<string, string>, brain: B
   // separate path resolutions) into one resolution against a single open
   // file descriptor — eliminating the TOCTOU window where a symlink swap
   // could redirect the read to /etc/passwd or ~/.ssh/id_rsa.
+  //
+  // v0.16.0 (HANG FIX): also pass O_NONBLOCK so opening a FIFO / named pipe
+  // returns immediately instead of blocking until a writer connects. Without
+  // this, the exploit-test FIFO case hangs the entire test suite. Regular
+  // files ignore O_NONBLOCK on POSIX, so the read path stays identical for
+  // the common case.
   let fd: number;
   try {
-    fd = openSync(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    fd = openSync(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e.code === 'ELOOP') {
