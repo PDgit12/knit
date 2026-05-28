@@ -88,16 +88,33 @@ Knit ships **Protocol Guard in `warn` mode by default** — hooks print reminder
 knit_set_protocol_strictness({ level: "off" })
 ```
 
-### Uninstall in 30 seconds
+### Uninstall
+
+One command kills all data:
 
 ```bash
 rm -rf ~/.knit                                 # all per-project + global memory
 ```
 
-Then:
-1. Remove `"knit-brain"` from `mcpServers` in `~/.claude.json`
-2. Delete the `<!-- knit:start --> ... <!-- knit:end -->` block from each project's `CLAUDE.md`
-3. Remove `_knitOwned` entries from each project's `.claude/settings.local.json`
+Then remove Knit's registration from each agent you've used `knit setup` with:
+
+| Agent | File to edit | What to remove |
+|---|---|---|
+| Claude Code (global) | `~/.claude.json` | the `"knit-brain"` entry under `mcpServers` |
+| Claude Code (global) | `~/.claude/CLAUDE.md` | the `## Knit Brain (MCP)` block (appended by `knit setup`) |
+| Cursor | `~/.cursor/mcp.json` or `.cursor/mcp.json` | the `"knit-brain"` entry under `mcpServers` |
+| Codex CLI | `~/.codex/config.toml` | the `[mcp_servers.knit-brain]` section |
+| Cline | `~/.cline/mcp.json` | the `"knit-brain"` entry under `mcpServers` |
+| Continue | `.continue/mcpServers/knit-brain.yaml` | delete the file |
+| VS Code Copilot | `.vscode/mcp.json` (or user `mcp.json`) | the `"knit-brain"` entry under `servers` |
+
+Per-project residue to clean:
+
+- `<project>/CLAUDE.md` — delete the `<!-- knit:start --> ... <!-- knit:end -->` block
+- `<project>/.claude/settings.local.json` — remove hook entries tagged `_knitOwned: true`
+- `<project>/.claude/KNIT.md` — sidecar written when CLAUDE.md had no markers; delete if present
+- `<project>/.claude/agents/knit-*.md` — installed VoltAgent subagents; delete the `knit-` prefixed ones
+- `<project>/AGENTS.md` — if you use Codex CLI or Cline, the marker-wrapped Knit block was written here; delete the block or the file
 
 Knit writes nowhere else on your machine.
 
@@ -164,6 +181,36 @@ opt-out via `enableNgramFallback: false` + `enableSynonyms: false` for
 a strict lexical-only baseline.
 
 ---
+
+## ✨ What's new in v0.16.0
+
+v0.16 is the **semantic-lite release**. Two retrieval improvements that
+close the most common BM25 lexical gaps without an embedding model or
+external API call. Both default ON, both bench-pinned non-regressive.
+
+- **Curated synonym expansion.** Hand-curated dictionary of ~50
+  coding-domain synonym pairs (`webhook` ↔ `hook`, `schema` ↔
+  `migration`, `auth` ↔ `authentication`, `cache` ↔ `memo`, `deploy` ↔
+  `ship` ↔ `release`, etc.) in `src/engine/retrieval/synonyms.ts`. When
+  a query token has known synonyms, BM25 scores documents containing
+  those synonyms with a 0.4× discount weight (higher than the 2-gram
+  fallback's 0.25 because synonyms are conceptually closer than
+  near-spelling matches). Fires both as a fallback (term unmatched,
+  synonym matched) and a boost (term matched directly, synonym widens
+  reach).
+- **2-gram fallback default ON.** `enableNgramFallback` flipped from
+  default `false` → default `true`. v0.15 introduced this as opt-in to
+  avoid bench regression risk; v0.16 flips the default after both
+  benches verified strictly stable.
+- **FIFO-safe `handleIndexRequirements`.** Latent v0.12.1 hardening
+  bug: `openSync(O_RDONLY)` on a named pipe blocked indefinitely
+  before `fstat` could reject it. Now passes `O_NONBLOCK`; regular
+  files unaffected.
+
+Bench impact (v0.15 → v0.16): synthetic 86%/96% → **88%/100%**;
+learnings 83.3%/96.7% → **86.7%/96.7%**. The synthetic recall@5 hit
+100% because synonym expansion closed the "hook events authenticated"
+miss that BM25 alone couldn't bridge.
 
 ## ✨ What's new in v0.15.0
 
@@ -606,9 +653,13 @@ Pair with `knit_compounding_metrics` for the value side of the ledger (sessions,
 ## 💻 CLI
 
 ```bash
-knit setup       # one time: add MCP to Claude settings
-knit status      # dashboard: sessions, learnings, hit rate, knowledge health
-knit refresh     # force rebuild knowledge brain
+knit setup            # one time: detects all 6 MCP-speaking agents and registers Knit in each
+knit doctor           # install health check: version, MCP registration per agent, knowledgebase
+knit ui               # launch the local Knit dashboard (http://127.0.0.1:7421)
+knit status           # text snapshot: sessions, learnings, hit rate, knowledge health
+knit refresh          # force rebuild knowledge brain
+knit install-agents   # install VoltAgent subagents into <project>/.claude/agents/
+knit export <fmt>     # export learnings (current targets: obsidian)
 ```
 
 Example `knit status`:
@@ -624,11 +675,11 @@ Knowledge Base
   Accessed:       12 (67% hit rate)
   False positives: 3
 
-Token budget (v0.9)
+Token budget (v0.16)
   CLAUDE.md:           2.0 KB  → healthy
-  Tool registry:       8.4 KB  → healthy (31 active / 43 total)
-  Instructions:        2.2 KB  → healthy
-  Per-session total:   12.6 KB → healthy
+  Tool registry:       ~13 KB  → warn (49 active / 55 total)
+  Instructions:        ~4 KB   → healthy
+  Per-session total:   ~20 KB  → healthy
 
 Compounding
   Sessions logged:     14
@@ -644,7 +695,7 @@ Compounding
 |--|---|---|---|---|
 | **Bet** | Slash-command flows | Agent rules | 100+ agents in swarms | **One disciplined agent, compounding memory** |
 | **Setup** | Install skills per-project | Manual `.claude/` setup | `npx ruflo init` (heavy) | **`npx knit-mcp setup` (light)** |
-| **Memory** | jsonl files in-tree | Memory directory | Vector DB + 4-tier consolidation | **Local, searchable, vectorless BM25 + graph fusion** |
+| **Memory** | jsonl files in-tree | Memory directory | Vector DB + 4-tier consolidation | **Local, searchable, vectorless BM25 + graph fusion + 2-gram fallback + 50-pair synonym dictionary** |
 | **Token cost** | Skills loaded into context | Rules loaded into context | 314 tools advertised | **~2 KB CLAUDE.md, tier-gated registry, budget guardrail** |
 | **Parallel work** | None | None | Multi-agent swarms + federation | **Team-scoped git worktrees** |
 | **Cloud dependency** | None | None | Cognitum.One (cloud backbone) | **None — fully local** |
@@ -679,7 +730,7 @@ The mem0 / Letta / agentmemory comparison deserves a separate section because th
 
 Run it yourself: `npm run bench`. Source: [`benchmarks/retrieval-synthetic.ts`](./benchmarks/retrieval-synthetic.ts).
 
-**These numbers are NOT apples-to-apples with agentmemory's.** Their benchmark is 1,500 questions from real long conversations; Knit's is 50 hand-authored questions on a 7KB synthetic corpus. The numbers are close because the architecture is similar (BM25 + RRF), not because we've proven parity at scale. **Real comparison requires running LongMemEval-S on Knit** — on the roadmap for v0.13.
+**These numbers are NOT apples-to-apples with agentmemory's.** Their benchmark is 1,500 questions from real long conversations; Knit's is 50 hand-authored questions on a 7KB synthetic corpus. The numbers are close because the architecture is similar (BM25 + RRF), not because we've proven parity at scale. **Real comparison requires running LongMemEval-S on Knit** — on the roadmap (a v0.20+ candidate alongside hybrid BM25 + local embeddings retrieval).
 
 **Knit isn't trying to be a better mem0.** It's a different product:
 - **MCP-native + zero-glue install** — mem0/Letta require SDK integration; Knit drops into any MCP host (Claude Code, Cursor, Codex) with one command.
@@ -697,7 +748,12 @@ LongMemEval-S R@5/R@10 + LOCOMO LLM-as-Judge runs are on the roadmap (v0.13+). U
 
 | Version | Headline |
 |---|---|
-| **v0.12.0** | **Picture Perfect: Structural Enforcement.** Diagnostic → enforcing. Budget verdict surfaces in the MCP `instructions` field at handshake (before any tool description is read). `knit_load_session` carries `budget_health` + `learnings_health` nudges. `engram doctor` exits non-zero on over-budget; `engram setup` runs doctor as final step. New PostToolUse hook warns immediately on over-budget CLAUDE.md edits (HOOKS_VERSION 11→12; auto-rolls to existing users). This repo dogfoods: hand-curated 16KB CLAUDE.md migrated to lean 3.8KB plus an internal long-form sidecar. New `npm run bench:tokens` measures real MCP-on vs MCP-off cost: 93% smaller per-recall call, 50% smaller per-classify, payback at 3 recall calls. 53 tools, 705 tests. |
+| **v0.16.0** | **Semantic-lite retrieval.** Curated coding-domain synonym dictionary (~50 pairs) closes the most common BM25 lexical gaps (`hook` ↔ `webhook`, `schema` ↔ `migration`, etc.) without an embedding model. 2-gram fallback for typos default ON after bench verification. Synthetic bench 88% top-1 / **100% recall@5** (was 96%); learnings 86.7% top-1 / 96.7% recall@5. Plus a FIFO-safe `O_NONBLOCK` fix to `handleIndexRequirements`. 55 tools, 818 tests. |
+| **v0.15.0** | **Deep-clean audit release.** Six-dimension second audit + atomic-write helper applied to 9+ sites including `~/.claude.json` (a torn write there used to brick Claude Code). SHA256 sidecars on agent-fetcher cache writes detect tampering and re-fetch. `qs` CVE pinned via `npm overrides` → 0 vulns. Opt-in BM25 2-gram fallback for typos. `pruneLearningsByAge` + schema-validated `readLearnings`. Webapp DoctorView shows per-agent rows. Update notice surfaces in MCP `instructions` field for all 6 agents. 55 tools, 805+ tests. |
+| **v0.14.1** | **Ship-readiness audit + atomicity hardening.** First six-dimension audit + 14 P1 fixes: `writeFileAtomic` helper across 9+ persistence paths; `handleSetupProject` redaction gap closed; `record_learning` substring dedup matches the description claim; soft-gate documented in instructions field; pre-publish leak gate. 55 tools. |
+| **v0.14.0** | **Universality release.** Single `knit setup` detects + writes to every installed MCP-speaking agent (Claude Code, Cursor, Codex CLI, Cline, Continue, GitHub Copilot via VS Code Agent mode). Server-side soft-gates as the cross-platform protocol enforcement layer for agents without hook lifecycles. Slash-command auto-detection via `knit_scan_agent_commands` + `knit_suggest_command`. 55 tools. |
+| **v0.13.0** | **Brain dashboard release.** `knit ui` opens a local-first analytics dashboard (Monetir-inspired bento, force-directed brain graph, real-time SSE sync, Host/Origin validation + CSP). Security hardening across every endpoint. Universal positioning copy across CLI + README. |
+| **v0.12.0** | **Picture Perfect: Structural Enforcement.** Diagnostic → enforcing. Budget verdict surfaces in the MCP `instructions` field at handshake (before any tool description is read). `knit_load_session` carries `budget_health` + `learnings_health` nudges. `knit doctor` exits non-zero on over-budget; `knit setup` runs doctor as final step. New PostToolUse hook warns immediately on over-budget CLAUDE.md edits (HOOKS_VERSION 11→12; auto-rolls to existing users). This repo dogfoods: hand-curated 16KB CLAUDE.md migrated to lean 3.8KB plus an internal long-form sidecar. New `npm run bench:tokens` measures real MCP-on vs MCP-off cost: 93% smaller per-recall call, 50% smaller per-classify, payback at 3 recall calls. 53 tools, 705 tests. |
 | **v0.11.4** | Dogfood audit · ran a full audit of Knit's own codebase using its own `knit_spawn_team_worktree` primitive (4 parallel teams: Core Logic, Infrastructure, UI, Quality Assurance). Fixes: HIGH `engram refresh` no longer clobbers user-curated CLAUDE.md (now uses `spliceKnitBlock` like `cache.ts`); `saveSource`/`loadSource` validate `sourceId`; `appendGlobalLearning` propagates write failures; `redactSecrets` applied to `label`/`tags`/`domains` across all persistence boundaries; 100KB response ceiling on `knit_generate_test_cases`; full v0.11 tool surface now documented in `workflow-protocol.ts` generator (was frozen at the v0.4 surface). Plus: 16 key tools reclassified with `[PROTOCOL]`/`[REVIEW]`/`[MEMORY]`/`[GRAPH]` prefixes so the LLM picks the right tool reliably. 53 tools, 687 tests. |
 | **v0.11.3** | Propagation patch · `update_available` flag now surfaces in `knit_load_session` response (≈100% session reach vs. brain_status' low reach) + startup stderr nag on stale versions. Helps FUTURE upgrades land faster; doesn't retroactively reach v0.10.x users. 53 tools, 665 tests. |
 | **v0.11.2** | Pre-publish polish · chunk cap (2000) + `errorResponse` envelope across handlers + CLAUDE.md generator surfaces v0.11 tools · new `engram doctor` install health-check CLI · upgrade-path smoke test caught + fixed a data-loss bug in cache.ts (Case B was wiping user permissions on upgrade) · 11 real exploit-payload integration tests prove C1/C2/H1 fixes hold · `npm run bench` ships a synthetic retrieval harness (50 Q&A) measuring 86% top-1 / 96% R@5. 53 tools, 664 tests. |
@@ -733,17 +789,18 @@ git clone https://github.com/PDgit12/knit.git
 cd knit
 npm install
 npm run dev        # run CLI locally
-npm run test       # 492 tests
+npm run test       # 818 tests, ~8 s
 npm run typecheck  # TypeScript strict mode
-npm run build      # compile CLI + MCP server
+npm run bench      # retrieval bench: synthetic + learnings-shape
+npm run build      # compile CLI + MCP server + webapp
 ```
 
 ### Architecture
 
 ```
 knit (npm package)
-├── dist/cli.js                 # CLI: setup, status, refresh
-└── dist/mcp/server.js          # MCP server: 43 tools (tier-gated), auto-init
+├── dist/cli.js                 # CLI: setup, doctor, ui, status, refresh, install-agents, export
+└── dist/mcp/server.js          # MCP server: 55 tools (tier-gated), auto-init
 
 per-project, in ~/.knit/projects/<hash>/
 ├── knowledge.json              # import graph + exports + test map
@@ -758,7 +815,7 @@ per-project, in <project>/
 └── .claude/settings.local.json # per-machine hooks, knit-managed
 ```
 
-**Zero external dependencies for the knowledge brain.** 492 tests. Strict-mode TypeScript.
+**Zero external dependencies for the knowledge brain.** 818 tests, 0 `npm audit` vulnerabilities. Strict-mode TypeScript.
 
 ---
 

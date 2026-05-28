@@ -2,6 +2,38 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.16.1] — 2026-05-28
+
+**Docs-only patch.** README consistency sweep before the v0.16 release
+notes settle in front of new users — no code or behavior change.
+
+### Updated — README
+
+- **Uninstall section** now covers the full v0.14+ write footprint
+  (all 6 agent config files + `~/.claude/CLAUDE.md` global block +
+  per-project `KNIT.md` sidecar + AGENTS.md + installed subagents).
+  Pre-v0.16.1 the uninstall guide only named the Claude Code config.
+- **New "What's new in v0.16.0" hero section** above the v0.15 / v0.14 /
+  v0.13 sections so visitors see the latest first.
+- **Release history table** filled in for v0.13.0 / v0.14.0 / v0.14.1 /
+  v0.15.0 / v0.16.0 (was stale at v0.12.0).
+- **CLI block** lists all seven commands (`setup`, `doctor`, `ui`,
+  `status`, `refresh`, `install-agents`, `export`) — was showing only
+  the v0.7-era three.
+- **Architecture diagram** updated: 43 → 55 tools, "CLI: setup, status,
+  refresh" → full command list.
+- **Test count** updated 492 → 818 (multiple sites).
+- **Stale "v0.13 candidate" defer** in the honest-comparison section
+  fixed to "v0.20+ candidate" — v0.13 already shipped without the
+  LongMemEval-S run.
+- **`engram doctor` / `engram setup`** in the v0.12.0 release-history
+  entry corrected to `knit doctor` / `knit setup` — leftover from the
+  v0.6 brand rename.
+- **Token-budget sample** in the `knit status` example updated from
+  v0.9-era numbers to v0.16 actuals.
+- **"How it's different" Memory row** now mentions the 2-gram fallback
+  + 50-pair synonym dictionary alongside BM25 + graph fusion.
+
 ## [0.16.0] — 2026-05-28
 
 **Semantic-lite release.** Two retrieval improvements that close the most
