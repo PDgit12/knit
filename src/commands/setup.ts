@@ -224,9 +224,9 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
 
   console.log();
   console.log(chalk.bold('  How it works'));
-  console.log(`  ${chalk.cyan('1.')} Open ${chalk.bold('any project')} in Claude Code`);
+  console.log(`  ${chalk.cyan('1.')} Open ${chalk.bold('any project')} in your MCP-speaking agent (Claude Code, Cursor, Codex, Cline, Continue, Copilot)`);
   console.log(`  ${chalk.cyan('2.')} Agent calls \`knit_classify_task\` → brain auto-initializes`);
-  console.log(`  ${chalk.cyan('3.')} Agent gets 53+ tools: imports, exports, tests, learnings, teams, requirements`);
+  console.log(`  ${chalk.cyan('3.')} Agent gets 55 tools: imports, exports, tests, learnings, teams, requirements`);
   console.log(`  ${chalk.cyan('4.')} Brain compounds with every session — gets smarter over time`);
   console.log();
   console.log(chalk.dim('  No CLI needed after this. The MCP server handles everything.'));

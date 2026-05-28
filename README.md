@@ -19,7 +19,7 @@
 <p align="center">
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-what-knit-is">What it is</a> ·
-  <a href="#-whats-new-in-v0140">v0.14</a> ·
+  <a href="#-how-search-works">How search works</a> ·
   <a href="#-55-mcp-tools">Tools</a> ·
   <a href="#-the-dashboard">Dashboard</a> ·
   <a href="#-how-its-different">vs mem0/Letta</a>
@@ -34,7 +34,7 @@ Knit gives **any MCP-speaking coding agent** the right defaults automatically �
 | | |
 |---|---|
 | 🧠 **Memory** | Every project keeps a brain at `~/.knit/projects/<hash>/`. Sessions compound: learnings, false positives, session summaries, and a static-analysis import graph are all queryable next session. Cross-project pool at `~/.knit/global/`. |
-| 🪶 **Tokens** | `CLAUDE.md` is ~2 KB (project facts only). Protocol depth is fetched on demand via `knit_get_workflow(phase)`. Real measured savings: **+254,800 net tokens across 3 projects** on this maintainer's machine. Reuse-ratio + ROI surfaced in the dashboard. |
+| 🪶 **Tokens** | `CLAUDE.md` is ~2 KB (project facts only). Protocol depth is fetched on demand via `knit_get_workflow(phase)`. Per-cache-hit savings ≈ 15K tokens (calibrated from instrumented RESEARCH phases — override via env). Reuse-ratio + ROI surfaced in the dashboard. |
 | 🛠️ **Workflow** | A 4-tier classification (Inquiry / Trivial / Standard / Complex) with phase-triggered plan mode, quality-gated `LEARN`, and team-scoped git worktrees so parallel agents don't step on each other. |
 | 📊 **Dashboard** | New in v0.13. `knit ui` opens a local-first analytics dashboard at `http://127.0.0.1:7421` — bento layout, brain savings, per-project ROI, **force-directed brain graph**, real-time sync via SSE. See [Dashboard](#-the-dashboard). |
 
@@ -102,6 +102,85 @@ Then:
 Knit writes nowhere else on your machine.
 
 ---
+
+## 🔍 How search works
+
+Knit's retrieval is **BM25 + Reciprocal Rank Fusion** over your learnings,
+session summaries, and the cross-project pool. No vector embeddings, no
+remote inference, no API calls. Lexical ranking with diversification.
+
+**Why this design choice (not an oversight):**
+
+- **Deterministic.** Same query → same ranking, every time. No model
+  drift, no upgrade-day surprises.
+- **Fast.** Sub-millisecond on corpora ≤ 1K entries (your typical
+  project memory). No cold start, no model load.
+- **Local-first.** Zero network calls. Your memory never leaves the
+  machine.
+- **Auditable.** You can explain every hit by looking at term overlap.
+  No "the model said so."
+- **Honest at the boundary.** The bench has documented misses where
+  BM25 hits its lexical wall — we ship those visible, not hidden.
+
+**What it does well.** Exact term match, identifier search
+(`knit_classify_task`), rare-term emphasis (e.g. `PIPE_BUF`), multi-word
+ranking, tag filtering, cross-project diversification (max 2 per
+project), branch diversification on sessions (max 2 per branch). Opt-in
+2-gram fallback (`enableNgramFallback`) rescues typo-only queries like
+`knit_clasify` → `knit_classify_task`.
+
+**What it cannot do.** Synonym matching ("hook events" doesn't match
+"webhook"). Paraphrase ("how do schema changes ship" doesn't match
+"migrations via prisma deploy"). Abstraction-level bridging ("data
+consistency" doesn't match "atomic temp+rename"). These are intrinsic to
+BM25 — the same boundary as ripgrep, Elasticsearch (default), and every
+lexical search you use.
+
+**The practical implication.** Search with words close to how you
+recorded the learning. If you write a learning about *webhook
+signatures*, search *webhook signatures* (not "hook events
+authenticated"). Knit is your memory, not a paraphrasing oracle. For
+genuinely different vocabulary, use `knit_search_global_learnings` to
+widen the corpus, or call `knit_search_sessions` to pull from past
+narrative summaries that may use more terms.
+
+**Roadmap.** v0.16 candidate: light synonym expansion for common
+coding-domain pairs (webhook ↔ hook, migration ↔ schema-change). v0.20+
+candidate: hybrid retrieval (BM25 + embeddings via RRF) — preserves
+BM25's lexical strength while adding semantic recall. Both opt-in, never
+defaults-on without a bench gate proving the tradeoff is worth it.
+
+---
+
+## ✨ What's new in v0.15.0
+
+v0.15 is the **deep-clean release**. A second six-dimension internal audit
+graded the post-v0.14.1 codebase and surfaced the deferred items — defense-
+in-depth, retrieval honesty, UX parity, the trailing TODO debt. A single
+audit-cleanup branch closed them all, then six parallel agents re-graded
+the post-fix code to confirm nothing new slipped in.
+
+- **Security defense-in-depth.** Every `git` invocation in `worktrees.ts`
+  migrated to `execFileSync` with array args (no shell). Agent fetcher
+  cache writes are SHA256-verified via sidecars; tampered caches force
+  a fresh fetch with stderr alert; pre-v0.15 caches backfilled on first
+  read. `qs` CVE (GHSA-q8mj-m7cp-5q26) pinned via npm `overrides` —
+  `npm audit` now reports 0 vulnerabilities.
+- **Brain mechanics.** New `pruneLearningsByAge` parallels the sessions
+  pattern (atomic rewrite, conservatively preserves unparseable dates +
+  `#false-positive` entries). `readLearnings` schema-validates on read.
+  Opt-in BM25 2-gram fallback (`enableNgramFallback`, default off)
+  rescues typo-only queries without disturbing benchmarks.
+- **Retrieval honesty.** New `bench:learnings` regression bench against
+  30 real-learning-shape narrative entries — gates at top-1 ≥ 75% /
+  recall@5 ≥ 90% (currently 83.3% / 96.7%). Compounding-metrics response
+  now surfaces token-saved methodology with env-var overrides.
+- **UX & instructions.** Webapp DoctorView shows per-agent rows (parity
+  with CLI `knit doctor`). Workflow `EXECUTE` + `REVIEW` phases now embed
+  `knit_suggest_command` hooks so the agent defers to user slash-commands
+  for test/lint/ship/qa/review. `buildUpdateNotice` surfaces npm-update
+  banner in the MCP instructions field — Cursor/Codex/Cline/Continue/
+  Copilot users now see updates at handshake.
 
 ## ✨ What's new in v0.14.0
 
