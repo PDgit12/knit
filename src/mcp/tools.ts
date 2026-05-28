@@ -29,6 +29,7 @@ import {
   handleIndexRequirements, handleGenerateTestCases, handleListRequirements, handleDeleteRequirements,
   handleGetFingerprint, handleInferDomains, handleComposeTemplate,
   handleGetLearning, handleConsolidateLearnings,
+  handleScanAgentCommands, handleSuggestCommand,
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
@@ -418,6 +419,20 @@ export function getToolDefinitions(): ToolDef[] {
         },
       },
     },
+    {
+      name: 'knit_scan_agent_commands',
+      description: '[DISCOVERY] Scan host agent for user-defined slash commands and surface them. Pair with knit_suggest_command.',
+      inputSchema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'knit_suggest_command',
+      description: '[WORKFLOW] Given a phase (test/lint/review/ship), return matching agent-native slash commands.',
+      inputSchema: {
+        type: 'object',
+        properties: { phase: { type: 'string' } },
+        required: ['phase'],
+      },
+    },
   ];
 }
 
@@ -506,6 +521,8 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_verify_claim: handleVerifyClaim,
   knit_get_learning: handleGetLearning,
   knit_consolidate_learnings: handleConsolidateLearnings,
+  knit_scan_agent_commands: handleScanAgentCommands,
+  knit_suggest_command: handleSuggestCommand,
 };
 
 /** Handle a tool call — validate inputs, route to handler */

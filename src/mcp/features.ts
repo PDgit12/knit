@@ -89,6 +89,8 @@ export const TOOL_REGISTRY: readonly FeatureInfo[] = [
   { tool: 'knit_verify_claim', tier: 1, category: 'knowledge-graph', rationale: 'On-demand fact-check against the knowledge graph. Companion to knit_query_* — those tools answer "what?"; this one answers "is the agent\'s claim about it true?"' },
   { tool: 'knit_get_learning', tier: 1, category: 'memory', rationale: 'Hierarchical-retrieval companion: fetch one full learning by id after knit_search_learnings returned a headline. Saves tokens on the upfront list, pays per-detail.' },
   { tool: 'knit_consolidate_learnings', tier: 1, category: 'memory', rationale: 'Cluster similar learnings via tag-Jaccard, propose a single pattern entry, optionally commit. Keeps the working set lean as the KB grows.' },
+  { tool: 'knit_scan_agent_commands', tier: 1, category: 'workflow', rationale: 'v0.14 — scans every MCP-speaking agent\'s slash-command directory and surfaces user-defined commands. Lets Knit compose with the user\'s existing setup instead of duplicating it.' },
+  { tool: 'knit_suggest_command', tier: 1, category: 'workflow', rationale: 'v0.14 — per-phase lookup against the scanned commands. Returns the agent-native command the user already wrote (test, lint, ship) so Knit defers to it.' },
 
   // ── Tier 2 — Team worktrees (9) ─────────────────────────────────
   { tool: 'knit_spawn_team_worktree', tier: 2, category: 'teams', rationale: 'Multi-domain parallel write orchestration', enable_via: 'knit_enable_feature("teams") or auto-exposed when ≥3 domains detected' },

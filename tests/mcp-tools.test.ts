@@ -110,9 +110,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 53 tool definitions (v0.11.2 adds knit_delete_requirements)', () => {
+  it('returns 55 tool definitions (v0.14 adds knit_scan_agent_commands + knit_suggest_command)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(53);
+    expect(tools).toHaveLength(55);
   });
 
   it('exposes the Protocol Guard tools', () => {
@@ -786,12 +786,12 @@ const emptyShape: ProjectShape = {
 describe('getActiveToolDefinitions — filters by ProjectShape', () => {
   it('no shape arg → returns the full registry (back-compat)', () => {
     const tools = getActiveToolDefinitions();
-    expect(tools.length).toBe(53);
+    expect(tools.length).toBe(55);
   });
 
   it('empty shape → drops all 10 Tier-2 + 3 Tier-3 tools', () => {
     const tools = getActiveToolDefinitions(emptyShape);
-    expect(tools.length).toBe(40);
+    expect(tools.length).toBe(42);
     const names = new Set(tools.map((t) => t.name));
     // Team tools hidden:
     expect(names.has('knit_spawn_team_worktree')).toBe(false);

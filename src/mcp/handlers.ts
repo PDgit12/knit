@@ -30,7 +30,12 @@ import {
   type ProjectShape,
   type EnableableFeature,
 } from './features.js';
-import { featuresConfigPath, searchMarkerPath, metricsHistoryPath } from '../engine/paths.js';
+import { featuresConfigPath, searchMarkerPath, metricsHistoryPath, projectDataDir } from '../engine/paths.js';
+import {
+  getAgentCommands,
+  suggestCommandsForPhase,
+  summarize as summarizeAgentCommands,
+} from '../engine/agent-command-scanner.js';
 import { notifyToolsListChanged } from './notifier.js';
 import { KNIT_INSTRUCTIONS } from './instructions.js';
 // Note: tools.ts imports many handlers from this file. Importing back is a
@@ -2453,6 +2458,46 @@ export function handleReflect(_params: Record<string, string>, brain: BrainCache
     insight: patterns[0].confidence >= 7
       ? `Strongest pattern: ${patterns[0].description}`
       : 'Patterns are forming but not yet high-confidence. Keep recording learnings.',
+  });
+}
+
+// ─── v0.14 — agent-native slash-command discovery ───────────────────────
+// Two tools that surface the user's existing slash commands / custom
+// prompts so Knit's workflow protocol composes with them instead of
+// duplicating them. Read-only scan; the AGENT invokes — Knit never
+// shells out.
+
+export function handleScanAgentCommands(_params: Record<string, string>, brain: BrainCache): string {
+  const scan = getAgentCommands(brain.rootPath, projectDataDir(brain.rootPath));
+  const byAgent = new Map<string, number>();
+  for (const c of scan.commands) byAgent.set(c.agent, (byAgent.get(c.agent) ?? 0) + 1);
+  return JSON.stringify({
+    scanned_at: scan.scannedAt,
+    workspace: scan.workspace,
+    commands_count: scan.commands.length,
+    by_agent: Object.fromEntries(byAgent.entries()),
+    commands: summarizeAgentCommands(scan.commands),
+    instruction:
+      scan.commands.length === 0
+        ? 'No agent-native slash commands detected. If the user adds one later (e.g. .claude/commands/test.md), re-call this tool to refresh the cache.'
+        : 'When a protocol phase matches a command name (test, lint, review, ship), call knit_suggest_command({phase}) and invoke the returned command via the agent\'s native slash mechanism. Honors the user\'s existing setup instead of duplicating it.',
+  });
+}
+
+export function handleSuggestCommand(params: Record<string, string>, brain: BrainCache): string {
+  const phase = (params.phase || '').trim();
+  if (!phase) {
+    return errorResponse('phase is required (e.g. "test", "lint", "review", "ship")', { matching_commands: [] });
+  }
+  const scan = getAgentCommands(brain.rootPath, projectDataDir(brain.rootPath));
+  const matches = suggestCommandsForPhase(scan, phase);
+  return JSON.stringify({
+    phase,
+    matching_commands: summarizeAgentCommands(matches),
+    invocation_hint:
+      matches.length === 0
+        ? `No agent-native command matches phase "${phase}". Proceed with the work yourself.`
+        : `Invoke /${matches[0].name} via the agent's slash-command mechanism instead of describing the steps. This honors the user's existing setup.`,
   });
 }
 

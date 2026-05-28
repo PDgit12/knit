@@ -24,8 +24,8 @@ const allEnabled: ProjectShape = {
 };
 
 describe('TOOL_REGISTRY', () => {
-  it('declares 53 tools (v0.11.2 adds knit_delete_requirements)', () => {
-    expect(TOOL_REGISTRY.length).toBe(53);
+  it('declares 55 tools (v0.14 adds knit_scan_agent_commands + knit_suggest_command)', () => {
+    expect(TOOL_REGISTRY.length).toBe(55);
   });
 
   it('every tool has a unique name', () => {
@@ -45,9 +45,9 @@ describe('TOOL_REGISTRY', () => {
     }
   });
 
-  it('Tier 1 contains exactly 34 universal tools (v0.12.1 demotes 6 diagnostics)', () => {
+  it('Tier 1 contains exactly 36 universal tools (v0.14 adds knit_scan_agent_commands + knit_suggest_command)', () => {
     const tier1 = TOOL_REGISTRY.filter((t) => t.tier === 1);
-    expect(tier1.length).toBe(34);
+    expect(tier1.length).toBe(36);
   });
 
   it('Tier 2 contains exactly 16 conditional tools (v0.12.1 adds 6 diagnostics)', () => {
@@ -130,31 +130,31 @@ describe('isToolActive — gating rules', () => {
 });
 
 describe('computeFeatureListing', () => {
-  it('empty project shape exposes 40 tools (34 Tier-1 + 6 Tier-2 diagnostics auto-exposed on first session)', () => {
+  it('empty project shape exposes 42 tools (36 Tier-1 + 6 Tier-2 diagnostics auto-exposed on first session)', () => {
     const listing = computeFeatureListing(emptyShape);
-    expect(listing.active.length).toBe(40);
+    expect(listing.active.length).toBe(42);
     expect(listing.available.length).toBe(13);
-    expect(listing.totals).toEqual({ active: 40, available: 13, total: 53 });
+    expect(listing.totals).toEqual({ active: 42, available: 13, total: 55 });
   });
 
   it('post-onboarding shape (sessionCount > 1) hides the 6 setup diagnostics by default', () => {
     const postOnboard: ProjectShape = { ...emptyShape, sessionCount: 5 };
     const listing = computeFeatureListing(postOnboard);
-    // 34 Tier-1 still active; 6 demoted diagnostics now hidden.
-    expect(listing.active.length).toBe(34);
+    // 36 Tier-1 still active; 6 demoted diagnostics now hidden.
+    expect(listing.active.length).toBe(36);
     expect(listing.by_category.diagnostics.available).toBe(6);
   });
 
   it('diagnostics opt-in re-exposes the 6 setup diagnostics post-onboarding', () => {
     const optIn: ProjectShape = { ...emptyShape, sessionCount: 5, enabledFeatures: new Set(['diagnostics']) };
     const listing = computeFeatureListing(optIn);
-    expect(listing.active.length).toBe(40);
+    expect(listing.active.length).toBe(42);
     expect(listing.by_category.diagnostics.available).toBe(0);
   });
 
-  it('fully-enabled project shape exposes everything (53)', () => {
+  it('fully-enabled project shape exposes everything (55)', () => {
     const listing = computeFeatureListing(allEnabled);
-    expect(listing.active.length).toBe(53);
+    expect(listing.active.length).toBe(55);
     expect(listing.available.length).toBe(0);
   });
 
