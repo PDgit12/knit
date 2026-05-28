@@ -618,7 +618,16 @@ function readGlobalLearnings(): GlobalLearning[] {
 }
 
 function jsonResponse(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  // v0.14 audit fix: apply the same security headers as HTML responses.
+  // Origin/Host validation is the primary defense, but adding nosniff +
+  // DENY + no-referrer is cheap and closes the defense-in-depth gap if
+  // a future regression weakens those primary checks.
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+  });
   res.end(JSON.stringify(body));
 }
 
@@ -786,6 +795,12 @@ function startBrainWatcher(): void {
     });
     watcher.on('error', (err) => {
       process.stderr.write(`[knit ui] file watcher error: ${err.message}\n`);
+      // v0.14 audit fix: reset the global so the next handleSseConnect can
+      // restart the watcher. Without this, an error left `watcher` truthy
+      // and the `if (watcher) return;` guard at the top of this function
+      // silently blocked recovery — the dashboard would lose real-time
+      // sync until the user restarted `knit ui`.
+      watcher = null;
     });
   } catch (err) {
     process.stderr.write(`[knit ui] could not start file watcher: ${(err as Error).message}\n`);
@@ -799,6 +814,10 @@ function handleSseConnect(res: ServerResponse): void {
     'Connection': 'keep-alive',
     // SSE over HTTP/1.1 — keep the socket open indefinitely.
     'X-Accel-Buffering': 'no',
+    // v0.14 audit fix: defense-in-depth security headers on SSE too.
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
   });
   const client: SseClient = { res, id: sseNextId++ };
   sseClients.push(client);

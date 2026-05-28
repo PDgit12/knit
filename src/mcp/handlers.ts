@@ -2322,13 +2322,17 @@ export function handleGetTeams(_params: Record<string, string>, brain: BrainCach
 
 export function handleDefineTeam(params: Record<string, string>, brain: BrainCache): string {
   const existing = loadCustomTeams(brain.rootPath) || [];
+  // v0.14 audit fix: redact secrets from every user-supplied field before
+  // persisting to .claude/teams.json. Team metadata is unlikely to contain
+  // secrets, but the rest of the write-side handlers redact and this one
+  // had drifted out of the pattern — keep coverage uniform.
   const newTeam = {
-    name: params.name,
-    role: params.role,
-    focus: params.focus,
-    agents: (params.agents || 'code-reviewer').split(',').map((a) => a.trim()),
-    filePatterns: (params.file_patterns || 'src/**').split(',').map((p) => p.trim()),
-    reviewChecklist: (params.checklist || '').split('|').map((c) => c.trim()).filter(Boolean),
+    name: redactSecrets(params.name || ''),
+    role: redactSecrets(params.role || ''),
+    focus: redactSecrets(params.focus || ''),
+    agents: (params.agents || 'code-reviewer').split(',').map((a) => redactSecrets(a.trim())),
+    filePatterns: (params.file_patterns || 'src/**').split(',').map((p) => redactSecrets(p.trim())),
+    reviewChecklist: (params.checklist || '').split('|').map((c) => redactSecrets(c.trim())).filter(Boolean),
   };
   const idx = existing.findIndex((t) => t.name === newTeam.name);
   if (idx >= 0) existing[idx] = newTeam;
@@ -2371,21 +2375,26 @@ export function handleGetTeamPrompt(params: Record<string, string>, brain: Brain
 }
 
 export function handlePostTeamFindings(params: Record<string, string>, _brain: BrainCache): string {
+  // v0.14 audit fix: redact secrets from description / recommendation /
+  // file fields. These are persisted via postTeamFindings() to the in-
+  // memory board and (when knit_get_board_summary is called) echoed in
+  // the summary string the agent receives. An agent pasting a token
+  // into a finding's description would otherwise persist plaintext.
   let findings: TeamFinding[];
   try {
     const raw = JSON.parse(params.findings || '[]');
     findings = raw.map((f: Record<string, string>) => ({
       team: params.team_name,
       severity: VALID_SEVERITIES.has(String(f.severity).toUpperCase()) ? String(f.severity).toUpperCase() as TeamFinding['severity'] : 'MEDIUM',
-      file: f.file || 'unknown',
-      description: f.description || '',
-      recommendation: f.recommendation || '',
+      file: redactSecrets(f.file || 'unknown'),
+      description: redactSecrets(f.description || ''),
+      recommendation: redactSecrets(f.recommendation || ''),
       timestamp: new Date().toISOString(),
     }));
   } catch {
     findings = [{
       team: params.team_name, severity: 'LOW', file: 'unknown',
-      description: params.findings || 'No structured findings',
+      description: redactSecrets(params.findings || 'No structured findings'),
       recommendation: '', timestamp: new Date().toISOString(),
     }];
   }
