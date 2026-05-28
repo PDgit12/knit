@@ -182,7 +182,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   if (mcpServers['knit-brain']) {
     spinner.succeed(chalk.dim('Knit MCP already configured'));
     console.log();
-    console.log(chalk.bold('  Already set up. Open any project in Claude Code — the brain activates automatically.'));
+    console.log(chalk.bold('  Already set up. Open any project in your MCP-speaking agent — the brain activates automatically.'));
     console.log();
     return;
   }

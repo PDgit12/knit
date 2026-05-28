@@ -200,7 +200,7 @@ async function runMCP() {
     const latest = getCachedLatestVersion();
     if (latest && isNewerVersion(latest, VERSION)) {
       process.stderr.write(
-        `[knit] update available: v${VERSION} installed, v${latest} on npm — restart Claude Code to upgrade (clear npx cache if needed: \`rm -rf ~/.npm/_npx/\`). Changelog: https://github.com/PDgit12/knit/blob/main/CHANGELOG.md\n`,
+        `[knit] update available: v${VERSION} installed, v${latest} on npm — restart your MCP host to upgrade (clear npx cache if needed: \`rm -rf ~/.npm/_npx/\`). Changelog: https://github.com/PDgit12/knit/blob/main/CHANGELOG.md\n`,
       );
     }
   }, 250);

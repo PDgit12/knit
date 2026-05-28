@@ -18,7 +18,7 @@ export async function installAgentsCommand(
 
   if (!existsSync(join(rootPath, 'CLAUDE.md'))) {
     console.log(chalk.yellow('  No CLAUDE.md found in this directory.'));
-    console.log(chalk.dim('  Open this project in Claude Code with the Knit MCP first — it auto-initializes on first tool call.'));
+    console.log(chalk.dim('  Open this project in any MCP-speaking agent (Claude Code / Cursor / Codex / Cline / Continue / Copilot) with Knit MCP first — it auto-initializes on first tool call.'));
     process.exit(1);
   }
 
@@ -76,6 +76,6 @@ export async function installAgentsCommand(
 
   const total = result.installed.length + result.alreadyCurrent.length;
   console.log(chalk.dim(`  ${total} agent${total === 1 ? '' : 's'} ready in <project>/.claude/agents/`));
-  console.log(chalk.dim('  Claude Code will find them automatically when teams dispatch.'));
+  console.log(chalk.dim('  Your agent will find them automatically when teams dispatch.'));
   console.log();
 }

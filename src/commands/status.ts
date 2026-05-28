@@ -11,7 +11,7 @@ export async function statusCommand(targetDir: string): Promise<void> {
   const knowledgeIndexPath = knowledgePath(rootPath);
 
   if (!existsSync(kbPath) && !existsSync(knowledgeIndexPath)) {
-    console.log(chalk.yellow('  No Knit data found. The brain will auto-initialize when you open this project in Claude Code.'));
+    console.log(chalk.yellow('  No Knit data found. The brain will auto-initialize when you open this project in any MCP-speaking agent.'));
     console.log();
     return;
   }

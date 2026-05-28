@@ -420,7 +420,7 @@ function runGlobalDoctor(): GlobalDoctorReport {
     checks.push({
       name: 'Projects',
       status: 'info',
-      detail: 'No projects registered yet. Open a repo in Claude Code/Cursor/etc with Knit MCP connected.',
+      detail: 'No projects registered yet. Open a repo in any MCP-speaking agent (Claude Code / Cursor / Codex / Cline / Continue / Copilot) with Knit MCP connected.',
     });
   }
 

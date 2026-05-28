@@ -506,7 +506,7 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
         update_available: {
           current: VERSION,
           latest,
-          upgrade: 'Restart Claude Code to spawn a fresh MCP — npx will auto-fetch the new version. If your ~/.claude.json pins a specific version, change it to "knit-mcp@latest".',
+          upgrade: 'Restart your MCP host (Claude Code / Cursor / Codex / Cline / Continue / VS Code) to spawn a fresh MCP — npx will auto-fetch the new version. If your MCP config pins a specific version, change it to "knit-mcp@latest".',
           changelog: 'https://github.com/PDgit12/knit/blob/main/CHANGELOG.md',
         },
       };
@@ -2777,7 +2777,7 @@ function computeBudgetHealth(brain: BrainCache): {
   const suggestions: Record<typeof worst, string> = {
     claude_md: 'CLAUDE.md is over the 6.5KB target — run `engram refresh` to splice the lean marker-block, or check that the file is using the generator (not hand-curated).',
     tool_registry: 'Tool registry over budget — call knit_list_features to see which Tier-2/3 tools are active and disable any you do not need.',
-    instructions: 'Instructions block over budget — likely a v0.x → v0.y growth. Restart Claude Code to pick up the trimmed instructions.',
+    instructions: 'Instructions block over budget — likely a v0.x → v0.y growth. Restart your MCP host to pick up the trimmed instructions.',
   };
 
   return {

@@ -14,7 +14,7 @@ export async function refreshCommand(targetDir: string): Promise<void> {
 
   // Verify Knit is initialized (either centralized or legacy)
   if (!existsSync(join(rootPath, 'CLAUDE.md')) || !existsSync(projectDataDir(rootPath))) {
-    console.log(chalk.red('  No Knit setup found. Open this project in Claude Code with the Knit MCP — it will auto-initialize.'));
+    console.log(chalk.red('  No Knit setup found. Open this project in any MCP-speaking agent with Knit MCP — it will auto-initialize.'));
     process.exit(1);
   }
 
