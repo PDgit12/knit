@@ -4,7 +4,6 @@
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
   <img src="https://img.shields.io/badge/MCP%20tools-56-7c3aed?style=for-the-badge" alt="tools" />
-  <img src="https://img.shields.io/badge/agents-6-10b981?style=for-the-badge" alt="agents supported" />
   <img src="https://img.shields.io/badge/local--first-100%25-3b82f6?style=for-the-badge" alt="local-first" />
 </p>
 
