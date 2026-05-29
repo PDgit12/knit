@@ -40,7 +40,7 @@ Knit gives **any MCP-speaking coding agent** the right defaults automatically �
 
 **Local-first** invariant: zero cloud calls in memory/retrieval/classification. Dashboard binds to `127.0.0.1` only, with Host/Origin validation + CSP headers. Your brain stays on your machine.
 
-It's a **single product**, not four. Every design choice has to win on memory + tokens + workflow + analytics together.
+One product: every design choice wins on memory, tokens, workflow, and analytics together.
 
 ---
 
@@ -123,62 +123,37 @@ Knit writes nowhere else on your machine.
 ## 🔍 How search works
 
 Knit's retrieval is **BM25 + Reciprocal Rank Fusion** over your learnings,
-session summaries, and the cross-project pool, with two cheap-but-honest
-lexical-bridging layers stacked on top: **2-gram fallback** for typos and
-rare compounds, and **curated coding-domain synonym expansion** for the
-most common semantic-gap pairs. No vector embeddings, no remote inference,
-no API calls.
+session summaries, and the cross-project pool, with two lexical-bridging
+layers on top: a **2-gram fallback** for typos and rare compounds, and
+**curated coding-domain synonym expansion** for common semantic-gap pairs.
+No vector embeddings, no remote inference, no API calls.
 
-**Why this design choice (not an oversight):**
+The design is deliberate:
 
-- **Deterministic.** Same query → same ranking, every time. No model
-  drift, no upgrade-day surprises.
-- **Fast.** Sub-millisecond on corpora ≤ 1K entries (your typical
-  project memory). No cold start, no model load.
-- **Local-first.** Zero network calls. Your memory never leaves the
-  machine.
-- **Auditable.** You can explain every hit by looking at term overlap
-  + the synonym dictionary (50 pairs, hand-curated). No "the model
-  said so."
-- **Honest at the boundary.** The bench has documented misses where
-  even synonym expansion can't bridge the gap — we ship those visible,
-  not hidden.
+- **Deterministic** — same query, same ranking, every time. No model drift.
+- **Fast** — sub-millisecond on typical project corpora (≤ 1K entries). No cold start.
+- **Local-first** — zero network calls; your memory never leaves the machine.
+- **Auditable** — every hit is explainable from term overlap plus the 50-pair synonym dictionary.
 
-**What it does well.** Exact term match, identifier search
-(`knit_classify_task`), rare-term emphasis (e.g. `PIPE_BUF`), multi-word
-ranking, tag filtering, cross-project diversification (max 2 per
-project), branch diversification on sessions (max 2 per branch). **Typo
-recovery via 2-gram fallback** (`knit_clasify` → `knit_classify_task`).
-**Synonym recovery via curated dictionary** (`hook` ↔ `webhook`,
-`schema` ↔ `migration`, `auth` ↔ `authentication`, `cache` ↔ `memo`,
-`deploy` ↔ `ship` ↔ `release`, etc. — see
-[`src/engine/retrieval/synonyms.ts`](src/engine/retrieval/synonyms.ts)
-for the full ~50-pair dictionary). Synonym matches scored at 0.4× of a
-direct BM25 hit so genuine matches always rank higher.
+**Capabilities.** Exact term + identifier match (`knit_classify_task`),
+rare-term emphasis (`PIPE_BUF`), multi-word ranking, tag filtering,
+cross-project diversification (max 2 per project), branch diversification on
+sessions (max 2 per branch), typo recovery via 2-gram fallback
+(`knit_clasify` → `knit_classify_task`), and synonym recovery (`hook` ↔
+`webhook`, `schema` ↔ `migration`, `auth` ↔ `authentication`, `cache` ↔
+`memo`, `deploy` ↔ `ship` ↔ `release`, … — see
+[`src/engine/retrieval/synonyms.ts`](src/engine/retrieval/synonyms.ts) for the
+full ~50-pair dictionary). Synonym matches score at 0.4× a direct hit, so exact
+matches always rank higher.
 
-**What it still cannot do.** Multi-word paraphrase ("how do schema
-changes ship" with no shared terms). Deep abstraction-level bridging
-("data consistency" → "atomic temp+rename"). Question intent
-("what's the right pattern for X"). Negation. Cross-entry synthesis
-("based on the auth lessons, what should I do for OAuth"). These need
-either embeddings (model dependency + bundle weight, breaks local-first
-unless run locally via ONNX) or an LLM call layer (Knit-as-retrieval
-becomes Knit-as-agent, different identity). v0.21+ candidate: hybrid
-retrieval (BM25 + local embeddings via RRF) — opt-in, bench-gated.
+**Benchmarks.** Synthetic 88.0% top-1 / **100% recall@5**; real-prose learnings
+86.7% top-1 / 96.7% recall@5. Both layers default on; set
+`enableNgramFallback: false` + `enableSynonyms: false` for a strict
+lexical-only baseline.
 
-**The practical implication.** Search with words close to how you
-recorded the learning, OR words that have a synonym pair in the
-dictionary. If you write a learning about *webhook signatures*, you
-can now search either *webhook signatures* OR *hook signatures* —
-the dictionary bridges those. For genuinely different vocabulary that
-isn't in the synonym table, use `knit_search_global_learnings` to widen
-the corpus, or call `knit_search_sessions` to pull from past narrative
-summaries that may use more terms.
-
-**Bench numbers (v0.16):** synthetic 88.0% top-1 / **100% recall@5**,
-learnings (real-prose) 86.7% top-1 / 96.7% recall@5. Both default ON;
-opt-out via `enableNgramFallback: false` + `enableSynonyms: false` for
-a strict lexical-only baseline.
+**Roadmap.** A hybrid retriever (BM25 + local embeddings, fused via RRF) for
+paraphrase and abstraction-bridging is a v0.21+ candidate — opt-in,
+bench-gated, and local-first.
 
 ---
 
@@ -357,7 +332,7 @@ A single command opens a local-first analytics surface at `http://127.0.0.1:7421
 
 **Real-time sync via SSE.** The server watches `~/.knit/` via `fs.watch`; any agent recording a learning anywhere updates the open dashboard within ~250ms. No polling.
 
-### 🔐 Security hardening (real, not theater)
+### 🔐 Security hardening
 
 The dashboard is a localhost HTTP server, which has real attack surface. v0.13 closes it:
 
@@ -395,7 +370,7 @@ The dashboard works regardless of which agent you use — it reads the brain fro
 | `knit_classify_task` response | ~500 tok | **~150 tok** | 70% |
 | `knit_load_session` response | ~3–5 KB | **~1.5 KB** | ~60% |
 
-Each surface gets a `healthy | warn | over-budget` verdict from `knit_brain_status.token_budget`. **Drift is a regression test, not a vibes claim.**
+Each surface gets a `healthy | warn | over-budget` verdict from `knit_brain_status.token_budget`, enforced by a regression test.
 
 ---
 
@@ -441,7 +416,7 @@ knit
 > domains detected), diagnostics (6 tools, on during your first session),
 > subagents (1 tool, auto-on when `.claude/agents/` exists), and admin (3 tools,
 > opt-in via `knit_enable_feature("admin")`). That's why one machine shows 45
-> and another 43 — different shape, not a bug. Run `knit doctor` (or call
+> and another 43 — it reflects each project's shape. Run `knit doctor` (or call
 > `knit_list_features`) for your project's **live count and the reason for it**.
 > The groups below cover the main tools; `knit_list_features` is the
 > authoritative live list.
@@ -738,7 +713,7 @@ Knit is a **project brain your agent plugs into** — a live code knowledge grap
 - **Graph-grounded recall** — memory ranked by what your change *structurally* touches (dependents, fanout), not just keyword overlap.
 - **Impact classifier** — every task is sized (Inquiry → Trivial → Standard → Complex) and complex work auto-enters plan mode. The brain decides *how carefully* to handle a change, not just what to recall.
 - **Self-calibrating** — `knit_record_false_positive` shifts the classifier's thresholds per project; it gets less wrong over time.
-- **Honest token accounting** — `knit_compounding_metrics` makes "cheaper over time" chartable per project, not a vibe.
+- **Token accounting** — `knit_compounding_metrics` makes "cheaper over time" chartable per project.
 - **Parallel team worktrees** — multi-domain work fans out into isolated git worktrees so agents don't collide.
 - **Brain integrity** — a freshness layer keeps every datum trustworthy: stale handoffs auto-clear, idle classifier signals decay, deleted-file references get flagged.
 - **Fully local, zero-glue** — `npx knit-mcp setup` and it's a brain every MCP host (Claude Code, Cursor, Codex, Cline, Continue, Copilot) shares. No cloud, no SDK wiring.
@@ -747,7 +722,7 @@ Knit is a **project brain your agent plugs into** — a live code knowledge grap
 
 Knit also **composes with** whatever else you run: `knit_scan_integrations` detects existing workflow frameworks and slash commands and defers to them where they fit — Knit stays the memory + classification brain underneath.
 
-### Retrieval, measured honestly
+### Retrieval benchmarks
 
 Knit's retrieval is BM25 + reciprocal-rank fusion + graph traversal — **vectorless, deterministic, auditable**, no embedding model or cloud call. In-repo regression gates:
 
@@ -756,7 +731,7 @@ Knit's retrieval is BM25 + reciprocal-rank fusion + graph traversal — **vector
 | 50-question synthetic | **88%** | **100%** | `npm run bench` |
 | 30-question narrative prose | **86.7%** | **96.7%** | `npm run bench:learnings` |
 
-These are small, hand-authored corpora — honest regression gates that block merges if retrieval degrades, **not** a claim of large-scale parity. A run on a standard long-memory benchmark + a hybrid BM25 + local-embeddings retriever are v0.21+ candidates.
+These are focused in-repo regression gates that block a merge if retrieval degrades. A run on a standard long-memory benchmark and a hybrid BM25 + local-embeddings retriever are v0.21+ candidates.
 
 ---
 
