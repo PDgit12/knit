@@ -2,6 +2,42 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] — 2026-05-29
+
+**Onboarding + dashboard actions.** Shipped after a six-dimension deep-clean
+audit (0 critical) and a real-life end-to-end run on a fresh project. 56 tools.
+
+### Added — onboarding (`knit_onboard`)
+
+- A new user pastes the README onboarding prompt after connecting Knit and
+  describes their project + how they want Knit to behave; the agent calls
+  `knit_onboard`, which persists per-project preferences
+  (`~/.knit/projects/<hash>/preferences.json`: strictness, feature flags, focus
+  domains, project intent), applies them, and records the intent into the brain.
+- The project intent is surfaced every session — at the MCP handshake
+  (`instructions` field) and in `knit_load_session`. A not-onboarded project is
+  nudged to run `knit_onboard`.
+- Host-agnostic (a plain MCP tool + a copy-paste prompt) — works on any MCP
+  host, new or resumed session. Tools 55 → 56 (Tier-1 36 → 37).
+
+### Added — dashboard actions
+
+- The dashboard can act, not just view: **Refresh** (re-index a project) and
+  **Export all projects** (to an Obsidian vault). Both run as child processes so
+  the single-threaded server never blocks; loopback-bound + Host/Origin-gated;
+  no user-supplied filesystem paths. Source path is persisted per project
+  (`meta.json`) so the dashboard can target a project by its hash.
+- New read-only `GET /api/projects/:id/knowledge`; `knit doctor` gains a webapp
+  health check.
+
+### Fixed
+
+- Dashboard resilience: the whole request handler is wrapped so no request can
+  crash the server; action callbacks guard against a disconnected client.
+- The MCP handshake now surfaces the budget verdict + project intent (the live
+  CLI path previously omitted them). Intent is re-redacted at read.
+- The "All-time" chip is a static scope label, not a fake dropdown.
+
 ## [0.20.0] — 2026-05-29
 
 **Brain integrity + clarity + dashboard-first.** A consolidated release spanning

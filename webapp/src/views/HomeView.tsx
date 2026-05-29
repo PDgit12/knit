@@ -172,17 +172,23 @@ function formatTokens(n: number): string {
 }
 
 function PeriodChip() {
+  // Scope label, not a control: brain savings are all-time cumulative totals
+  // (not per-event timestamped), so there's no honest period filter to offer.
+  // Shown as a static badge — no chevron implying a dropdown that isn't there.
   return (
-    <div style={{
-      display: 'inline-flex', alignItems: 'center', gap: 6,
-      background: 'rgba(255, 255, 255, 0.08)',
-      color: 'var(--text-light)',
-      padding: '6px 12px',
-      borderRadius: 'var(--radius-pill)',
-      fontSize: 'var(--size-label)',
-    }}>
+    <div
+      title="Brain savings are reported across all recorded sessions"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        background: 'rgba(255, 255, 255, 0.08)',
+        color: 'var(--text-mute-light, rgba(255,255,255,0.65))',
+        padding: '6px 12px',
+        borderRadius: 'var(--radius-pill)',
+        fontSize: 'var(--size-label)',
+        letterSpacing: '0.02em',
+      }}
+    >
       All-time
-      <svg width={10} height={10} viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg>
     </div>
   );
 }

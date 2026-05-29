@@ -113,6 +113,23 @@ export function protocolConfigPath(rootPath: string): string {
   return join(projectDataDir(rootPath), 'protocol-config.json');
 }
 
+/** ~/.knit/projects/<hash>/preferences.json — v0.21 onboarding preferences. */
+export function preferencesPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'preferences.json');
+}
+
+/** ~/.knit/projects/<hash>/meta.json — v0.21 project metadata (source path).
+ *  The project hash is one-way, so the dashboard can't recover a project's
+ *  source dir without this; written on every brain build. */
+export function projectMetaPath(rootPath: string): string {
+  return join(projectDataDir(rootPath), 'meta.json');
+}
+
+/** ~/.knit/exports/<id>/ — v0.21 fixed dashboard export target (no user path). */
+export function exportsDir(projectId: string): string {
+  return join(knitRoot(), 'exports', projectId);
+}
+
 /** ~/.knit/projects/<hash>/.classified-current — per-turn classification marker. */
 export function classificationMarkerPath(rootPath: string): string {
   return join(projectDataDir(rootPath), '.classified-current');

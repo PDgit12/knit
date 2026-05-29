@@ -180,6 +180,13 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function post<T>(path: string): Promise<T> {
+  const res = await fetch(path, { method: 'POST' });
+  const body = await res.json().catch(() => ({})) as { error?: string };
+  if (!res.ok) throw new Error(body.error || `${path} → HTTP ${res.status}`);
+  return body as T;
+}
+
 export const api = {
   version: () => get<VersionInfo>('/api/version'),
   brainSummary: () => get<BrainSummary>('/api/brain/summary'),
@@ -193,4 +200,7 @@ export const api = {
   globalLearnings: () => get<{ learnings: GlobalLearning[] }>('/api/global/learnings'),
   doctor: () => get<GlobalDoctorReport>('/api/doctor'),
   commands: () => get<AgentCommandsResponse>('/api/commands'),
+  // v0.21 — write actions
+  projectRefresh: (id: string) => post<{ status: string; sourcePath: string }>(`/api/projects/${id}/refresh`),
+  exportBrain: () => post<{ status: string; path: string }>('/api/export'),
 };

@@ -23,8 +23,8 @@ describe('tool-count drift guard', () => {
   const conditional = TOOL_REGISTRY.filter((t) => t.tier !== 1).length;
 
   it('registry is the single source of truth (bump README authoritative line if these change)', () => {
-    expect(total).toBe(55);
-    expect(alwaysOn).toBe(36);
+    expect(total).toBe(56);
+    expect(alwaysOn).toBe(37);
     expect(conditional).toBe(19);
     expect(alwaysOn + conditional).toBe(total);
   });

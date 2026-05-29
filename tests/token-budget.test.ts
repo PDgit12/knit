@@ -120,11 +120,11 @@ describe('knit_brain_status — token_budget surface', () => {
 
     const result = JSON.parse(handleBrainStatus({}, buildMinimalBrain()));
     const tr = result.token_budget.budgets.tool_registry;
-    // Empty-shape project → 34 Tier-1 + 6 auto-exposed setup diagnostics
-    // (v0.12.1 demotion lands diagnostics in Tier-2 with first-session
-    // auto-expose). Range 28-42 catches drift in either direction.
+    // Empty-shape project → 37 Tier-1 (v0.21 adds knit_onboard) + 6
+    // auto-exposed setup diagnostics = 43. Range 28-44 catches drift in
+    // either direction.
     expect(tr.active_tool_count).toBeGreaterThanOrEqual(28);
-    expect(tr.active_tool_count).toBeLessThanOrEqual(42);
+    expect(tr.active_tool_count).toBeLessThanOrEqual(44);
     // v0.12.1: honest serialized byte count (~15.5KB for 40 active tools)
     // against 14KB target → warn within 25% slack. The pre-v0.12.1
     // estimator used a hardcoded 280B/tool average that understated by

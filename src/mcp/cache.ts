@@ -17,6 +17,7 @@ import { generateLearningsContent } from '../generators/learnings.js';
 import { generateSettings, HOOKS_VERSION } from '../generators/settings.js';
 import {
   projectDataDir,
+  projectMetaPath,
   knowledgePath,
   knowledgebasePath,
   learningsDir,
@@ -164,6 +165,12 @@ export function getBrain(rootPath: string): BrainCache {
   if (!kbLoad.loadFailed) {
     saveKnowledgeBase(knowledgebasePath(rootPath), knowledgeBase);
   }
+
+  // v0.21 — persist the source path so the dashboard (which only knows the
+  // one-way project hash) can resolve it for the Refresh action. Best-effort.
+  try {
+    writeFileAtomic(projectMetaPath(rootPath), JSON.stringify({ sourcePath: rootPath, updatedAt: new Date().toISOString() }, null, 2));
+  } catch { /* best-effort: meta is a convenience for the dashboard */ }
 
   // v0.5.1: silently upgrade hooks for projects initialized on older engram versions.
   // Skipped right after autoInitialize, which already wrote fresh hooks.

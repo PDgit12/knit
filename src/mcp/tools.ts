@@ -13,7 +13,7 @@ import {
   handleQueryTests, handleFindFanout, handleSearchLearnings,
   handleGetFalsePositives, handleBrainStatus,
   handleClassifyTask, handleBuildContext, handleRecordLearning,
-  handleRecordFalsePositive, handleSaveHandoff, handleSetupProject,
+  handleRecordFalsePositive, handleSaveHandoff, handleOnboard, handleSetupProject,
   handleLoadSession,
   handleGetTeams, handleDefineTeam, handleStartTeamReview,
   handleGetTeamPrompt, handlePostTeamFindings, handleGetBoardSummary,
@@ -176,6 +176,11 @@ export function getToolDefinitions(): ToolDef[] {
       name: 'knit_save_handoff',
       description: '[END SESSION — UNFINISHED] Save state. failed_attempts is load-bearing.',
       inputSchema: { type: 'object', properties: { goal: { type: 'string' }, current_state: { type: 'string' }, files_in_flight: { type: 'string' }, what_changed: { type: 'string' }, failed_attempts: { type: 'string' }, decisions_made: { type: 'string' }, next_step: { type: 'string' } }, required: ['goal', 'current_state', 'failed_attempts', 'next_step'] },
+    },
+    {
+      name: 'knit_onboard',
+      description: '[ONBOARDING] Run once after connecting Knit. Captures the project + how the user wants Knit; persists preferences, applies strictness + features, records project intent.',
+      inputSchema: { type: 'object', properties: { project_description: { type: 'string', description: 'What the project is.' }, intent: { type: 'string', description: 'What the user is building / their goal.' }, strictness: { type: 'string', description: 'off | warn | block.' }, focus_domains: { type: 'string', description: 'Comma-separated domains to focus on.' }, enable: { type: 'string', description: 'Comma-separated features to enable: teams, subagents, diagnostics, admin.' } } },
     },
     {
       name: 'knit_setup_project',
@@ -482,6 +487,7 @@ const handlers: Record<string, (params: Record<string, string>, brain: BrainCach
   knit_record_learning: handleRecordLearning,
   knit_record_false_positive: handleRecordFalsePositive,
   knit_save_handoff: handleSaveHandoff,
+  knit_onboard: handleOnboard,
   knit_setup_project: handleSetupProject,
   knit_get_teams: handleGetTeams,
   knit_define_team: handleDefineTeam,

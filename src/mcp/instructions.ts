@@ -27,6 +27,8 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { VERSION } from '../version.js';
 import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
+import { loadPreferences } from '../engine/preferences.js';
+import { redactSecrets } from './sanitize.js';
 
 export const KNIT_INSTRUCTIONS_BASE = `Knit is a memory + workflow layer for this project. It provides per-project memory across sessions, a knowledge graph (imports/exports/tests), and a tier-routed workflow protocol.
 
@@ -118,7 +120,14 @@ export function buildInstructions(scan: ScanResult | null, rootPath?: string): s
   const budgetSuffix = budgetLine ? `\n\n— Budget check —\n\n${budgetLine}` : '';
   const updateLine = buildUpdateNotice();
   const updateSuffix = updateLine ? `\n\n— Update available —\n\n${updateLine}` : '';
-  const trailingSuffix = budgetSuffix + updateSuffix;
+  // v0.21 — surface the user's onboarded project intent at the handshake, so
+  // the brain reflects what they're building before any tool call.
+  const prefs = rootPath ? loadPreferences(rootPath) : null;
+  // redact at read (defense-in-depth) — same as the handoff read path — since
+  // this lands in the agent's handshake context.
+  const intentText = prefs ? redactSecrets(prefs.intent || prefs.projectDescription) : '';
+  const intentSuffix = intentText ? `\n\n— Project intent —\n\n${intentText.slice(0, 200)}` : '';
+  const trailingSuffix = budgetSuffix + updateSuffix + intentSuffix;
   if (!scan) return KNIT_INSTRUCTIONS_BASE + trailingSuffix;
   const addenda: string[] = [];
 

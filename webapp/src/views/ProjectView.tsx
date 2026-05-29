@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api, type LearningEntry, type ProjectMetrics, type ProjectKnowledge } from '../api/client';
 import { useBrainSync } from '../api/useBrainSync';
 import {
   Card, Eyebrow, HeroNumber, StatNumber, DeltaPill, ArrowUpRight,
   Loading, ErrorBanner,
 } from '../components/Card';
+
+const ACTION_BTN: CSSProperties = {
+  padding: '6px 14px',
+  borderRadius: 'var(--radius-inner, 8px)',
+  border: '1px solid var(--border-subtle, rgba(0,0,0,0.12))',
+  background: 'var(--surface-glass, #fff)',
+  fontSize: 'var(--size-label)',
+  fontWeight: 'var(--weight-medium)',
+  cursor: 'pointer',
+};
 
 const VERDICT_TONE: Record<ProjectMetrics['verdict'], 'mint' | 'lavender' | 'neutral' | 'dark'> = {
   cold: 'neutral',
@@ -20,7 +30,21 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const [knowledge, setKnowledge] = useState<ProjectKnowledge['knowledge'] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState<string>('');
+  const [action, setAction] = useState<{ kind: 'refresh' | 'export' | null; busy: boolean; msg: string | null; err: boolean }>({ kind: null, busy: false, msg: null, err: false });
   const sync = useBrainSync();
+
+  const doRefresh = () => {
+    setAction({ kind: 'refresh', busy: true, msg: null, err: false });
+    api.projectRefresh(projectId)
+      .then((r) => setAction({ kind: 'refresh', busy: false, msg: `Re-indexed ${r.sourcePath}`, err: false }))
+      .catch((e: Error) => setAction({ kind: 'refresh', busy: false, msg: e.message, err: true }));
+  };
+  const doExport = () => {
+    setAction({ kind: 'export', busy: true, msg: null, err: false });
+    api.exportBrain()
+      .then((r) => setAction({ kind: 'export', busy: false, msg: `Exported all projects to ${r.path}`, err: false }))
+      .catch((e: Error) => setAction({ kind: 'export', busy: false, msg: e.message, err: true }));
+  };
 
   useEffect(() => {
     Promise.all([api.projectLearnings(projectId), api.projectMetrics(projectId)])
@@ -157,10 +181,20 @@ export function ProjectView({ projectId }: { projectId: string }) {
             <MiniStat label="High-fanout" value={knowledge.highFanout} hint="≥3 importers" />
             <MiniStat label="Languages" value={knowledge.languages.length} hint={knowledge.languages.slice(0, 3).map((l) => l.lang).join(', ') || '—'} />
           </div>
-          {/* The dashboard is read-only by design; point users at the CLI for
-              source-touching actions so they don't hunt for a button. */}
-          <div style={{ marginTop: 'var(--space-4)', color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
-            Read-only view. To re-index or export, run <code>knit refresh</code> / <code>knit export</code> in your project terminal.
+          {/* v0.21 — dashboard actions: re-index this project, or export the
+              whole brain to a fixed Obsidian vault. */}
+          <div style={{ marginTop: 'var(--space-4)', display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={doRefresh} disabled={action.busy} style={ACTION_BTN}>
+              {action.busy && action.kind === 'refresh' ? 'Refreshing…' : 'Refresh index'}
+            </button>
+            <button onClick={doExport} disabled={action.busy} style={ACTION_BTN} title="Exports every project's learnings + the global pool to an Obsidian vault">
+              {action.busy && action.kind === 'export' ? 'Exporting…' : 'Export all projects'}
+            </button>
+            {action.msg && (
+              <span style={{ fontSize: 'var(--size-label)', color: action.err ? '#b91c1c' : 'var(--text-mute-dark)' }}>
+                {action.msg}
+              </span>
+            )}
           </div>
         </Card>
       )}

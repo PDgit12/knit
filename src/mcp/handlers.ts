@@ -17,6 +17,7 @@ import {
 import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge, loadAllSessions } from '../engine/sessions.js';
 import { isStale, resolveRef, sourceExists, extractFileRefs, FRESHNESS } from '../engine/freshness.js';
 import { resetAdherenceState } from './adherence.js';
+import { loadPreferences, savePreferences, type ProjectPreferences } from '../engine/preferences.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
@@ -2380,6 +2381,80 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
 
+/** v0.21 — knit_onboard. Run once after connecting Knit (the README onboarding
+ *  prompt tells the agent to call it). The user describes their project + how
+ *  they want Knit to behave; this persists those preferences, applies them
+ *  (strictness, feature flags), records the project intent into the brain so
+ *  retrieval reflects it, and is host-agnostic (works on any MCP host). */
+export function handleOnboard(params: Record<string, string>, brain: BrainCache): string {
+  const projectDescription = redactSecrets((params.project_description || '').slice(0, 1000)).trim();
+  const intent = redactSecrets((params.intent || '').slice(0, 1000)).trim();
+  if (!projectDescription && !intent) {
+    return errorResponse('Provide at least project_description (what the project is) or intent (what you are building).');
+  }
+  const strictnessRaw = (params.strictness || '').trim().toLowerCase();
+  const strictness = isValidStrictness(strictnessRaw) ? strictnessRaw : null;
+  const focusDomains = (params.focus_domains || '')
+    .split(',').map((d) => redactSecrets(d.trim())).filter(Boolean).slice(0, 12);
+  const enableRaw = (params.enable || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  const prefs: ProjectPreferences = {
+    version: 1,
+    projectDescription,
+    intent,
+    strictness,
+    focusDomains,
+    onboardedAt: new Date().toISOString(),
+  };
+  savePreferences(brain.rootPath, prefs);
+
+  const applied: string[] = [];
+
+  if (strictness) {
+    writeProtocolConfig(brain.rootPath, strictness);
+    applied.push(`strictness=${strictness}`);
+  }
+
+  const featuresEnabled: string[] = [];
+  if (enableRaw.length > 0) {
+    const set = loadEnabledFeatures(brain.rootPath);
+    for (const f of enableRaw) {
+      if (isEnableableFeature(f) && !set.has(f)) { set.add(f); featuresEnabled.push(f); }
+    }
+    if (featuresEnabled.length > 0) {
+      saveEnabledFeatures(brain.rootPath, set);
+      notifyToolsListChanged();
+      applied.push(`features=${featuresEnabled.join('+')}`);
+    }
+  }
+
+  // Record the project intent as a learning so it surfaces in retrieval.
+  const summary = `Project intent: ${(intent || projectDescription).slice(0, 160)}`;
+  addEntry(brain.knowledgeBase, {
+    date: new Date().toISOString().split('T')[0],
+    summary,
+    domains: focusDomains.length > 0 ? focusDomains : ['project'],
+    approach: 'onboarding',
+    outcome: 'success',
+    lesson: `${projectDescription}${intent ? ` — building: ${intent}` : ''}`.slice(0, 500),
+    tags: ['#onboarding', '#project-intent'],
+  });
+  saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
+  applied.push('intent recorded');
+
+  return JSON.stringify({
+    status: 'onboarded',
+    project_description: projectDescription,
+    intent,
+    strictness: strictness ?? '(unchanged)',
+    focus_domains: focusDomains,
+    features_enabled: featuresEnabled,
+    applied,
+    instruction: 'Onboarding saved. Knit will surface this project intent at the start of every session. Call knit_classify_task to begin your first task.',
+  });
+}
+
 
 export function handleSetupProject(params: Record<string, string>, brain: BrainCache): string {
   // User-supplied description/domains/team_roles flow into teams.json and the
@@ -3073,6 +3148,11 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
   const budgetHealth = computeBudgetHealth(brain);
   const learningsHealth = computeLearningsHealth(brain);
 
+  // v0.21 — surface onboarding preferences so the brain reflects the user's
+  // stated project intent every session. Re-redact at read (defense-in-depth).
+  const prefs = loadPreferences(root);
+  const intentRedacted = prefs ? redactSecrets(prefs.intent || prefs.projectDescription) : '';
+
   const response: Record<string, unknown> = {
     session_context: {
       last_session: lastSession,
@@ -3086,6 +3166,7 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     },
     project: {
       knowledge,
+      ...(prefs ? { preferences: { intent: intentRedacted, strictness: prefs.strictness, focus_domains: prefs.focusDomains } } : {}),
       ...(teams !== undefined ? { teams } : {}),
       ...(metrics !== undefined ? { metrics } : {}),
       ...(recentSessions !== undefined ? { recent_sessions: recentSessions } : {}),
@@ -3095,9 +3176,11 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     ...(learningsHealth && learningsHealth.verdict === 'low-utilization' ? { learnings_health: learningsHealth } : {}),
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
-      : topLearnings.length > 0
-        ? `Session loaded. ${topLearnings.length} key learnings, ${fps.length} false positives. Call knit_classify_task to begin. Use include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge for more.`
-        : 'Fresh brain — no past learnings yet. Call knit_classify_task to begin.',
+      : prefs
+        ? `Session loaded. Project intent: ${intentRedacted.slice(0, 160)}. ${topLearnings.length} key learnings, ${fps.length} false positives. Call knit_classify_task to begin.`
+        : topLearnings.length > 0
+          ? `Session loaded. ${topLearnings.length} key learnings, ${fps.length} false positives — but not onboarded yet: run knit_onboard to set this project's intent + how you want Knit to behave. Then knit_classify_task. (include=patterns,teams,metrics,recent_sessions,full_learnings,full_knowledge for more.)`
+          : 'Fresh brain — not onboarded yet. Run knit_onboard to describe this project and how you want Knit to behave, then knit_classify_task to begin.',
   };
 
   return JSON.stringify(response);

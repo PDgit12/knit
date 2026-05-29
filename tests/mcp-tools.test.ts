@@ -110,9 +110,9 @@ function createMockBrain(): BrainCache {
 }
 
 describe('getToolDefinitions', () => {
-  it('returns 55 tool definitions (v0.14 adds knit_scan_agent_commands + knit_suggest_command)', () => {
+  it('returns 56 tool definitions (v0.21 adds knit_onboard)', () => {
     const tools = getToolDefinitions();
-    expect(tools).toHaveLength(55);
+    expect(tools).toHaveLength(56);
   });
 
   it('exposes the Protocol Guard tools', () => {
@@ -852,12 +852,12 @@ const emptyShape: ProjectShape = {
 describe('getActiveToolDefinitions — filters by ProjectShape', () => {
   it('no shape arg → returns the full registry (back-compat)', () => {
     const tools = getActiveToolDefinitions();
-    expect(tools.length).toBe(55);
+    expect(tools.length).toBe(56);
   });
 
   it('empty shape → drops all 10 Tier-2 + 3 Tier-3 tools', () => {
     const tools = getActiveToolDefinitions(emptyShape);
-    expect(tools.length).toBe(42);
+    expect(tools.length).toBe(43);
     const names = new Set(tools.map((t) => t.name));
     // Team tools hidden:
     expect(names.has('knit_spawn_team_worktree')).toBe(false);
@@ -1153,6 +1153,43 @@ describe('knit_load_session — edge cases', () => {
       const result = JSON.parse(handleToolCall('knit_load_session', {}, firstTouch));
       expect(result.session_context.has_unfinished_work).toBe(false);
       expect(result.session_context.handoff).toBeNull();
+    } finally {
+      try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+});
+
+describe('knit_onboard (v0.21)', () => {
+  it('persists preferences, applies strictness + features, records intent, surfaces it in load_session', () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-onboard-'));
+    try {
+      const brain = { ...createMockBrain(), rootPath: tmpRoot };
+      const res = JSON.parse(handleToolCall('knit_onboard', {
+        project_description: 'A TypeScript MCP server',
+        intent: 'add a billing module',
+        strictness: 'block',
+        focus_domains: 'api, billing',
+        enable: 'teams',
+      }, brain));
+      expect(res.status).toBe('onboarded');
+      expect(res.strictness).toBe('block');
+      expect(res.features_enabled).toContain('teams');
+      expect(res.focus_domains).toEqual(['api', 'billing']);
+
+      const ls = JSON.parse(handleToolCall('knit_load_session', {}, brain));
+      expect(ls.project.preferences.intent).toContain('billing');
+      expect(ls.project.preferences.strictness).toBe('block');
+    } finally {
+      try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+  });
+
+  it('rejects empty input (no description and no intent)', () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'knit-onboard-e-'));
+    try {
+      const brain = { ...createMockBrain(), rootPath: tmpRoot };
+      const res = JSON.parse(handleToolCall('knit_onboard', {}, brain));
+      expect(res.status).toBe('error');
     } finally {
       try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
     }

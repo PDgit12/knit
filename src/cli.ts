@@ -206,7 +206,11 @@ async function runMCP() {
   const { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } = await import('./mcp/update-check.js');
 
   const ROOT_PATH = detectProjectRoot();
-  const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH));
+  // Pass ROOT_PATH so buildInstructions appends the per-project handshake
+  // surfaces (onboarded project intent + the CLAUDE.md budget verdict). Without
+  // it both were silently dropped — this is the live MCP path (server.ts is
+  // not wired to an entrypoint).
+  const PER_PROJECT_INSTRUCTIONS = buildInstructions(loadScanResult(ROOT_PATH), ROOT_PATH);
 
   // v0.11.3 — pre-warm + nag if stale. The update-check module already
   // pre-warms via getBrain → cache.ts, but firing it explicitly here +

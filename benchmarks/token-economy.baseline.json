@@ -1,11 +1,11 @@
 {
   "version": "v0.12",
-  "generated_at": "2026-05-29T14:24:32.679Z",
+  "generated_at": "2026-05-29T16:17:50.823Z",
   "mcp_on": {
     "instructions": 3979,
     "claudeMd": 3801,
-    "toolsList": 8996,
-    "total": 16776
+    "toolsList": 9684,
+    "total": 17464
   },
   "mcp_off": {
     "denseClaudeMd": 4024,
@@ -21,6 +21,6 @@
     "mcp_off_bytes": 800,
     "savings_pct": 50
   },
-  "session_delta_bytes": 12752,
-  "session_delta_pct": 316.9
+  "session_delta_bytes": 13440,
+  "session_delta_pct": 334
 }

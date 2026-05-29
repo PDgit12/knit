@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 
-import { knitRoot } from '../engine/paths.js';
+import { knitRoot, exportsDir } from '../engine/paths.js';
 import { VERSION } from '../version.js';
 import { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } from '../mcp/update-check.js';
 import { scanAllAgentCommands } from '../engine/agent-command-scanner.js';
@@ -706,6 +706,62 @@ function notFound(res: ServerResponse): void {
   jsonResponse(res, 404, { error: 'Not found' });
 }
 
+/** v0.21 — POST /api/projects/:id/refresh. Re-scan a project's source into the
+ *  brain by spawning `knit refresh <sourcePath>` as a CHILD PROCESS. This is
+ *  deliberate: refreshing is a synchronous, CPU+IO-heavy full scan — running it
+ *  in-process would block this single-threaded server for the whole scan and
+ *  make the dashboard appear frozen ("failed to fetch" / unreachable) on any
+ *  non-trivial project. The source path comes from the project's meta.json
+ *  (written on brain build) — never from request input, so there's no
+ *  traversal surface. */
+function handleRefreshAction(id: string, res: ServerResponse): void {
+  const metaPath = join(knitRoot(), 'projects', id, 'meta.json');
+  if (!existsSync(metaPath)) {
+    jsonResponse(res, 409, { error: 'No source path recorded yet. Open this project in your agent once so Knit records it, then retry.' });
+    return;
+  }
+  let sourcePath = '';
+  try {
+    sourcePath = (JSON.parse(readFileSync(metaPath, 'utf-8')) as { sourcePath?: string }).sourcePath || '';
+  } catch {
+    jsonResponse(res, 500, { error: 'meta.json is unreadable.' });
+    return;
+  }
+  if (!sourcePath || !existsSync(sourcePath)) {
+    jsonResponse(res, 409, { error: `Source path no longer exists: ${sourcePath || '(empty)'}. Re-open the project in your agent.` });
+    return;
+  }
+  runCliAction(['refresh', sourcePath], res, { status: 'refreshed', sourcePath });
+}
+
+/** v0.21 — POST /api/export. Export the whole brain to a FIXED Obsidian vault
+ *  under ~/.knit/exports/ (no user-supplied path → no traversal). Spawned as a
+ *  child process for the same non-blocking reason as refresh. */
+function handleExportAction(res: ServerResponse): void {
+  const target = exportsDir('obsidian');
+  runCliAction(['export', 'obsidian', target], res, { status: 'exported', path: target });
+}
+
+/** Spawn the Knit CLI as a child process for a write action and reply when it
+ *  exits. Keeps the dashboard event loop free; a failure becomes a clean 500
+ *  and can never crash the server. */
+function runCliAction(args: string[], res: ServerResponse, okBody: Record<string, unknown>): void {
+  const cliEntry = process.argv[1];
+  execFile(process.execPath, [cliEntry, ...args], { timeout: 120_000, windowsHide: true }, (err, _stdout, stderr) => {
+    // The client may have disconnected during the (up-to-120s) child run.
+    // Writing to a torn-down socket would emit an unhandled 'error' → process
+    // exit, killing the dashboard. Guard + swallow.
+    try {
+      if (res.destroyed || res.writableEnded) return;
+      if (err) {
+        jsonResponse(res, 500, { error: `${args[0]} failed: ${(stderr || err.message).slice(0, 300)}` });
+        return;
+      }
+      jsonResponse(res, 200, okBody);
+    } catch { /* client gone before the response could be written — ignore */ }
+  });
+}
+
 function serveStatic(req: IncomingMessage, res: ServerResponse, webappDist: string): void {
   const urlPath = (req.url || '/').split('?')[0];
   const safePath = urlPath === '/' ? '/index.html' : urlPath;
@@ -938,6 +994,7 @@ export async function uiCommand(): Promise<void> {
   const port = parseInt(process.env.KNIT_UI_PORT || '', 10) || DEFAULT_PORT;
 
   const server = createServer((req, res) => {
+   try {
     const url = req.url || '/';
 
     // Defense-in-depth: reject any request whose Host or Origin doesn't
@@ -956,7 +1013,17 @@ export async function uiCommand(): Promise<void> {
       return;
     }
 
-    // API surface — local-first, read-only in v1.0-alpha.
+    // v0.21 — write actions (POST only). Loopback-bound + Host/Origin-gated
+    // above; never accept an arbitrary filesystem path.
+    if (req.method === 'POST' && url.startsWith('/api/')) {
+      const refreshMatch = url.match(/^\/api\/projects\/([a-f0-9]+)\/refresh\/?$/);
+      if (refreshMatch) { handleRefreshAction(refreshMatch[1], res); return; }
+      if (/^\/api\/export\/?$/.test(url)) { handleExportAction(res); return; }
+      jsonResponse(res, 404, { error: 'Unknown POST route' });
+      return;
+    }
+
+    // API surface — GET reads from ~/.knit.
     if (url.startsWith('/api/')) {
       try {
         if (url === '/api/events') { handleSseConnect(res); return; }
@@ -1038,6 +1105,13 @@ export async function uiCommand(): Promise<void> {
     }
     // Static files (the React bundle) — SPA fallback to index.html.
     serveStatic(req, res, webappDist);
+   } catch (err) {
+    // A single bad request must never take the whole dashboard down.
+    try {
+      process.stderr.write(`[knit ui] request error: ${(err as Error).message}\n`);
+      if (!res.headersSent) jsonResponse(res, 500, { error: 'Internal dashboard error' });
+    } catch { /* response already torn down — ignore */ }
+   }
   });
 
   server.listen(port, HOST, () => {

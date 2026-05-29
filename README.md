@@ -3,7 +3,7 @@
   <a href="https://github.com/PDgit12/knit/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/PDgit12/knit/ci.yml?style=for-the-badge&label=CI&color=10b981" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-3b82f6?style=for-the-badge" alt="license" />
   <img src="https://img.shields.io/badge/node-%E2%89%A518-339933?style=for-the-badge&logo=node.js&logoColor=white" alt="node" />
-  <img src="https://img.shields.io/badge/MCP%20tools-55-7c3aed?style=for-the-badge" alt="tools" />
+  <img src="https://img.shields.io/badge/MCP%20tools-56-7c3aed?style=for-the-badge" alt="tools" />
   <img src="https://img.shields.io/badge/agents-6-10b981?style=for-the-badge" alt="agents supported" />
   <img src="https://img.shields.io/badge/local--first-100%25-3b82f6?style=for-the-badge" alt="local-first" />
 </p>
@@ -20,7 +20,7 @@
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-what-knit-is">What it is</a> ·
   <a href="#-how-search-works">How search works</a> ·
-  <a href="#-55-mcp-tools">Tools</a> ·
+  <a href="#-56-mcp-tools">Tools</a> ·
   <a href="#-the-dashboard">Dashboard</a> ·
   <a href="#-why-knit">Why Knit</a>
 </p>
@@ -55,6 +55,20 @@ knit             # open the brain — the dashboard at http://127.0.0.1:7421
 Two commands: `knit setup` for one-time agent registration, then `knit` to open the brain. Agents communicate with the MCP server over stdio; that process is launched by the host, not invoked manually.
 
 **No per-project setup.** Open your MCP-speaking agent in any project — the first MCP tool call auto-initializes the brain, hooks, and per-project CLAUDE.md block.
+
+### First prompt — onboard your project
+
+Once Knit is connected, open your project in your agent and paste this once. Fill in the brackets, or just describe the project in your own words — the agent does the rest:
+
+> You have the Knit MCP connected. Call `knit_load_session`, then call `knit_onboard` with:
+> - **project_description** — what this project is
+> - **intent** — what I'm building right now
+> - **strictness** — `off` | `warn` | `block` (how strictly to enforce the workflow)
+> - **focus_domains** — comma-separated areas (e.g. `api, billing`)
+>
+> Then summarize what you configured and call `knit_classify_task` for my first task.
+
+Knit persists these preferences and surfaces your project intent at the start of every session. It's a plain MCP tool, so the same prompt works on **any** host — Claude Code, Cursor, Codex, Cline, Continue, Copilot — new session or resumed.
 
 ### Adoption per agent
 
@@ -120,6 +134,18 @@ Knit writes nowhere else on your machine.
 
 ---
 
+## 🎬 A real session
+
+A new TypeScript project, from install to a compounding brain:
+
+1. **Install + register.** `npm i -g knit-mcp && knit setup` — Knit registers with every MCP-speaking agent on the machine.
+2. **Onboard.** Open the project in your agent and paste the onboarding prompt. The agent calls `knit_onboard` — *"Project: a billing API. Intent: add Stripe webhooks. strictness: warn. focus: api, webhooks."* Knit persists those preferences and records the intent.
+3. **Ask for the feature.** The agent calls `knit_classify_task` → e.g. *complex, high-risk* → plan mode. It pulls context with `knit_build_context` (ripple effects), `knit_search_learnings` (anything learned before), and `knit_query_dependents` on the files it will touch.
+4. **Build + verify.** It implements, runs `knit_verify_claim` to check its claims against the knowledge graph, and `knit_record_learning` to save what was non-obvious.
+5. **Compound.** Next session, `knit_load_session` surfaces your intent plus that learning — the brain is already sharper. Run **`knit`** to see it: the dashboard shows the project, its knowledge index, learnings, and token ROI building over time. Hit **Refresh** to re-index or **Export brain** to write an Obsidian vault.
+
+Every step is local, deterministic, and works on any MCP host.
+
 ## 🔍 How search works
 
 Knit's retrieval is **BM25 + Reciprocal Rank Fusion** over your learnings,
@@ -157,6 +183,12 @@ bench-gated, and local-first.
 
 ---
 
+## ✨ What's new in v0.21.0
+
+- **Onboarding (`knit_onboard`).** Paste the README prompt after connecting Knit, describe your project + how you want Knit to behave, and the agent persists your preferences (strictness, features, focus domains) and records the project intent — surfaced every session, on any MCP host.
+- **Dashboard actions.** The dashboard can now **Refresh** (re-index a project) and **Export all projects** (Obsidian vault), in addition to viewing. Actions run as child processes (non-blocking) and stay loopback-bound + Host/Origin-gated.
+- **56 tools** (Tier-1 37). Shipped after a second six-dimension audit (0 critical) and a real-life end-to-end run.
+
 ## ✨ What's new in v0.20.0
 
 v0.20 makes Knit a **fully-ready, dashboard-first brain** — a consolidated
@@ -170,7 +202,7 @@ audit (0 critical findings).
   flagged. Freshness drives prune/clear/flag only — never the bench-gated
   retrieval ranking.
 - **Tool count you can explain.** `knit doctor` and `knit_list_features` print
-  the live active count *with the reason* (e.g. `45 of 55 = 36 always-on + 9
+  the live active count *with the reason* (e.g. `46 of 56 = 37 always-on + 9
   teams [≥3 domains] · …`), so a number that legitimately varies by project
   shape stops looking like a bug. A drift test pins the docs to the registry.
 - **Stays on-protocol mid-session.** A throttled, escalating reminder rides the
@@ -178,9 +210,9 @@ audit (0 critical findings).
   — reaching every MCP host, not just Claude Code. Silence with
   `knit_set_protocol_strictness({ level: "off" })`.
 - **Dashboard-first.** Run **`knit`** to open the brain; the agent/stdio path is
-  unchanged. The dashboard gains a read-only Knowledge-index view; `knit doctor`
-  gains a webapp health check. Source-touching actions (`setup`/`refresh`/
-  `export`) stay in the CLI by design.
+  unchanged. The dashboard gains a Knowledge-index view and a `knit doctor`
+  webapp health check. (v0.21 adds Refresh + Export actions to the dashboard;
+  `knit setup` remains CLI-only.)
 - **Composes with your setup.** Scans Claude Code Skills
   (`.claude/skills/<name>/SKILL.md`) alongside slash commands; positioning leads
   with the integrated brain rather than competitor comparisons.
@@ -390,10 +422,10 @@ knit
 |---|---|
 | **Bento home** | Big "Net tokens saved" hero card (dark), live recent activity (green "live" dot when SSE connected), memory hit-rate gauge, top projects by ROI as color-blocked cards |
 | **Brain graph** | Force-directed visualization of one project's learnings. Nodes sized by access count, colored by domain. Edges by Jaccard similarity over tags + domains. Click any node → side panel with the full lesson. Threshold slider live-recomputes the graph. |
-| **Per-project deep dive** | Hero card with verdict tone (cold/warming/compounding/strong), retrieval signals, classifications-by-tier breakdown, top domains heatmap, searchable learnings list |
+| **Per-project deep dive** | Hero card with verdict tone (cold/warming/compounding/strong), retrieval signals, classifications-by-tier breakdown, top domains heatmap, searchable learnings list, Knowledge index, and **Refresh** (re-index this project) + **Export all projects** (Obsidian vault) actions |
 | **Health** | Install diagnostics — Node version, Knit version, ~/.knit permissions, per-agent MCP registration |
 
-**API endpoints** (all read-only, all 127.0.0.1 only):
+**API endpoints** (127.0.0.1 only, Host/Origin-gated):
 
 - `GET /api/version` — runtime version + update check + security metadata
 - `GET /api/brain/summary` — global counts
@@ -401,22 +433,25 @@ knit
 - `GET /api/projects` — project list
 - `GET /api/projects/:id/learnings` — full learning entries
 - `GET /api/projects/:id/metrics` — compounding ROI for one project
+- `GET /api/projects/:id/knowledge` — knowledge-index summary
 - `GET /api/projects/:id/graph` — force-directed node + edge data (Jaccard threshold tunable)
 - `GET /api/global/learnings` — cross-project pool
 - `GET /api/doctor` — install diagnostics
 - `GET /api/events` — Server-Sent Events stream for real-time sync
+- `POST /api/projects/:id/refresh` — re-index a project (source path from its meta; spawned as a child process)
+- `POST /api/export` — export all projects to a fixed `~/.knit/exports/` vault
 
 ---
 
-## 🛠️ 55 MCP Tools
+## 🛠️ 56 MCP Tools
 
-> **36 always-on, up to 19 conditional, 55 total.** The active count varies by
-> project shape, so it isn't one fixed number — it's `36` plus whichever
+> **37 always-on, up to 19 conditional, 56 total.** The active count varies by
+> project shape, so it isn't one fixed number — it's `37` plus whichever
 > conditional groups your project triggers: teams (9 tools, auto-on when ≥3
 > domains detected), diagnostics (6 tools, on during your first session),
 > subagents (1 tool, auto-on when `.claude/agents/` exists), and admin (3 tools,
-> opt-in via `knit_enable_feature("admin")`). That's why one machine shows 45
-> and another 43 — it reflects each project's shape. Run `knit doctor` (or call
+> opt-in via `knit_enable_feature("admin")`). That's why one machine shows 46
+> and another 44 — it reflects each project's shape. Run `knit doctor` (or call
 > `knit_list_features`) for your project's **live count and the reason for it**.
 > The groups below cover the main tools; `knit_list_features` is the
 > authoritative live list.
@@ -465,6 +500,9 @@ knit
 | `knit_get_workflow` | Fetch protocol depth for one phase on demand. Sections: `overview, tier, phases, research, ideate, plan, execute, optimize, review, tdd, learn, handoff, ship, tools`. |
 | `knit_get_suggestions` | Adaptive warnings from past patterns in given domains. |
 | `knit_reflect` | Detect patterns across recorded learnings (per-project + global pool). Useful with ≥3 entries. |
+| `knit_onboard` | **v0.21.** One-time onboarding: captures the project + how the user wants Knit, persists preferences (strictness, features, focus domains), records the project intent. |
+| `knit_scan_agent_commands` | Scan each MCP host's slash-command + skill directories; surface user-defined commands so Knit composes with them. |
+| `knit_suggest_command` | Per-phase lookup against scanned commands; returns the agent-native command to invoke. |
 
 </details>
 
@@ -638,7 +676,7 @@ knit install-agents --refresh    # re-fetch from network even if cached
   "token_budget": {
     "budgets": {
       "claude_md":            { "bytes": 2048,  "target_bytes": 6500,  "verdict": "healthy" },
-      "tool_registry":        { "bytes": 8400,  "target_bytes": 8500,  "verdict": "healthy", "active_tool_count": 45, "total_tool_count": 55 },
+      "tool_registry":        { "bytes": 8400,  "target_bytes": 8500,  "verdict": "healthy", "active_tool_count": 46, "total_tool_count": 56 },
       "instructions":         { "bytes": 2200,  "target_bytes": 2500,  "verdict": "healthy" },
       "per_session_overhead": { "bytes": 12648, "target_bytes": 17500, "verdict": "healthy" }
     },
@@ -694,7 +732,7 @@ Knowledge Base
 
 Token budget (v0.16)
   CLAUDE.md:           2.0 KB  → healthy
-  Tool registry:       ~13 KB  → warn (45 active / 55 total)
+  Tool registry:       ~13 KB  → warn (46 active / 56 total)
   Instructions:        ~4 KB   → healthy
   Per-session total:   ~20 KB  → healthy
 
@@ -739,6 +777,7 @@ These are focused in-repo regression gates that block a merge if retrieval degra
 
 | Version | Headline |
 |---|---|
+| **v0.21.0** | **Onboarding + dashboard actions.** `knit_onboard` captures the project + how the user wants Knit (preferences persisted, intent surfaced every session, host-agnostic). The dashboard gains **Refresh** + **Export all projects** actions (non-blocking child processes, Host/Origin-gated). New `GET /api/projects/:id/knowledge` + a `knit doctor` webapp check. Shipped after a second six-dimension audit (0 critical) + a real-life E2E. 56 tools. |
 | **v0.20.0** | **Brain integrity + clarity + dashboard-first.** A freshness layer keeps every datum trustworthy (handoffs auto-clear, idle classifier signals decay, deleted-file references get flagged). `knit doctor`/`knit_list_features` explain the live tool count. Mid-session protocol re-surfacing keeps agents on-protocol across every MCP host. **`knit`** opens the brain dashboard; a read-only Knowledge-index view + Skills composition land. Removed competitor comparisons for intrinsic positioning. Shipped after a six-dimension deep-clean audit (0 critical). 55 tools, 855 tests. |
 | **v0.16.0** | **Semantic-lite retrieval.** Curated coding-domain synonym dictionary (~50 pairs) closes the most common BM25 lexical gaps (`hook` ↔ `webhook`, `schema` ↔ `migration`, etc.) without an embedding model. 2-gram fallback for typos default ON after bench verification. Synthetic bench 88% top-1 / **100% recall@5** (was 96%); learnings 86.7% top-1 / 96.7% recall@5. Plus a FIFO-safe `O_NONBLOCK` fix to `handleIndexRequirements`. 55 tools, 818 tests. |
 | **v0.15.0** | **Deep-clean audit release.** Six-dimension second audit + atomic-write helper applied to 9+ sites including `~/.claude.json` (a torn write there used to brick Claude Code). SHA256 sidecars on agent-fetcher cache writes detect tampering and re-fetch. `qs` CVE pinned via `npm overrides` → 0 vulns. Opt-in BM25 2-gram fallback for typos. `pruneLearningsByAge` + schema-validated `readLearnings`. Webapp DoctorView shows per-agent rows. Update notice surfaces in MCP `instructions` field for all 6 agents. 55 tools, 805+ tests. |
@@ -792,7 +831,7 @@ npm run build      # compile CLI + MCP server + webapp
 ```
 knit (npm package)
 ├── dist/cli.js                 # CLI: setup, doctor, ui, status, refresh, install-agents, export
-└── dist/mcp/server.js          # MCP server: 55 tools (tier-gated), auto-init
+└── dist/mcp/server.js          # MCP server: 56 tools (tier-gated), auto-init
 
 per-project, in ~/.knit/projects/<hash>/
 ├── knowledge.json              # import graph + exports + test map
