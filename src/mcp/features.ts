@@ -202,6 +202,46 @@ export function computeFeatureListing(shape: ProjectShape): FeatureListing {
   };
 }
 
+/**
+ * v0.17 — one-line, reason-bearing active-tool summary. The fix for the
+ * "why does my Mac show 45 and Windows 43?" confusion: the count varies with
+ * three hidden project signals (domain count, subagents present, first-vs-later
+ * session), so a static doc number can't explain it — but THIS can, live.
+ *
+ * Example: "45 of 55 tools active = 36 always-on + 9 teams [≥3 domains (5)].
+ *  Hidden: 6 diagnostics [hidden after session 1 (now 12)], 1 subagents
+ *  [no .claude/agents/], 3 admin [opt-in] — enable via knit_enable_feature."
+ */
+export function summarizeActiveTools(shape: ProjectShape): string {
+  const listing = computeFeatureListing(shape);
+  const total = listing.totals.total;
+  const alwaysOn = TOOL_REGISTRY.filter((t) => t.tier === 1).length;
+  const teamsN = TOOL_REGISTRY.filter((t) => t.category === 'teams').length;
+  const subN = TOOL_REGISTRY.filter((t) => t.category === 'subagents').length;
+  const diagT2 = TOOL_REGISTRY.filter((t) => t.tier === 2 && t.category === 'diagnostics').length;
+  const adminN = TOOL_REGISTRY.filter((t) => t.tier === 3).length;
+
+  const on: string[] = [`${alwaysOn} always-on`];
+  const off: string[] = [];
+
+  const teamsActive = shape.domainCount >= 3 || shape.enabledFeatures.has('teams');
+  (teamsActive ? on : off).push(
+    `${teamsN} teams [${teamsActive ? `≥3 domains (${shape.domainCount})` : `needs ≥3 domains, have ${shape.domainCount}`}]`,
+  );
+  const diagActive = shape.sessionCount <= 1 || shape.enabledFeatures.has('diagnostics');
+  (diagActive ? on : off).push(
+    `${diagT2} diagnostics [${diagActive ? `session ${shape.sessionCount}` : `hidden after session 1 (now ${shape.sessionCount})`}]`,
+  );
+  const subActive = shape.hasInstalledSubagents || shape.enabledFeatures.has('subagents');
+  (subActive ? on : off).push(`${subN} subagents [${subActive ? '.claude/agents present' : 'no .claude/agents/'}]`);
+  const adminActive = shape.enabledFeatures.has('admin');
+  (adminActive ? on : off).push(`${adminN} admin [opt-in]`);
+
+  let s = `${listing.totals.active} of ${total} tools active = ${on.join(' + ')}`;
+  if (off.length > 0) s += `. Hidden: ${off.join(', ')} — enable via knit_enable_feature`;
+  return s + '.';
+}
+
 /** Valid feature-flag names users can flip on via knit_enable_feature. */
 export type EnableableFeature = 'teams' | 'subagents' | 'admin' | 'diagnostics';
 

@@ -274,7 +274,7 @@ function buildSummary(parts: {
   if (labels.length === 0) {
     return 'No existing workflow frameworks detected. Knit operates in full-protocol mode.';
   }
-  return `Detected: ${labels.join('; ')}. v0.7.2 surfaces this for awareness; v0.8 will tailor Knit's server instructions to defer routing decisions to these where they overlap (memory + classification stay Knit's domain).`;
+  return `Detected: ${labels.join('; ')}. Knit composes with these — its server instructions point agents at each framework's routing primitives where they fit, while Knit stays the brain underneath (memory + classification + protocol).`;
 }
 
 /** Silence the unused-import warnings when projectDataDir isn't directly used.

@@ -48,6 +48,19 @@ export interface ProjectLearnings {
   learnings: LearningEntry[];
 }
 
+export interface ProjectKnowledge {
+  project: { id: string };
+  knowledge: {
+    generatedAt: string | null;
+    totalFiles: number;
+    totalLines: number;
+    imports: number;
+    highFanout: number;
+    untested: number;
+    languages: Array<{ lang: string; files: number }>;
+  };
+}
+
 export interface ProjectMetrics {
   projectId: string;
   projectName: string;
@@ -174,6 +187,7 @@ export const api = {
   projects: () => get<{ projects: ProjectSummary[] }>('/api/projects'),
   projectLearnings: (id: string) => get<ProjectLearnings>(`/api/projects/${id}/learnings`),
   projectMetrics: (id: string) => get<ProjectMetrics>(`/api/projects/${id}/metrics`),
+  projectKnowledge: (id: string) => get<ProjectKnowledge>(`/api/projects/${id}/knowledge`),
   projectGraph: (id: string, threshold?: number) =>
     get<BrainGraph>(`/api/projects/${id}/graph${threshold !== undefined ? `?threshold=${threshold}` : ''}`),
   globalLearnings: () => get<{ learnings: GlobalLearning[] }>('/api/global/learnings'),

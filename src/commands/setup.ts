@@ -226,10 +226,11 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   console.log(chalk.bold('  How it works'));
   console.log(`  ${chalk.cyan('1.')} Open ${chalk.bold('any project')} in your MCP-speaking agent (Claude Code, Cursor, Codex, Cline, Continue, Copilot)`);
   console.log(`  ${chalk.cyan('2.')} Agent calls \`knit_classify_task\` → brain auto-initializes`);
-  console.log(`  ${chalk.cyan('3.')} Agent gets 55 tools: imports, exports, tests, learnings, teams, requirements`);
+  console.log(`  ${chalk.cyan('3.')} Agent gets the tools it needs (up to 55, tier-gated by project shape)`);
   console.log(`  ${chalk.cyan('4.')} Brain compounds with every session — gets smarter over time`);
   console.log();
-  console.log(chalk.dim('  No CLI needed after this. The MCP server handles everything.'));
+  console.log(`  ${chalk.bold('Next:')} run ${chalk.cyan('knit')} to open the brain dashboard (http://127.0.0.1:7421).`);
+  console.log(chalk.dim('    No further setup required — the host launches the MCP server over stdio.'));
   console.log();
 
   if (isGlobal) {
@@ -257,7 +258,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     const warnings = report.checks.filter((c) => c.status === 'warn').length;
     console.log();
     if (errors > 0) {
-      console.log(chalk.red(`  ${errors} error(s) — run \`engram doctor\` for full details + fix commands.`));
+      console.log(chalk.red(`  ${errors} error(s) — run \`knit doctor\` for full details + fix commands.`));
     } else if (warnings > 0) {
       console.log(chalk.yellow(`  ${warnings} warning(s) — setup complete, but check items above.`));
     } else {

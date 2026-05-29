@@ -112,8 +112,13 @@ function computeCoChangeRanking(rootPath: string, days: number): string[] {
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 },
     );
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      process.stderr.write('[knit] git co-change exec failed: ' + String(err) + '\n');
+    // Co-change is a best-effort, optional signal — centrality + test-colocation
+    // still rank domains without it. A non-git project (exit 128), a shallow
+    // clone, or a missing git binary (ENOENT) are all normal, non-actionable
+    // conditions, so we fall back silently. Surface the detail only under
+    // KNIT_DEBUG to keep MCP stderr clean for end users.
+    if (process.env.KNIT_DEBUG) {
+      process.stderr.write('[knit] git co-change unavailable (using centrality + colocation only): ' + String(err) + '\n');
     }
     return [];
   }

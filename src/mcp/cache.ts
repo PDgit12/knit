@@ -6,7 +6,8 @@ import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../engine/type
 import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBaseSafe, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
-import { readLearnings } from '../engine/learnings.js';
+import { readLearnings, pruneLearningsByAge } from '../engine/learnings.js';
+import { isStale, ageDays, FRESHNESS } from '../engine/freshness.js';
 import { generateClaudeMd, spliceKnitBlock, KNIT_MARKER_START } from '../generators/claude-md.js';
 import { installAgentsForProject } from '../engine/install-agents.js';
 import { prewarmLatestVersion } from './update-check.js';
@@ -86,6 +87,26 @@ function maybeRefreshHooks(rootPath: string, config: KnitConfig): void {
  *
  * This is what makes the MCP the product — no CLI needed.
  */
+/** v0.17 — throttled age-prune of sessions + learnings markdown. Runs at most
+ *  once per PRUNE_THROTTLE_DAYS per project (gated by a stamp file) so the hot
+ *  brain-load path doesn't rewrite logs every session. Best-effort: every step
+ *  is independently guarded so a single failure never aborts the rest. */
+function maybeAgePrune(rootPath: string, projectName: string): void {
+  const stamp = join(projectDataDir(rootPath), '.age-prune.stamp');
+  try {
+    if (existsSync(stamp)) {
+      const last = readFileSync(stamp, 'utf-8').trim();
+      // Pruned recently → skip. A corrupt/unparseable stamp (ageDays null)
+      // must NOT skip forever — fall through and prune (then rewrite a valid
+      // stamp). Only a parseable, within-window stamp short-circuits.
+      if (ageDays(last) !== null && !isStale(last, FRESHNESS.PRUNE_THROTTLE_DAYS)) return;
+    }
+  } catch { /* unreadable stamp — fall through and prune */ }
+  try { pruneSessionsByAge(rootPath, FRESHNESS.SESSION_TTL_DAYS); } catch { /* best-effort */ }
+  try { pruneLearningsByAge(learningsFilePath(rootPath, projectName), FRESHNESS.LEARNING_TTL_DAYS); } catch { /* best-effort */ }
+  try { writeFileAtomic(stamp, new Date().toISOString()); } catch { /* best-effort */ }
+}
+
 export function getBrain(rootPath: string): BrainCache {
   if (cache && cache.rootPath === rootPath) {
     return cache;
@@ -160,6 +181,13 @@ export function getBrain(rootPath: string): BrainCache {
     autoInitialized,
   };
 
+  // v0.17 freshness layer — throttled age-prune of sessions + learnings on
+  // brain load. Pre-v0.17 sessions only pruned on first-touch and learnings
+  // never auto-pruned, so long-lived projects accumulated stale entries
+  // forever. Throttled to once/PRUNE_THROTTLE_DAYS via a stamp file and
+  // fire-and-forget so it never blocks the first tool call.
+  void Promise.resolve().then(() => maybeAgePrune(rootPath, projectName));
+
   return cache;
 }
 
@@ -212,7 +240,7 @@ function autoInitialize(rootPath: string): void {
   // tool call on disk I/O. Failures are non-fatal — log and move on.
   Promise.resolve().then(() => {
     try {
-      pruneSessionsByAge(rootPath, 90);
+      pruneSessionsByAge(rootPath, FRESHNESS.SESSION_TTL_DAYS);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       process.stderr.write(`[knit] session prune background error: ${msg}\n`);

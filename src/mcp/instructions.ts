@@ -12,9 +12,10 @@
  * v0.8.1 — per-project tailoring. The base instructions are universal;
  * `buildInstructions(scan)` appends a short addendum when integration-scanner
  * detected co-installed frameworks (Ruflo, gstack, CodeTour, Conductor,
- * custom CLAUDE.md sections). Knit defers routing decisions to those
- * frameworks where they overlap — memory + classification stay Knit's
- * domain regardless. server.ts / cli.ts call buildInstructions at startup
+ * custom CLAUDE.md sections). Knit composes with those frameworks — use
+ * their routing primitives where they fit, while Knit stays the brain
+ * underneath them all (memory + classification + protocol). server.ts /
+ * cli.ts call buildInstructions at startup
  * and pass the result to the Server constructor's `instructions` field.
  *
  * Budget: target ≤ 750 tokens including addenda. Keep base lean; addenda
@@ -88,7 +89,7 @@ export function buildBudgetVerdict(rootPath: string): string {
   const verdict = bytes > CLAUDE_MD_BUDGET_BYTES * 1.25 ? 'over-budget' : 'warn';
   const kb = Math.round(bytes / 1024 * 10) / 10;
   const targetKb = Math.round(CLAUDE_MD_BUDGET_BYTES / 1024 * 10) / 10;
-  return `BUDGET ${verdict}: CLAUDE.md is ${kb}KB / ${targetKb}KB target. Run \`engram doctor\` to see the full per-surface report and \`engram refresh\` to regenerate the marker block.`;
+  return `BUDGET ${verdict}: CLAUDE.md is ${kb}KB / ${targetKb}KB target. Run \`knit doctor\` to see the full per-surface report and \`knit refresh\` to regenerate the marker block.`;
 }
 
 /**
@@ -123,13 +124,13 @@ export function buildInstructions(scan: ScanResult | null, rootPath?: string): s
 
   if (scan.detected.ruflo.present) {
     addenda.push(
-      'DETECTED: Ruflo (multi-agent orchestration) is installed alongside Knit on this project. For multi-agent swarms, federation, or large-scale orchestration, defer to Ruflo\'s tools (`memory_store`, `swarm_init`, `agent_spawn`, etc). Knit\'s domain in this project: per-project memory + tier-routed classification + token discipline. Do NOT duplicate Ruflo\'s routing logic with Knit\'s tier protocol when Ruflo is driving the workflow.',
+      'DETECTED: Ruflo (multi-agent orchestration) is installed alongside Knit. Compose them — Ruflo can drive multi-agent swarms / federation; Knit is the project brain every agent (Ruflo\'s included) reads from: memory, tier-routed classification, token discipline, hallucination defense. Route swarms via Ruflo; ground each agent in Knit. Just don\'t re-run Knit\'s tier protocol inside an individual Ruflo swarm step.',
     );
   }
 
   if (scan.detected.gstack.present) {
     addenda.push(
-      'DETECTED: gstack slash commands are installed. For routing decisions (`/plan`, `/ship`, `/qa`, `/cso`, `/investigate`), prefer the gstack command. Knit operates underneath as the memory + classification layer; the gstack command can invoke Knit tools internally.',
+      'DETECTED: gstack slash commands are installed. Invoke the gstack command for its flows (`/plan`, `/ship`, `/qa`, `/cso`, `/investigate`) — and have it draw on Knit, the project brain (memory + classification), via Knit tools. Compose, don\'t compete: gstack runs the flow, Knit grounds it.',
     );
   }
 
@@ -147,7 +148,7 @@ export function buildInstructions(scan: ScanResult | null, rootPath?: string): s
 
   if (scan.detected.custom_workflow_sections.length > 0) {
     addenda.push(
-      `DETECTED: this project's CLAUDE.md has user-curated workflow sections (${scan.detected.custom_workflow_sections.join('; ')}). Treat that as the canonical workflow doc for project-specific phases; Knit's tier protocol applies underneath as the routing layer.`,
+      `DETECTED: this project's CLAUDE.md has user-curated workflow sections (${scan.detected.custom_workflow_sections.join('; ')}). Treat that as the canonical workflow doc for project-specific phases; Knit's brain (memory + tier classification) backs those phases.`,
     );
   }
 
@@ -157,7 +158,7 @@ export function buildInstructions(scan: ScanResult | null, rootPath?: string): s
     KNIT_INSTRUCTIONS_BASE +
     '\n\n— Per-project integrations —\n\n' +
     addenda.join('\n\n') +
-    '\n\nGeneral rule: when an integration above provides a higher-level routing primitive (slash command, swarm orchestrator, methodology framework), use it. Knit handles the substrate it doesn\'t cover: memory, classification, and the workflow protocol for tasks the integration doesn\'t route.' +
+    '\n\nGeneral rule: when an integration above provides a higher-level routing primitive (slash command, swarm orchestrator, methodology framework), use it — and keep grounding every agent in Knit, the brain underneath them all: memory, classification, and the workflow protocol for anything the integration doesn\'t route.' +
     trailingSuffix
   );
 }

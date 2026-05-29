@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -225,5 +225,66 @@ describe('cache (loadCachedScan / saveScan / getAgentCommands)', () => {
     saveScan(projectData, fresh);
     const result = getAgentCommands(workspaceRoot, projectData);
     expect(result.commands.some((c) => c.name === 'cached')).toBe(true);
+  });
+});
+
+describe('Claude Code Skills (v0.19) — folder-per-skill SKILL.md', () => {
+  it('surfaces .claude/skills/<name>/SKILL.md as a command named after the folder', () => {
+    const skillDir = join(workspaceRoot, '.claude', 'skills', 'ship-it');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'),
+      '---\ndescription: Ship the release\n---\n# Ship It\nRun the release flow.\n', 'utf-8');
+    const result = scanAllAgentCommands(workspaceRoot);
+    const skill = result.commands.find((c) => c.name === 'ship-it');
+    expect(skill).toBeDefined();
+    expect(skill?.description).toBe('Ship the release');
+  });
+
+  it('respects knit: skip frontmatter on a skill', () => {
+    const skillDir = join(workspaceRoot, '.claude', 'skills', 'private-skill');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'),
+      '---\nknit: skip\ndescription: hidden\n---\nbody\n', 'utf-8');
+    const result = scanAllAgentCommands(workspaceRoot);
+    expect(result.commands.some((c) => c.name === 'private-skill')).toBe(false);
+  });
+
+  it('ignores skill folders without a SKILL.md', () => {
+    mkdirSync(join(workspaceRoot, '.claude', 'skills', 'empty-folder'), { recursive: true });
+    const result = scanAllAgentCommands(workspaceRoot);
+    expect(result.commands.some((c) => c.name === 'empty-folder')).toBe(false);
+  });
+});
+
+describe('scanner security (audit D2 — v0.19 hardening)', () => {
+  it('does not read a symlinked SKILL.md (no arbitrary-file content into brain state)', () => {
+    const secret = join(workspaceRoot, 'SECRET.md');
+    writeFileSync(secret, '# TOP SECRET\nsk-should-never-surface\n', 'utf-8');
+    const skillDir = join(workspaceRoot, '.claude', 'skills', 'evil');
+    mkdirSync(skillDir, { recursive: true });
+    symlinkSync(secret, join(skillDir, 'SKILL.md'));
+    const result = scanAllAgentCommands(workspaceRoot);
+    const evil = result.commands.find((c) => c.name === 'evil');
+    expect(evil).toBeUndefined();
+    expect(JSON.stringify(result.commands)).not.toContain('should-never-surface');
+  });
+
+  it('does not read a symlinked flat command file', () => {
+    const secret = join(workspaceRoot, 'secret2.md');
+    writeFileSync(secret, 'leak-marker-xyz\n', 'utf-8');
+    const cmdDir = join(workspaceRoot, '.claude', 'commands');
+    mkdirSync(cmdDir, { recursive: true });
+    symlinkSync(secret, join(cmdDir, 'evil.md'));
+    const result = scanAllAgentCommands(workspaceRoot);
+    expect(JSON.stringify(result.commands)).not.toContain('leak-marker-xyz');
+  });
+
+  it('skips an oversized command file instead of loading it into memory', () => {
+    const cmdDir = join(workspaceRoot, '.claude', 'commands');
+    mkdirSync(cmdDir, { recursive: true });
+    // 128KB > 64KB cap
+    writeFileSync(join(cmdDir, 'huge.md'), 'x'.repeat(128 * 1024), 'utf-8');
+    const result = scanAllAgentCommands(workspaceRoot);
+    expect(result.commands.some((c) => c.name === 'huge')).toBe(false);
   });
 });

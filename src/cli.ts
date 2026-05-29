@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * knit — the second brain for Claude Code.
+ * knit — the project brain any MCP-speaking agent plugs into.
  *
- * Single entry point:
- *   knit setup    → add MCP to Claude settings
- *   knit status   → analytics dashboard
- *   knit refresh  → rebuild knowledge brain
- *   knit (no args, called by Claude Code) → start MCP server
+ * Single entry point, dashboard-first (v0.20):
+ *   knit                 → open the brain (local dashboard) — the human home
+ *   knit setup           → wire Knit into your agents (bootstrap)
+ *   knit --help          → full command list (status/refresh/export/doctor/…)
+ *   knit (piped stdio, no TTY, called by an agent host) → start MCP server
  */
 
 import { Command } from 'commander';
@@ -18,15 +18,33 @@ const hasSubcommand = args.length > 0 && ['setup', 'status', 'refresh', 'install
 const isTTY = process.stdin.isTTY;
 
 if (hasSubcommand) {
-  // CLI mode — user ran knit setup/status/refresh
+  // CLI mode — user ran knit setup/status/refresh/ui/etc.
   runCLI();
+} else if (isTTY && args.length === 0) {
+  // v0.20 dashboard-first: a TRULY bare `knit` in a terminal opens the brain
+  // (the dashboard) instead of dumping help. One word = your brain.
+  // `knit --help` still lists every command (it's in hasSubcommand above).
+  runDashboard();
 } else if (isTTY) {
-  // User ran knit with no args in a terminal → show help
-  process.argv.push('--help');
+  // Args present but not a recognized subcommand (e.g. a typo like `knit statuz`).
+  // Route to commander so it emits a proper "unknown command" error rather than
+  // silently opening the dashboard.
   runCLI();
 } else {
-  // Not a TTY (Claude Code piping stdio) → start MCP server
+  // Not a TTY (an agent host piping stdio) → start MCP server. UNCHANGED —
+  // this is the agent path and must never become the dashboard.
   runMCP();
+}
+
+async function runDashboard() {
+  try {
+    const { uiCommand } = await import('./commands/ui.js');
+    await uiCommand();
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[knit] could not open the dashboard: ${msg}\nRun \`knit --help\` for other commands, or \`knit doctor\` to diagnose.\n`);
+    process.exit(1);
+  }
 }
 
 async function runCLI() {

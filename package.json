@@ -1,6 +1,6 @@
 {
   "name": "knit-mcp",
-  "version": "0.16.1",
+  "version": "0.20.0",
   "description": "Knit — second brain for any MCP-speaking AI coding agent (Claude Code, Cursor, Codex CLI, Cline, Continue, GitHub Copilot). Per-project memory, tier-routed workflow protocol, parallel team worktrees.",
   "type": "module",
   "bin": {

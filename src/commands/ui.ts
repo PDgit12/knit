@@ -301,6 +301,52 @@ function readProjectLearnings(projectId: string): { name: string; entries: Learn
   }
 }
 
+/** v0.20 — read-only knowledge-index summary for the dashboard status screen.
+ *  Reads the persisted static-analysis graph (knowledge.json) under the project
+ *  hash dir. Read-only: this is the dashboard-collapse of `knit status`'s
+ *  knowledge section. Source-touching actions (refresh/export) stay in the CLI
+ *  because the dashboard can't recover a project's source path from its hash. */
+function readProjectKnowledge(projectId: string): {
+  generatedAt: string | null;
+  totalFiles: number;
+  totalLines: number;
+  imports: number;
+  highFanout: number;
+  untested: number;
+  languages: Array<{ lang: string; files: number }>;
+} | null {
+  const kPath = join(knitRoot(), 'projects', projectId, 'knowledge.json');
+  if (!existsSync(kPath)) return null;
+  try {
+    const k = JSON.parse(readFileSync(kPath, 'utf-8')) as {
+      generatedAt?: string;
+      summary?: {
+        totalFiles?: number; totalLines?: number;
+        languageBreakdown?: Record<string, number>;
+        highFanoutFiles?: unknown[]; untestedFiles?: unknown[];
+      };
+      importGraph?: Record<string, unknown>;
+    };
+    const s = k.summary ?? {};
+    const languages = s.languageBreakdown && typeof s.languageBreakdown === 'object'
+      ? Object.entries(s.languageBreakdown)
+          .map(([lang, files]) => ({ lang, files: Number(files) || 0 }))
+          .sort((a, b) => b.files - a.files)
+      : [];
+    return {
+      generatedAt: typeof k.generatedAt === 'string' ? k.generatedAt : null,
+      totalFiles: Number(s.totalFiles) || 0,
+      totalLines: Number(s.totalLines) || 0,
+      imports: k.importGraph && typeof k.importGraph === 'object' ? Object.keys(k.importGraph).length : 0,
+      highFanout: Array.isArray(s.highFanoutFiles) ? s.highFanoutFiles.length : 0,
+      untested: Array.isArray(s.untestedFiles) ? s.untestedFiles.length : 0,
+      languages,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function computeProjectMetrics(projectId: string): ProjectMetrics | null {
   const kbPath = join(knitRoot(), 'projects', projectId, 'knowledgebase.json');
   if (!existsSync(kbPath)) return null;
@@ -878,7 +924,6 @@ export async function uiCommand(): Promise<void> {
   const candidates = [
     resolve(here, '../../webapp/dist'),    // dev: src/commands/ui.ts -> ../../webapp/dist
     resolve(here, '../webapp/dist'),       // installed: dist/cli.js -> ../webapp/dist (package ships webapp/dist/)
-    resolve(here, '../../webapp/dist'),    // dev tsx variant
   ];
   const webappDist = candidates.find((p) => existsSync(join(p, 'index.html')));
   if (!webappDist) {
@@ -935,6 +980,7 @@ export async function uiCommand(): Promise<void> {
               '/api/version', '/api/brain/summary', '/api/brain/aggregate',
               '/api/projects', '/api/projects/:id/learnings',
               '/api/projects/:id/metrics', '/api/projects/:id/graph',
+              '/api/projects/:id/knowledge',
               '/api/global/learnings',
               '/api/doctor', '/api/commands', '/api/events (SSE)',
             ],
@@ -955,9 +1001,14 @@ export async function uiCommand(): Promise<void> {
 
         // /api/projects/:id/learnings and /api/projects/:id/metrics
         // Path is split on '/' and validated against the project hash format.
-        const projectMatch = url.match(/^\/api\/projects\/([a-f0-9]+)\/(learnings|metrics|graph)(?:\?.*)?\/?$/);
+        const projectMatch = url.match(/^\/api\/projects\/([a-f0-9]+)\/(learnings|metrics|graph|knowledge)(?:\?.*)?\/?$/);
         if (projectMatch) {
           const [, id, kind] = projectMatch;
+          if (kind === 'knowledge') {
+            const data = readProjectKnowledge(id);
+            if (!data) return jsonResponse(res, 404, { error: 'Project not found or not yet indexed' });
+            return jsonResponse(res, 200, { project: { id }, knowledge: data });
+          }
           if (kind === 'learnings') {
             const data = readProjectLearnings(id);
             if (!data) return jsonResponse(res, 404, { error: 'Project not found' });

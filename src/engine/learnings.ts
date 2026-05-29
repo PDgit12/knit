@@ -118,10 +118,12 @@ export function readLearnings(filePath: string): LearningEntry[] {
 /**
  * v0.15 (audit D4) — pruneLearningsByAge.
  *
- * Sessions had pruneSessionsByAge since v0.8; learnings did not. Long-lived
- * projects accumulate stale entries forever, hurting the BM25 retrieval
- * signal (rare-but-current insights get drowned out by 100+ old entries
- * matching the same domain).
+ * Sessions had pruneSessionsByAge since v0.8; learnings did not. This prunes
+ * the human-readable markdown mirror (learnings/<slug>.md) — which is what
+ * autoInitialize re-imports into a fresh knowledgebase on first touch — so a
+ * long-lived project's mirror + re-seed stay lean. NOTE: the LIVE BM25 corpus
+ * is knowledgebase.json, not this markdown; that store is flagged-not-pruned
+ * by age (getStaleEntries) to keep the bench-gated retrieval surface stable.
  *
  * Conservative rules — same as sessions:
  *   - Entry with no parseable date is KEPT (never lose data we can't

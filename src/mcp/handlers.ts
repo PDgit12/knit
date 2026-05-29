@@ -15,6 +15,8 @@ import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
 } from '../engine/paths.js';
 import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge, loadAllSessions } from '../engine/sessions.js';
+import { isStale, resolveRef, sourceExists, extractFileRefs, FRESHNESS } from '../engine/freshness.js';
+import { resetAdherenceState } from './adherence.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
@@ -26,6 +28,7 @@ import { installAgentsForProject } from '../engine/install-agents.js';
 import { redactSecrets } from './sanitize.js';
 import {
   computeFeatureListing,
+  summarizeActiveTools,
   isEnableableFeature,
   type ProjectShape,
   type EnableableFeature,
@@ -227,7 +230,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
     // Without this, mutations are discarded on session end (root cause of
     // pre-v0.12.1 "0% recall" reporting).
     saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
-    return JSON.stringify(buildLearningsResponse(results, domains, []));
+    return JSON.stringify(buildLearningsResponse(results, domains, [], undefined, brain.rootPath));
   }
 
   // BM25 path. Build the index over the current corpus on demand —
@@ -303,7 +306,7 @@ export function handleSearchLearnings(params: Record<string, string>, brain: Bra
   // session end (root cause of pre-v0.12.1 "0% recall" reporting).
   saveKnowledgeBase(knowledgebasePath(brain.rootPath), brain.knowledgeBase);
   const retrieverLabel: 'bm25' | 'bm25+graph' = graphHits.length > 0 ? 'bm25+graph' : 'bm25';
-  return JSON.stringify(buildLearningsResponse(entries, domains, [query], retrieverLabel));
+  return JSON.stringify(buildLearningsResponse(entries, domains, [query], retrieverLabel, brain.rootPath));
 }
 
 /** Shared response shape between the BM25 path and the tag-filter back-compat path. */
@@ -312,16 +315,26 @@ function buildLearningsResponse(
   domains: string[],
   freeText: string[],
   retrieverOverride?: 'bm25' | 'bm25+graph',
+  rootPath?: string,
 ) {
   const hasFailures = results.some((r) => r.outcome === 'failure');
   const queryParts = [...freeText, ...domains];
   return {
     query: queryParts,
     retriever: retrieverOverride ?? (freeText.length > 0 ? 'bm25' : 'tag-filter'),
-    results: results.map((r) => ({
-      summary: r.summary, lesson: r.lesson, outcome: r.outcome,
-      date: r.date, tags: r.tags, access_count: r.accessCount,
-    })),
+    results: results.map((r) => {
+      // v0.17 freshness layer — annotate (never re-rank) learnings whose prose
+      // names a source file that no longer exists. Bench-safe: order/score/
+      // count are untouched; the agent just sees that the lesson may be stale.
+      const staleRefs = rootPath
+        ? extractFileRefs(`${r.summary} ${r.lesson}`).filter((ref) => !sourceExists(rootPath, ref))
+        : [];
+      return {
+        summary: r.summary, lesson: r.lesson, outcome: r.outcome,
+        date: r.date, tags: r.tags, access_count: r.accessCount,
+        ...(staleRefs.length > 0 ? { stale_refs: staleRefs } : {}),
+      };
+    }),
     count: results.length,
     instruction: results.length > 0
       ? hasFailures
@@ -582,7 +595,7 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
 
 /** Read the opt-in feature flags from disk. Best-effort: never throws — a
  *  missing or malformed file just means "no opt-ins yet." */
-function loadEnabledFeatures(rootPath: string): Set<EnableableFeature> {
+export function loadEnabledFeatures(rootPath: string): Set<EnableableFeature> {
   const enabled = new Set<EnableableFeature>();
   try {
     const path = featuresConfigPath(rootPath);
@@ -641,6 +654,7 @@ export function handleListFeatures(_params: Record<string, string>, brain: Brain
   const shape = detectProjectShape(brain);
   const listing = computeFeatureListing(shape);
   return JSON.stringify({
+    summary: summarizeActiveTools(shape),
     ...listing,
     project_shape: {
       has_analyzable_code: shape.hasAnalyzableCode,
@@ -2060,7 +2074,7 @@ export function handleGetFingerprint(_params: Record<string, string>, brain: Bra
   return JSON.stringify({
     fingerprint: fp,
     summary: detected || 'no signals detected — likely an empty or unsupported project shape',
-    instruction: 'Use this fingerprint when generating CLAUDE.md / agent prompts so build commands and test runner match the project. Re-run on engram refresh to pick up stack changes.',
+    instruction: 'Use this fingerprint when generating CLAUDE.md / agent prompts so build commands and test runner match the project. Re-run on knit refresh to pick up stack changes.',
   });
 }
 
@@ -2217,10 +2231,32 @@ export function handleGenerateTestCases(params: Record<string, string>, brain: B
   }
   const totalBytes = sourcesToSearch.reduce((s, src) => s + src.sourceBytes, 0);
   const reductionPct = totalBytes > 0 ? Math.round(100 - (contextBytes / totalBytes) * 100) : 0;
+  // v0.17 freshness layer — flag indexed sources whose on-disk file has been
+  // deleted or edited since indexing. We still return the cached chunks (the
+  // index is the source of truth for retrieval), but warn the agent that the
+  // grounding may be out of date so it can re-index instead of trusting stale
+  // requirements. Detection-only; never silently drops chunks.
+  const staleSources = sourcesToSearch
+    .filter((s) => {
+      const abs = resolveRef(brain.rootPath, s.sourcePath);
+      if (!abs || !existsSync(abs)) return true; // source file gone
+      try {
+        return statSync(abs).mtimeMs > Date.parse(s.indexedAt); // edited since index
+      } catch {
+        return false;
+      }
+    })
+    .map((s) => s.sourceId);
   return JSON.stringify({
     status: 'ok',
     feature,
     sources_searched: sourcesToSearch.map((s) => s.sourceId),
+    ...(staleSources.length > 0
+      ? {
+          stale_sources: staleSources,
+          stale_warning: `These indexed sources have been deleted or edited since indexing: ${staleSources.join(', ')}. The chunks below may be out of date — re-run knit_index_requirements to refresh.`,
+        }
+      : {}),
     context_chunks: hits.map((h) => ({
       source_id: h.sourceId,
       source_label: h.sourceLabel,
@@ -2265,6 +2301,66 @@ export function handleDeleteRequirements(params: Record<string, string>, brain: 
   });
 }
 
+/** Freshness sidecar for handoff.md. Written next to it so load_session can
+ *  decide whether an existing handoff is still in-flight without parsing the
+ *  markdown body. A handoff with NO sidecar is treated as legacy/superseded —
+ *  that single rule auto-clears pre-v0.17 ghost handoffs (e.g. a v0.14 handoff
+ *  that still reported unfinished work three releases later). */
+interface HandoffMeta {
+  version: string;
+  savedAt: string;
+  resolved: boolean;
+}
+
+function handoffMetaPath(root: string): string {
+  return join(root, 'handoff.meta.json');
+}
+
+function readHandoffMeta(root: string): HandoffMeta | null {
+  const p = handoffMetaPath(root);
+  if (!existsSync(p)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(p, 'utf-8')) as Partial<HandoffMeta>;
+    if (typeof parsed.savedAt !== 'string') return null;
+    return {
+      version: typeof parsed.version === 'string' ? parsed.version : '0.0.0',
+      savedAt: parsed.savedAt,
+      resolved: parsed.resolved === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeHandoffMeta(root: string, meta: HandoffMeta): void {
+  const p = handoffMetaPath(root);
+  const tmp = `${p}.tmp.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf-8');
+  renameSync(tmp, p);
+}
+
+/** Is there a live, in-flight handoff for this project? True only when the
+ *  handoff file exists AND its freshness sidecar says it is unresolved and
+ *  within the TTL. Missing sidecar (legacy) or a resolved/stale one → false. */
+function handoffIsActive(root: string): boolean {
+  if (!existsSync(join(root, 'handoff.md'))) return false;
+  const meta = readHandoffMeta(root);
+  if (!meta) return false; // legacy handoff with no freshness stamp — superseded
+  if (meta.resolved) return false;
+  if (isStale(meta.savedAt, FRESHNESS.HANDOFF_TTL_DAYS)) return false;
+  return true;
+}
+
+/** Mark an open handoff as resolved (superseded). Called when a session
+ *  summary lands — the work reached a narratable conclusion, so the next
+ *  session shouldn't be told to "resume unfinished work". No-op if there's
+ *  no sidecar to update. */
+function resolveHandoff(root: string): void {
+  const meta = readHandoffMeta(root);
+  if (!meta || meta.resolved) return;
+  writeHandoffMeta(root, { ...meta, resolved: true });
+}
+
 export function handleSaveHandoff(params: Record<string, string>, brain: BrainCache): string {
   const handoffPath = join(brain.rootPath, 'handoff.md');
   const r = (k: string, fallback: string): string => redactSecrets(params[k] || fallback);
@@ -2277,6 +2373,10 @@ export function handleSaveHandoff(params: Record<string, string>, brain: BrainCa
   const tmpPath = `${handoffPath}.tmp.${process.pid}`;
   writeFileSync(tmpPath, content, 'utf-8');
   renameSync(tmpPath, handoffPath);
+  // v0.17 — stamp freshness. A fresh save reopens the handoff (resolved:false)
+  // so load_session surfaces it; the sidecar's TTL + resolved flag let the
+  // brain auto-clear it later instead of it lingering forever.
+  writeHandoffMeta(brain.rootPath, { version: VERSION, savedAt: new Date().toISOString(), resolved: false });
   return JSON.stringify({ status: 'saved', path: 'handoff.md', instruction: 'Next session will read handoff.md first.' });
 }
 
@@ -2781,7 +2881,7 @@ function computeBudgetHealth(brain: BrainCache): {
   const worst = surfaces[0][0];
 
   const suggestions: Record<typeof worst, string> = {
-    claude_md: 'CLAUDE.md is over the 6.5KB target — run `engram refresh` to splice the lean marker-block, or check that the file is using the generator (not hand-curated).',
+    claude_md: 'CLAUDE.md is over the 6.5KB target — run `knit refresh` to splice the lean marker-block, or check that the file is using the generator (not hand-curated).',
     tool_registry: 'Tool registry over budget — call knit_list_features to see which Tier-2/3 tools are active and disable any you do not need.',
     instructions: 'Instructions block over budget — likely a v0.x → v0.y growth. Restart your MCP host to pick up the trimmed instructions.',
   };
@@ -2826,6 +2926,13 @@ function computeLearningsHealth(brain: BrainCache): {
 }
 
 export function handleLoadSession(params: Record<string, string>, brain: BrainCache): string {
+  // v0.18 — knit_load_session marks a new logical session. Re-arm the
+  // adherence tracker so a warm/resumed MCP process (which keeps module state
+  // across sessions) doesn't carry a prior session's "already classified" flag
+  // forward and silently stop nudging. The post-handler observeAndNudge call
+  // then re-counts this load_session as call #1 of the fresh session.
+  resetAdherenceState();
+
   const include = parseLoadSessionInclude(params.include);
   const wantAll = include.has('all');
 
@@ -2847,10 +2954,25 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
   // 2. Handoff — always. This is the load-bearing field. Truncated to 1.5KB
   //    (was 2KB); the full handoff lives on disk and the agent can read it
   //    explicitly with the Read tool if needed.
+  // v0.17 freshness layer: only surface a handoff that is still in-flight
+  //    (fresh + unresolved per its sidecar). A resolved, stale (>TTL), or
+  //    legacy (no sidecar) handoff is treated as superseded — it no longer
+  //    resurrects "unfinished work". This auto-clears pre-v0.17 ghosts.
+  // SECURITY (audit D2): handoff.md lives at the PROJECT ROOT (so the agent can
+  // read it directly), which means a hostile cloned repo could ship a
+  // handoff.md + handoff.meta.json to inject "resume this work" instructions on
+  // first open. A genuine handoff is created by the user's OWN prior session,
+  // which would have left brain state in ~/.knit — so on a project's first-ever
+  // Knit touch (autoInitialized), any pre-existing root handoff is untrusted
+  // and ignored. Subsequent sessions (autoInitialized=false) surface it normally.
   const handoffPath = join(root, 'handoff.md');
   let handoff = null;
-  if (existsSync(handoffPath)) {
-    handoff = readFileSync(handoffPath, 'utf-8').slice(0, 1500);
+  if (!brain.autoInitialized && existsSync(handoffPath) && handoffIsActive(root)) {
+    // redactSecrets at READ as well as write (audit D2 defense-in-depth) — the
+    // body lands in the agent's context in an instruction-framing position, so
+    // re-scrub in case a handoff predates write-time redaction or was written
+    // by another process (team worktrees).
+    handoff = redactSecrets(readFileSync(handoffPath, 'utf-8').slice(0, 1500));
   }
 
   // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5.
@@ -3025,10 +3147,20 @@ export function handleSaveSessionSummary(params: Record<string, string>, brain: 
     });
   }
 
+  // v0.17 freshness layer — a terminal session summary supersedes any open
+  // handoff. 'wip' means work continues, so we leave the handoff in-flight;
+  // 'shipped'/'failed' reached a conclusion, so the next session must NOT be
+  // told to "resume unfinished work". This closes the stale-handoff loop.
+  const supersededHandoff = outcome === 'shipped' || outcome === 'failed';
+  if (supersededHandoff) resolveHandoff(brain.rootPath);
+
   return JSON.stringify({
     status: 'saved',
     id: entry.id,
     summary: entry.summary,
+    ...(supersededHandoff && existsSync(join(brain.rootPath, 'handoff.md'))
+      ? { handoff_superseded: true }
+      : {}),
     instruction: 'Session summary recorded. Future knit_search_sessions calls can find this.',
   });
 }

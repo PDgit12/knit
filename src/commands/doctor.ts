@@ -16,13 +16,18 @@
 
 import { existsSync, lstatSync, readFileSync, statSync, accessSync, constants as fsConstants } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { HOOKS_VERSION } from '../generators/settings.js';
-import { knowledgebasePath, projectDataDir } from '../engine/paths.js';
+import { knowledgebasePath, projectDataDir, projectAgentsDir } from '../engine/paths.js';
 import { VERSION } from '../version.js';
 import { CLAUDE_MD_BUDGET_BYTES } from '../mcp/instructions.js';
 import { detectAllAgents } from '../engine/agent-detector.js';
+import { scanProject } from '../engine/scanner.js';
+import { sessionCount } from '../engine/sessions.js';
+import { loadEnabledFeatures } from '../mcp/handlers.js';
+import { summarizeActiveTools, type ProjectShape } from '../mcp/features.js';
 
 export type DoctorStatus = 'ok' | 'warn' | 'error' | 'info';
 
@@ -221,7 +226,7 @@ export function runDoctor(rootPath: string): DoctorReport {
         checks.push({
           name: 'Token budget',
           status: 'warn',
-          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget, within 25% slack. Run \`engram refresh\` or trim the file.`,
+          detail: `CLAUDE.md ${kb}KB / ${targetKb}KB target — over budget, within 25% slack. Run \`knit refresh\` or trim the file.`,
         });
       } else {
         checks.push({
@@ -242,6 +247,61 @@ export function runDoctor(rootPath: string): DoctorReport {
       name: 'Token budget',
       status: 'info',
       detail: 'no CLAUDE.md yet — created on first MCP call',
+    });
+  }
+
+  // ── Webapp bundle (v0.19) — can `knit ui` actually launch? ──
+  // "knit ui does nothing" is almost always a stale install missing
+  // webapp/dist, not a code bug. Surface whether the bundle resolves from
+  // THIS binary's location so the user can tell a broken install from a
+  // missed terminal line. Mirrors the candidate resolution in ui.ts.
+  {
+    const uiHere = dirname(fileURLToPath(import.meta.url));
+    const webappCandidates = [
+      resolve(uiHere, '../../webapp/dist'), // dev: src/commands/ -> ../../webapp/dist
+      resolve(uiHere, '../webapp/dist'),    // installed: dist/ -> ../webapp/dist
+    ];
+    const found = webappCandidates.find((p) => existsSync(join(p, 'index.html')));
+    if (found) {
+      checks.push({
+        name: 'Webapp bundle',
+        status: 'ok',
+        detail: '`knit ui` will serve http://127.0.0.1:7421 (set KNIT_UI_PORT to change). If the browser does not auto-open, visit that URL.',
+      });
+    } else {
+      checks.push({
+        name: 'Webapp bundle',
+        status: 'error',
+        detail: `webapp/dist not found near ${uiHere} — \`knit ui\` cannot launch. Fix: reinstall with \`npm i -g knit-mcp@latest\` (clear stale npx cache: rm -rf ~/.npm/_npx), or from source run \`cd webapp && npm install && npm run build\`.`,
+      });
+    }
+  }
+
+  // ── Active tools (v0.17) — live, reasoned count ──
+  // The count varies with project shape (domain count, subagents present,
+  // first-vs-later session), which is exactly why users saw 37/43/45 across
+  // machines and assumed something was broken. Surface the live number WITH
+  // the reason so it's self-explanatory. All inputs are read-only.
+  try {
+    const scan = scanProject(rootPath);
+    const shape: ProjectShape = {
+      // hasAnalyzableCode is NOT read by isToolActive/summarizeActiveTools, so
+      // it never moves the count — kept here only to satisfy ProjectShape.
+      // domainCount is the count-driving signal and matches detectProjectShape
+      // (both resolve to scan.domains.length) so doctor agrees with
+      // knit_list_features at steady state.
+      hasAnalyzableCode: scan.domains.length > 0,
+      domainCount: scan.domains.length,
+      hasInstalledSubagents: existsSync(projectAgentsDir(rootPath)),
+      sessionCount: sessionCount(rootPath),
+      enabledFeatures: loadEnabledFeatures(rootPath),
+    };
+    checks.push({ name: 'Active tools', status: 'info', detail: summarizeActiveTools(shape) });
+  } catch (err) {
+    checks.push({
+      name: 'Active tools',
+      status: 'warn',
+      detail: `could not compute active tool count: ${(err as Error).message}`,
     });
   }
 

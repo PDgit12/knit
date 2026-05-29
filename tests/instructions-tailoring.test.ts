@@ -36,15 +36,17 @@ describe('buildInstructions', () => {
     expect(buildInstructions(emptyScan())).toBe(KNIT_INSTRUCTIONS_BASE);
   });
 
-  it('Ruflo addendum: defers swarm + multi-agent routing to Ruflo', () => {
+  it('Ruflo addendum: composes — Ruflo drives swarms, Knit stays the brain', () => {
     const scan = emptyScan();
     scan.detected.ruflo = { present: true, via: ['mcp-server'] };
     const out = buildInstructions(scan);
     expect(out).toContain(KNIT_INSTRUCTIONS_BASE);
     expect(out).toMatch(/Ruflo/);
     expect(out).toMatch(/swarm/i);
-    // Knit retains its layer
-    expect(out).toMatch(/memory \+ tier-routed/);
+    // v0.17 — Knit is positioned as the brain, not subordinate; it retains
+    // its memory + tier-routed classification layer.
+    expect(out).toMatch(/tier-routed classification/);
+    expect(out).toMatch(/brain/i);
   });
 
   it('gstack addendum: defers routing slash commands to gstack', () => {

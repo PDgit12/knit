@@ -2,6 +2,70 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] — 2026-05-29
+
+**Brain integrity + clarity + dashboard-first.** A consolidated release spanning
+four internal phases (v0.17–v0.20), shipped together after a six-dimension
+deep-clean audit (0 critical findings). Tool count unchanged at 55; 855 tests.
+
+### Added — brain freshness layer (v0.17)
+
+- A single shared primitive (`src/engine/freshness.ts`) now governs staleness
+  across every store, replacing seven ad-hoc behaviors. Design rule: freshness
+  drives prune/clear/flag only — never live BM25 ranking (bench-gated).
+  - **Handoffs** carry a freshness sidecar; a handoff is surfaced as unfinished
+    work only while fresh + unresolved. Legacy handoffs (no sidecar) and a
+    terminal session summary (`shipped`/`failed`) supersede it — fixing the bug
+    where a stale handoff reported unfinished work indefinitely.
+  - **Calibration** decays idle sub-threshold FP counters (learned adjustments
+    persist). **Global learnings** drop out of search past a TTL. **Sessions**
+    and the **learnings markdown** age-prune on a throttle. **Requirements**
+    flag a source deleted/edited since indexing. **Learnings search** annotates
+    entries whose prose names a now-deleted file.
+
+### Added — tool-count clarity (v0.17)
+
+- `knit doctor` and `knit_list_features` now print the **live active count with
+  the reason** (e.g. `45 of 55 = 36 always-on + 9 teams [≥3 domains] · …`), so
+  the count varying across machines is self-explanatory rather than confusing.
+- A drift-guard test ties the README's tiered counts to `TOOL_REGISTRY`, so the
+  docs can never silently diverge from the registry again.
+
+### Added — protocol adherence re-surfacing (v0.18)
+
+- Cross-platform mid-session reminders: when a write tool runs before
+  `knit_classify_task` (or after a long run of calls), a throttled, escalating
+  `_knit_protocol` reminder rides the tool response — reaching every MCP host,
+  not just Claude Code hooks. Silenced by `knit_set_protocol_strictness({ level: "off" })`.
+
+### Added — dashboard-first + Skills (v0.19–v0.20)
+
+- **`knit`** (run in a terminal) now opens the brain dashboard directly; the
+  agent/stdio path is unchanged, and `knit --help` still lists every command.
+- The dashboard gains a read-only **Knowledge index** view (files, imports,
+  untested, high-fanout, language breakdown). Source-touching actions
+  (`setup`/`refresh`/`export`) remain CLI by design.
+- `knit doctor` gains a **webapp-bundle health check** (diagnoses the common
+  "stale install" cause of a non-launching dashboard).
+- `knit_scan_agent_commands` now composes with **Claude Code Skills**
+  (`.claude/skills/<name>/SKILL.md`) alongside slash commands.
+
+### Changed — positioning
+
+- README repositioned around the integrated brain (graph-grounded recall +
+  impact classifier + self-learning reviewer + token accounting). Removed
+  competitor-comparison tables; professional, operational tone throughout.
+
+### Fixed — security & hygiene (audit)
+
+- **Command/Skill scanner** now guards file size and rejects symlinks *before*
+  reading (lstat + 64 KB cap), preventing OOM and arbitrary-file reads into
+  brain state from a hostile repo.
+- Handoff body redacted at read as well as write. Stale `engram`→`knit` binary
+  references corrected in handshake instructions, `doctor`, and `setup`. Benign
+  `git` co-change stderr silenced for non-git projects (use `KNIT_DEBUG` to
+  surface it).
+
 ## [0.16.1] — 2026-05-28
 
 **Docs-only patch.** README consistency sweep before the v0.16 release
@@ -175,10 +239,11 @@ slipped in.
 
 ### Fixed — release hygiene & honesty
 
-- **README explains the 49-active / 6-tier-gated tool count.** The hero
-  "55 MCP Tools" header now notes that 49 are active at first handshake
-  with teams (9, auto-on when ≥3 domains), subagents (1, auto-on when
-  `.claude/agents/` exists), and admin (3, opt-in) gated by `tier`.
+- **README explains the tiered tool count (36 always-on / up to 19 conditional / 55 total).**
+  The hero "55 MCP Tools" header notes that the active count varies by project
+  shape — teams (9, auto-on when ≥3 domains), diagnostics (6, on during the
+  first session), subagents (1, auto-on when `.claude/agents/` exists), and
+  admin (3, opt-in) — so different machines legitimately show different numbers.
 - **Compounding-metrics response surfaces token-saved methodology.** The
   per-cache-hit / per-FP / per-graph-query constants are now visible in
   the response under `methodology`, with the origin: "Defaults

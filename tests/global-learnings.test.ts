@@ -170,4 +170,25 @@ describe('global-learnings', () => {
       expect(searchGlobalLearnings('no lesson')).toEqual([]);
     });
   });
+
+  // ── v0.17 freshness layer — TTL on cross-project pool ──────────────────────
+  describe('freshness TTL', () => {
+    it('does not surface learnings older than the TTL, but keeps fresh ones', () => {
+      const old = new Date(Date.now() - 400 * 86_400_000).toISOString().split('T')[0]; // >365d
+      const fresh = new Date().toISOString().split('T')[0];
+      appendGlobalLearning(makeEntry({ id: 'old1', date: old, summary: 'zzfreshmarker ancient insight', lesson: 'old' }));
+      appendGlobalLearning(makeEntry({ id: 'new1', date: fresh, summary: 'zzfreshmarker recent insight', lesson: 'new' }));
+      const hits = searchGlobalLearnings('zzfreshmarker');
+      expect(hits.map((h) => h.id)).toContain('new1');
+      expect(hits.map((h) => h.id)).not.toContain('old1');
+    });
+
+    it('keeps entries with an unparseable/missing date (conservative)', () => {
+      const path = globalLearningsPath();
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify(makeEntry({ id: 'undated', date: 'not-a-date', summary: 'zzundatedmarker keep me', lesson: 'x' })) + '\n', 'utf-8');
+      const hits = searchGlobalLearnings('zzundatedmarker');
+      expect(hits.map((h) => h.id)).toContain('undated');
+    });
+  });
 });

@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 
 import { calibrationPath } from './paths.js';
+import { isStale, FRESHNESS } from './freshness.js';
 import type { Calibration } from './types.js';
 
 /** Fresh default — returned by VALUE each call, not by shared reference.
@@ -43,11 +44,22 @@ export function loadCalibration(rootPath: string): Calibration {
   if (!existsSync(path)) return freshDefault();
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<Calibration>;
+    const updatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString();
+    // v0.17 freshness layer — decay stale sub-threshold FP counters. These
+    // are partial signals ("2 of the 3 FPs needed for a shift"); if no FP has
+    // landed in CALIBRATION_DECAY_DAYS the signal is no longer trustworthy and
+    // a single new FP shouldn't combine with months-old ones to trip a shift.
+    // We drop ONLY the in-progress counters — applied adjustments
+    // (scopeAdjust/riskAdjust) are the learned project character and persist.
+    // Lazy + non-destructive: decayed in-memory; persisted on the next write.
+    const fpDirections = parsed.fpDirections && typeof parsed.fpDirections === 'object'
+      ? (isStale(updatedAt, FRESHNESS.CALIBRATION_DECAY_DAYS) ? {} : { ...parsed.fpDirections })
+      : {};
     return {
-      fpDirections: parsed.fpDirections && typeof parsed.fpDirections === 'object' ? { ...parsed.fpDirections } : {},
+      fpDirections,
       scopeAdjust: typeof parsed.scopeAdjust === 'number' ? parsed.scopeAdjust : 0,
       riskAdjust: typeof parsed.riskAdjust === 'number' ? parsed.riskAdjust : 0,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date(0).toISOString(),
+      updatedAt,
     };
   } catch {
     process.stderr.write('[knit] calibration.json parse failed — using defaults. Inspect: ' + path + '\n');

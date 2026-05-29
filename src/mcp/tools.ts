@@ -33,6 +33,7 @@ import {
   detectProjectShape,
 } from './handlers.js';
 import { isToolActive, TOOL_REGISTRY, type ProjectShape } from './features.js';
+import { observeAndNudge } from './adherence.js';
 
 /** MCP tool definition.
  *  v0.12.2: property-level `description` is OPTIONAL. The MCP spec allows it
@@ -560,5 +561,29 @@ export function handleToolCall(
     return JSON.stringify({ status: 'error', error: `Unknown tool: ${toolName}` });
   }
 
-  return handler(params, brain);
+  const result = handler(params, brain);
+
+  // v0.18 — protocol re-surfacing. observeAndNudge MUST run for every call (it
+  // maintains the per-session counters) but returns a reminder only on drift /
+  // periodic check-ins, throttled. We only parse+re-stringify when a nudge is
+  // actually warranted, so the hot path stays free of JSON round-trips.
+  let nudge: string | null = null;
+  try {
+    nudge = observeAndNudge(toolName, brain.rootPath);
+  } catch {
+    nudge = null; // adherence must never break a tool call
+  }
+  if (nudge) {
+    try {
+      const obj = JSON.parse(result);
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        obj._knit_protocol = nudge;
+        return JSON.stringify(obj);
+      }
+    } catch {
+      // non-object/non-JSON response — pass through unchanged
+    }
+  }
+
+  return result;
 }

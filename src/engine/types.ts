@@ -182,7 +182,7 @@ export interface KnowledgeSummary {
   /** extension → file count */
   languageBreakdown: Record<string, number>;
   entryPoints: string[];
-  /** Files imported by 5+ other files */
+  /** Files imported by 3+ other files */
   highFanoutFiles: string[];
   /** Source files with no matching test */
   untestedFiles: string[];

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync } from 'n
 import { dirname, basename } from 'node:path';
 import { globalLearningsPath, globalDataDir } from './paths.js';
 import { projectId, canonicalRepoRoot } from './project-id.js';
+import { isStale, FRESHNESS } from './freshness.js';
 import type { GlobalLearning } from './types.js';
 
 /**
@@ -43,6 +44,10 @@ export function searchGlobalLearnings(query: string, limit = 10): GlobalLearning
   for (let i = lines.length - 1; i >= 0; i--) {
     const entry = parseLine(lines[i]);
     if (!entry) continue;
+    // v0.17 freshness layer — don't serve cross-project learnings past TTL.
+    // Undated entries are kept (conservative). This filters reads only; the
+    // pool stays append-only on disk, so nothing is lost — just not surfaced.
+    if (isStale(entry.date, FRESHNESS.GLOBAL_LEARNING_TTL_DAYS)) continue;
     const haystack = [
       entry.summary,
       entry.lesson,
@@ -61,11 +66,13 @@ export function searchGlobalLearnings(query: string, limit = 10): GlobalLearning
 export function getRecentGlobalLearnings(n = 5): GlobalLearning[] {
   const lines = readAllLines();
   if (lines.length === 0) return [];
-  const start = Math.max(0, lines.length - n);
+  // Scan from the newest end, skipping TTL-stale entries, until we have n.
   const out: GlobalLearning[] = [];
-  for (let i = lines.length - 1; i >= start; i--) {
+  for (let i = lines.length - 1; i >= 0 && out.length < n; i--) {
     const entry = parseLine(lines[i]);
-    if (entry) out.push(entry);
+    if (!entry) continue;
+    if (isStale(entry.date, FRESHNESS.GLOBAL_LEARNING_TTL_DAYS)) continue;
+    out.push(entry);
   }
   return out;
 }

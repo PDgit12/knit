@@ -32,7 +32,7 @@
  * is present.
  */
 
-import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, lstatSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { join, basename, extname, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { AgentId } from './agent-detector.js';
@@ -95,6 +95,43 @@ function commandRootsFor(agent: AgentId, workspaceRoot: string): Array<{ dir: st
   }
 }
 
+/** v0.19 — Claude Code Skills (2026) live at `.claude/skills/<name>/SKILL.md`,
+ *  one folder per skill, and are invokable as slash commands. They're a
+ *  separate surface from flat `.claude/commands/*.md`, so scan them too — Knit
+ *  composes with the user's authored skills the same way it defers to their
+ *  slash commands. Workspace + user level, claude-code only for now. */
+function skillRootsFor(agent: AgentId, workspaceRoot: string): string[] {
+  if (agent !== 'claude-code') return [];
+  return [
+    join(workspaceRoot, '.claude', 'skills'),
+    join(homedir(), '.claude', 'skills'),
+  ];
+}
+
+/** List `<skillsDir>/<name>/SKILL.md` paths (one nesting level — skills are
+ *  folders, not flat files, so listFiles can't see them). */
+function listSkillFiles(skillsDir: string): string[] {
+  try {
+    if (!existsSync(skillsDir)) return [];
+    const out: string[] = [];
+    for (const name of readdirSync(skillsDir)) {
+      // Reject a symlinked skill folder (lstat) before descending — otherwise
+      // a `skills/evil -> /etc` symlink would let us read /etc/SKILL.md.
+      try {
+        const dirStat = lstatSync(join(skillsDir, name));
+        if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      const skillFile = join(skillsDir, name, 'SKILL.md');
+      if (isSafeCommandFile(skillFile)) out.push(skillFile);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 // ─── Parsing ────────────────────────────────────────────────────────────
 
 interface ParsedCommand {
@@ -143,22 +180,46 @@ export function parseCommandFile(text: string): ParsedCommand {
     }
   }
 
+  // Audit D2 — the description is surfaced into the agent's context via MCP
+  // responses, and a hostile repo's command/skill file could pack multi-line
+  // pseudo-instructions into it. Collapse to a single clean line (strip control
+  // chars + newlines) so it can't masquerade as agent directives. It's meant to
+  // be a one-line summary anyway.
+  if (description) {
+    // eslint-disable-next-line no-control-regex
+    description = description.replace(/[\x00-\x1F\x7F]+/g, " ").replace(/\s+/g, " ").trim();
+    if (description.length > 200) description = description.slice(0, 197) + "\u2026";
+  }
+
   return { description, knitSkip, body };
 }
 
 // ─── Scanning ──────────────────────────────────────────────────────────
+
+/** Hard cap on a command/skill file's on-disk size. These are short prompt
+ *  docs; anything larger is malformed or hostile. Audit D2 (v0.19): guard
+ *  BEFORE readFileSync so a 500MB SKILL.md in a cloned repo can't OOM the
+ *  process, and use lstat so a symlinked SKILL.md → ~/.ssh/id_rsa can't be
+ *  read into brain state. */
+const MAX_COMMAND_FILE_BYTES = 64 * 1024;
+
+/** Safe to read as a command/skill file? Rejects symlinks (lstat — a symlink
+ *  is not isFile()), non-regular files, and oversized files. */
+function isSafeCommandFile(path: string): boolean {
+  try {
+    const st = lstatSync(path);
+    return st.isFile() && !st.isSymbolicLink() && st.size <= MAX_COMMAND_FILE_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 function listFiles(dir: string, exts: string[]): string[] {
   try {
     if (!existsSync(dir)) return [];
     const entries = readdirSync(dir);
     return entries
-      .filter((name) => {
-        try {
-          if (!statSync(join(dir, name)).isFile()) return false;
-        } catch { return false; }
-        return exts.some((e) => name.endsWith(e));
-      })
+      .filter((name) => isSafeCommandFile(join(dir, name)) && exts.some((e) => name.endsWith(e)))
       .map((name) => join(dir, name));
   } catch {
     return [];
@@ -193,6 +254,26 @@ function scanAgent(agent: AgentId, workspaceRoot: string): AgentCommand[] {
         });
       } catch {
         // Best-effort: skip individual files we can't read/parse.
+      }
+    }
+  }
+  // v0.19 — also surface Claude Code Skills (folder-per-skill SKILL.md).
+  for (const skillsDir of skillRootsFor(agent, workspaceRoot)) {
+    for (const path of listSkillFiles(skillsDir)) {
+      try {
+        const text = readFileSync(path, 'utf-8');
+        const parsed = parseCommandFile(text);
+        if (parsed.knitSkip) continue;
+        out.push({
+          name: basename(dirname(path)).toLowerCase(), // skill = its folder name
+          sourcePath: path,
+          description: parsed.description,
+          agent,
+          commandText: parsed.body.slice(0, MAX_COMMAND_TEXT_BYTES),
+          knitSkip: false,
+        });
+      } catch {
+        // Best-effort: skip skills we can't read/parse.
       }
     }
   }

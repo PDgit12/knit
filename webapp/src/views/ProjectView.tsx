@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, type LearningEntry, type ProjectMetrics } from '../api/client';
+import { api, type LearningEntry, type ProjectMetrics, type ProjectKnowledge } from '../api/client';
 import { useBrainSync } from '../api/useBrainSync';
 import {
   Card, Eyebrow, HeroNumber, StatNumber, DeltaPill, ArrowUpRight,
@@ -17,6 +17,7 @@ export function ProjectView({ projectId }: { projectId: string }) {
   const [name, setName] = useState<string>('');
   const [learnings, setLearnings] = useState<LearningEntry[] | null>(null);
   const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
+  const [knowledge, setKnowledge] = useState<ProjectKnowledge['knowledge'] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState<string>('');
   const sync = useBrainSync();
@@ -25,6 +26,9 @@ export function ProjectView({ projectId }: { projectId: string }) {
     Promise.all([api.projectLearnings(projectId), api.projectMetrics(projectId)])
       .then(([l, m]) => { setName(l.project.name); setLearnings(l.learnings); setMetrics(m); setError(null); })
       .catch((err: Error) => setError(err.message));
+    // Knowledge index loads independently — a not-yet-indexed project 404s here
+    // but must not blank the whole view, so swallow to null.
+    api.projectKnowledge(projectId).then((k) => setKnowledge(k.knowledge)).catch(() => setKnowledge(null));
   }, [projectId, sync.tick]);
 
   const filtered = useMemo(() => {
@@ -131,6 +135,35 @@ export function ProjectView({ projectId }: { projectId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Knowledge index — read-only collapse of `knit status` (v0.20) */}
+      {knowledge && (
+        <Card variant="neutral" padding="normal">
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+            <Eyebrow>Knowledge index</Eyebrow>
+            {knowledge.generatedAt && (
+              <span style={{ color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
+                indexed {new Date(knowledge.generatedAt).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+            gap: 'var(--space-4)', marginTop: 'var(--space-4)',
+          }}>
+            <MiniStat label="Files" value={knowledge.totalFiles} hint={`${knowledge.totalLines.toLocaleString()} lines`} />
+            <MiniStat label="Imports" value={knowledge.imports} hint="edges mapped" />
+            <MiniStat label="Untested" value={knowledge.untested} hint="source files" />
+            <MiniStat label="High-fanout" value={knowledge.highFanout} hint="≥3 importers" />
+            <MiniStat label="Languages" value={knowledge.languages.length} hint={knowledge.languages.slice(0, 3).map((l) => l.lang).join(', ') || '—'} />
+          </div>
+          {/* The dashboard is read-only by design; point users at the CLI for
+              source-touching actions so they don't hunt for a button. */}
+          <div style={{ marginTop: 'var(--space-4)', color: 'var(--text-mute-dark)', fontSize: 'var(--size-label)' }}>
+            Read-only view. To re-index or export, run <code>knit refresh</code> / <code>knit export</code> in your project terminal.
+          </div>
+        </Card>
+      )}
 
       {/* Learnings list — searchable */}
       <Card variant="neutral" padding="normal">

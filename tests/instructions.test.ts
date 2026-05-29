@@ -90,8 +90,8 @@ describe('buildBudgetVerdict', () => {
     writeFileSync(join(tmpRoot, 'CLAUDE.md'), 'A'.repeat(CLAUDE_MD_BUDGET_BYTES + 500), 'utf-8');
     const v = buildBudgetVerdict(tmpRoot);
     expect(v).toMatch(/^BUDGET warn:/);
-    expect(v).toContain('engram doctor');
-    expect(v).toContain('engram refresh');
+    expect(v).toContain('knit doctor');
+    expect(v).toContain('knit refresh');
   });
 
   it('returns over-budget verdict when CLAUDE.md exceeds 25% slack', () => {

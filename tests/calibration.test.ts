@@ -309,5 +309,34 @@ describe('classifier reads calibration', () => {
   }
 });
 
+// ── v0.17 freshness layer — stale FP-counter decay ──────────────────────────
+describe('calibration freshness decay', () => {
+  it('drops sub-threshold FP counters when updatedAt is older than the decay window', () => {
+    // 2 of 3 FPs accumulated, but no activity for 200 days (> 120d window).
+    saveCalibration(projectRoot, {
+      fpDirections: { 'complex-was-trivial': 2 },
+      scopeAdjust: 1,
+      riskAdjust: 0,
+      updatedAt: new Date(Date.now() - 200 * 86_400_000).toISOString(),
+    });
+    const cal = loadCalibration(projectRoot);
+    // Stale partial counter decayed away…
+    expect(cal.fpDirections['complex-was-trivial']).toBeUndefined();
+    // …but the applied adjustment (learned project character) persists.
+    expect(cal.scopeAdjust).toBe(1);
+  });
+
+  it('keeps fresh FP counters intact', () => {
+    saveCalibration(projectRoot, {
+      fpDirections: { 'complex-was-trivial': 2 },
+      scopeAdjust: 0,
+      riskAdjust: 0,
+      updatedAt: new Date().toISOString(),
+    });
+    const cal = loadCalibration(projectRoot);
+    expect(cal.fpDirections['complex-was-trivial']).toBe(2);
+  });
+});
+
 // Avoid unused import warning
 void existsSync;
