@@ -821,7 +821,7 @@ Five phases, all shipped on this release:
 
 ### Phase B — Dogfood migration
 
-- **`/Users/piyushdua/engram/CLAUDE.md` 16KB → 3.8KB.** The project
+- **This project's `CLAUDE.md` 16KB → 3.8KB.** The project
   building Knit was hand-curating a 16KB CLAUDE.md and bypassing the
   generator it marketed. Now: lean project-essential content (build
   commands, domain architecture, cross-domain rules, git conventions).
