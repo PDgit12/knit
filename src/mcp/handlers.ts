@@ -19,7 +19,7 @@ import {
 import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge, loadAllSessions } from '../engine/sessions.js';
 import { isStale, resolveRef, sourceExists, extractFileRefs, FRESHNESS } from '../engine/freshness.js';
 import { resetAdherenceState } from './adherence.js';
-import { loadPreferences, savePreferences, type ProjectPreferences } from '../engine/preferences.js';
+import { loadPreferences, savePreferences, type ProjectPreferences, type OrchestrationPref, type TokenModePref } from '../engine/preferences.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
@@ -1769,6 +1769,12 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   const budgetRemaining = Number.isFinite(rawBudget) && rawBudget >= 0 && rawBudget <= 100 ? rawBudget : 100;
   const { scope: scopeTier, degraded: budgetDegraded } = applyContextBudget(initialScope, budgetRemaining);
 
+  // v0.22 — onboarding prefs steer surfacing: orchestration=off suppresses the
+  // host directive; token_mode=lean trims optional surfaces for tight budgets.
+  const prefs = loadPreferences(brain.rootPath);
+  const orchestrationPref: OrchestrationPref = prefs?.orchestration ?? 'auto';
+  const leanMode = prefs?.tokenMode === 'lean';
+
   // auto_plan_mode is now risk-driven, not scope-driven.
   const autoPlanMode = riskTier === 'high' || riskTier === 'medium';
 
@@ -1832,7 +1838,8 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
       const queryText = trimmed || [...domains].join(' ');
       if (queryText) {
         const index = buildLearningsIndex(brain.knowledgeBase.entries);
-        const hits = index.search(queryText, 3);
+        // token_mode=lean → surface only the single best learning headline.
+        const hits = index.search(queryText, leanMode ? 1 : 3);
         if (hits.length > 0) {
           preEmptiveLearnings = hits.map((h) => {
             const entry = (h.document.metadata as { entry: KBEntry }).entry;
@@ -1860,10 +1867,18 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
 
   // v0.22 host composition — on complex + cross-cutting tasks only, attach a
   // directive to compose with the detected host's native orchestration (carries
-  // Knit's domains). Fires rarely + dropped under budget (token discipline).
+  // Knit's domains). Fires rarely + dropped under budget (token discipline) +
+  // suppressed when the user set orchestration=off (they drive it manually).
   const crossCutting = domains.size >= 2 || highFanoutCount > 0;
-  const hostOrchestration = tier === 'complex' && crossCutting && !budgetDegraded
+  const hostOrchestration = orchestrationPref !== 'off' && tier === 'complex' && crossCutting && !budgetDegraded
     ? hostOrchestrationDirective(getActiveHost(), [...domains])
+    : '';
+
+  // v0.22 — proactive handoff: when the context budget is running low, recommend
+  // checkpointing BEFORE the window fills, so the session resumes cheaply. The
+  // compounding lever — preserve "capital", checkpoint, resume.
+  const handoffNudge = budgetRemaining < 30
+    ? `Context budget is low (${budgetRemaining}%). Call knit_save_handoff to checkpoint before the window fills — the next session resumes from it cheaply.`
     : '';
 
   const verbose = params.verbose === 'true' || params.verbose === '1';
@@ -1883,6 +1898,7 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
         }
       : {}),
     ...(hostOrchestration ? { host_orchestration: hostOrchestration } : {}),
+    ...(handoffNudge ? { handoff_nudge: handoffNudge } : {}),
     ...(budgetDegraded
       ? {
           degraded_for_budget: true,
@@ -2641,17 +2657,27 @@ export function handleOnboard(params: Record<string, string>, brain: BrainCache)
   const enableRaw = (params.enable || '')
     .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 
+  // v0.22 — orchestration + token_mode prefs (optional; safe defaults).
+  const orchRaw = (params.orchestration || '').trim().toLowerCase();
+  const orchestration: OrchestrationPref = orchRaw === 'off' || orchRaw === 'suggest' || orchRaw === 'auto' ? orchRaw : 'auto';
+  const tokenRaw = (params.token_mode || '').trim().toLowerCase();
+  const tokenMode: TokenModePref = tokenRaw === 'lean' ? 'lean' : 'standard';
+
   const prefs: ProjectPreferences = {
     version: 1,
     projectDescription,
     intent,
     strictness,
     focusDomains,
+    orchestration,
+    tokenMode,
     onboardedAt: new Date().toISOString(),
   };
   savePreferences(brain.rootPath, prefs);
 
   const applied: string[] = [];
+  if (orchestration !== 'auto') applied.push(`orchestration=${orchestration}`);
+  if (tokenMode !== 'standard') applied.push(`token_mode=${tokenMode}`);
 
   if (strictness) {
     writeProtocolConfig(brain.rootPath, strictness);
@@ -2691,6 +2717,8 @@ export function handleOnboard(params: Record<string, string>, brain: BrainCache)
     intent,
     strictness: strictness ?? '(unchanged)',
     focus_domains: focusDomains,
+    orchestration,
+    token_mode: tokenMode,
     features_enabled: featuresEnabled,
     applied,
     instruction: 'Onboarding saved. Knit will surface this project intent at the start of every session. Call knit_classify_task to begin your first task.',
@@ -3292,13 +3320,16 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     handoff = redactSecrets(readFileSync(handoffPath, 'utf-8').slice(0, 1500));
   }
 
-  // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5.
-  const learningsLimit = wantAll || include.has('full_learnings') ? 5 : 3;
+  // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5;
+  //    token_mode=lean trims to 2. v0.22 token-opt: headline + id + preview, not
+  //    full lesson bodies (call knit_get_learning({id}) for the full lesson).
+  const leanMode = loadPreferences(brain.rootPath)?.tokenMode === 'lean';
+  const learningsLimit = wantAll || include.has('full_learnings') ? 5 : leanMode ? 2 : 3;
   const topLearnings = brain.knowledgeBase.entries
     .filter((e) => e.accessCount > 0)
     .sort((a, b) => b.accessCount - a.accessCount)
     .slice(0, learningsLimit)
-    .map((e) => ({ summary: e.summary, lesson: e.lesson, tags: e.tags, accessed: e.accessCount }));
+    .map((e) => ({ id: e.id, summary: e.summary, lesson_preview: lessonPreview(e.lesson), tags: e.tags, accessed: e.accessCount }));
 
   // 4. False positives — cap at 5 by default; full list in include=full_learnings.
   const fpsLimit = wantAll || include.has('full_learnings') ? 50 : 5;

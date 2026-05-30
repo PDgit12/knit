@@ -23,6 +23,8 @@ const sample: ProjectPreferences = {
   intent: 'add a billing module',
   strictness: 'block',
   focusDomains: ['api', 'billing'],
+  orchestration: 'auto',
+  tokenMode: 'standard',
   onboardedAt: '2026-05-29T00:00:00.000Z',
 };
 
@@ -54,5 +56,24 @@ describe('preferences store', () => {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, '{ this is not: valid json', 'utf-8');
     expect(loadPreferences(ROOT)).toBeNull();
+  });
+
+  // v0.22 — orchestration + token_mode (no migration: pre-v0.22 files default).
+  it('defaults orchestration=auto + tokenMode=standard when the fields are absent (no migration)', () => {
+    const p = preferencesPath(ROOT);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify({ version: 1, projectDescription: 'x', intent: 'y' }), 'utf-8');
+    const loaded = loadPreferences(ROOT);
+    expect(loaded?.orchestration).toBe('auto');
+    expect(loaded?.tokenMode).toBe('standard');
+  });
+
+  it('round-trips and coerces invalid orchestration/tokenMode to defaults', () => {
+    savePreferences(ROOT, { ...sample, orchestration: 'off', tokenMode: 'lean' });
+    expect(loadPreferences(ROOT)?.orchestration).toBe('off');
+    expect(loadPreferences(ROOT)?.tokenMode).toBe('lean');
+    savePreferences(ROOT, { ...sample, orchestration: 'bogus' as unknown as ProjectPreferences['orchestration'], tokenMode: 'bogus' as unknown as ProjectPreferences['tokenMode'] });
+    expect(loadPreferences(ROOT)?.orchestration).toBe('auto');
+    expect(loadPreferences(ROOT)?.tokenMode).toBe('standard');
   });
 });

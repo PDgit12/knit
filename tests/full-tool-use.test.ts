@@ -14,7 +14,9 @@ import {
   handleGetWorkflow,
   handleSearchLearnings,
   handleGetLearning,
+  handleOnboard,
 } from '../src/mcp/handlers.js';
+import { savePreferences } from '../src/engine/preferences.js';
 import { setActiveHost, resetActiveHost, classifyHost } from '../src/mcp/host.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../src/engine/types.js';
@@ -112,6 +114,44 @@ describe('classify host_orchestration (Batch C)', () => {
     setActiveHost(classifyHost({ name: 'cursor' }));
     const res = JSON.parse(handleClassifyTask({ files_to_touch: 'src/lib/util.ts', description: 'tweak a helper' }, mockBrain()));
     expect(res.host_orchestration).toBeUndefined();
+  });
+});
+
+describe('onboarding prefs steer classify (Batch E)', () => {
+  const ROOT = '/tmp/ftu-project'; // matches mockBrain().rootPath
+  const basePrefs = {
+    version: 1 as const, projectDescription: 'p', intent: 'i', strictness: null,
+    focusDomains: [], orchestration: 'auto' as const, tokenMode: 'standard' as const,
+    onboardedAt: '2026-05-30T00:00:00Z',
+  };
+  afterAll(() => resetActiveHost());
+
+  it('orchestration=off suppresses host_orchestration even on a complex cross-cutting task', () => {
+    setActiveHost(classifyHost({ name: 'cursor' }));
+    savePreferences(ROOT, { ...basePrefs, orchestration: 'off' });
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: MULTI, description: 'architect a new cross-domain system spanning auth, UI and lib over many commits' }, mockBrain()));
+    expect(res.tier).toBe('complex');
+    expect(res.host_orchestration).toBeUndefined();
+    savePreferences(ROOT, basePrefs); // restore for other tests
+  });
+
+  it('token_mode=lean surfaces at most ONE pre-emptive learning headline', () => {
+    savePreferences(ROOT, { ...basePrefs, tokenMode: 'lean' });
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: 'src/api/auth.ts', description: 'fix the auth token refresh race condition' }, mockBrain()));
+    if (res.pre_emptive_learnings) expect(res.pre_emptive_learnings.length).toBeLessThanOrEqual(1);
+    savePreferences(ROOT, basePrefs);
+  });
+
+  it('emits a proactive handoff_nudge when the context budget is low', () => {
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: MULTI, description: 'rework auth', context_budget_remaining: '15' }, mockBrain()));
+    expect(res.handoff_nudge).toMatch(/knit_save_handoff/);
+  });
+
+  it('onboard accepts + echoes orchestration + token_mode', () => {
+    const res = JSON.parse(handleOnboard({ project_description: 'p', intent: 'i', orchestration: 'off', token_mode: 'lean' }, mockBrain()));
+    expect(res.orchestration).toBe('off');
+    expect(res.token_mode).toBe('lean');
+    savePreferences(ROOT, basePrefs);
   });
 });
 
