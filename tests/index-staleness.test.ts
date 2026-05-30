@@ -164,3 +164,15 @@ describe('verify_claim staleness defense', () => {
     expect(res.stale_index_hint).toBeUndefined();
   });
 });
+
+describe('brain_status surfaces index freshness', () => {
+  it('reports generated_at + age_minutes + a freshness note so staleness is observable', async () => {
+    const { handleBrainStatus } = await import('../src/mcp/handlers.js');
+    const { getBrain } = await import('../src/mcp/cache.js');
+    const brain = getBrain(projectRoot);
+    const res = JSON.parse(handleBrainStatus({}, brain));
+    expect(res.knowledge_index.generated_at).toBe(brain.knowledge.generatedAt);
+    expect(res.knowledge_index.age_minutes).toBeGreaterThanOrEqual(0);
+    expect(res.knowledge_index.freshness_note).toMatch(/knit_refresh_index/);
+  });
+});

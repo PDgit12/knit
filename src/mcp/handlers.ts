@@ -511,12 +511,25 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
 
   return JSON.stringify({
     ...summary,
-    knowledge_index: {
-      files_indexed: brain.knowledge.summary.totalFiles,
-      total_lines: brain.knowledge.summary.totalLines,
-      import_edges: Object.keys(brain.knowledge.importGraph).length,
-      exports_mapped: Object.keys(brain.knowledge.exports).length,
-    },
+    knowledge_index: (() => {
+      // v0.22 — surface index FRESHNESS, not just size. verify_claim/query_*
+      // tell agents to "check index freshness" but there was no way to see it.
+      const builtAtMs = Date.parse(brain.knowledge.generatedAt);
+      const ageMinutes = Number.isFinite(builtAtMs)
+        ? Math.max(0, Math.round((Date.now() - builtAtMs) / 60000))
+        : null;
+      return {
+        files_indexed: brain.knowledge.summary.totalFiles,
+        total_lines: brain.knowledge.summary.totalLines,
+        import_edges: Object.keys(brain.knowledge.importGraph).length,
+        exports_mapped: Object.keys(brain.knowledge.exports).length,
+        generated_at: brain.knowledge.generatedAt,
+        age_minutes: ageMinutes,
+        // getBrain auto-refreshes on source drift (v0.22+), so the index is
+        // normally current. The honest fallback if a query still looks stale:
+        freshness_note: 'Index auto-refreshes on source-tree drift. If a query/verify result looks stale, call knit_refresh_index.',
+      };
+    })(),
     // Back-compat: the flat token_accounting shape from pre-v0.7.2 is kept so
     // anything that hard-coded those field names still works.
     token_accounting: {
