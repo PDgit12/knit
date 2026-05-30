@@ -94,6 +94,52 @@ export function classifyHost(clientInfo: ClientInfo | undefined | null): HostPro
   return UNKNOWN_HOST;
 }
 
+// ── Host-tailored composition ──────────────────────────────────────────────
+
+/**
+ * The directive classify attaches (on complex + cross-cutting tasks only) telling
+ * the agent to compose with THIS host's native orchestration, carrying Knit's
+ * context (the affected domains). Hook hosts get their real fan-out primitive;
+ * suggest-only hosts (VS Code / unknown) get Knit's own knit_spawn_team_worktree
+ * — never a faked auto-trigger claim.
+ */
+export function hostOrchestrationDirective(profile: HostProfile, domains: string[]): string {
+  const list = domains.length > 0 ? ` (one per affected domain: ${domains.join(', ')})` : '';
+  const ground = ' Ground each agent in Knit via knit_build_context; record the outcome with knit_record_learning.';
+  switch (profile.id) {
+    case 'claude-code':
+      return `Complex + cross-cutting — run this as a DYNAMIC WORKFLOW: fan out parallel subagents${list}.${ground}`;
+    case 'cursor':
+      return `Complex + cross-cutting — fan out to parallel worktree agents${list}, or use knit_spawn_team_worktree.${ground}`;
+    case 'codex':
+      return `Complex + cross-cutting — delegate to subagents${list}.${ground}`;
+    case 'vscode':
+      return `Complex + cross-cutting — use agent mode; Knit's context + onboarding are available as /mcp.knit.* slash commands. Parallelize domains with knit_spawn_team_worktree${list}.${ground}`;
+    default:
+      return `Complex + cross-cutting — parallelize with knit_spawn_team_worktree${list} (this host has no deterministic hooks; Knit suggests, never forces).${ground}`;
+  }
+}
+
+/** The host contract surfaced in the first knit_load_session response — what
+ *  this host can/can't do, so the agent composes correctly all session. */
+export function hostContract(profile: HostProfile): {
+  id: HostId;
+  mode: string;
+  native_orchestration: string | null;
+  slash_commands: boolean;
+  compose: string;
+} {
+  return {
+    id: profile.id,
+    mode: profile.tier === 'hook' ? 'auto: deterministic hooks available' : 'suggest-only: no host hooks — Knit directs, never forces',
+    native_orchestration: profile.autoMechanism,
+    slash_commands: profile.slashSurface,
+    compose: profile.autoMechanism
+      ? `For complex/cross-domain tasks, classify will direct you to compose with this host's ${profile.autoMechanism}.`
+      : 'For complex/cross-domain tasks, parallelize via knit_spawn_team_worktree.',
+  };
+}
+
 // ── Active-host singleton (per-process / per-session) ──────────────────────
 
 let activeHost: HostProfile = UNKNOWN_HOST;

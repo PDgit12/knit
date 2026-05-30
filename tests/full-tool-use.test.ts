@@ -15,6 +15,7 @@ import {
   handleSearchLearnings,
   handleGetLearning,
 } from '../src/mcp/handlers.js';
+import { setActiveHost, resetActiveHost, classifyHost } from '../src/mcp/host.js';
 import type { BrainCache } from '../src/mcp/cache.js';
 import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../src/engine/types.js';
 
@@ -88,6 +89,29 @@ describe('classify tool_plan', () => {
     const tools = (res.tool_plan || []).map((s: { tool: string }) => s.tool);
     expect(tools).not.toContain('knit_spawn_team_worktree');
     expect(tools).not.toContain('knit_query_imports');
+  });
+});
+
+describe('classify host_orchestration (Batch C)', () => {
+  afterAll(() => resetActiveHost());
+
+  it('attaches a host-tailored directive on a complex cross-cutting task', () => {
+    setActiveHost(classifyHost({ name: 'cursor' }));
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: MULTI, description: 'architect a new cross-domain system spanning auth, UI and lib over many commits' }, mockBrain()));
+    expect(res.tier).toBe('complex');
+    expect(res.host_orchestration).toMatch(/parallel worktree agents/i);
+  });
+
+  it('switches the directive when the host changes', () => {
+    setActiveHost(classifyHost({ name: 'claude-code' }));
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: MULTI, description: 'architect a new cross-domain system spanning auth, UI and lib over many commits' }, mockBrain()));
+    expect(res.host_orchestration).toMatch(/dynamic workflow/i);
+  });
+
+  it('omits host_orchestration for a non-complex single-domain task', () => {
+    setActiveHost(classifyHost({ name: 'cursor' }));
+    const res = JSON.parse(handleClassifyTask({ files_to_touch: 'src/lib/util.ts', description: 'tweak a helper' }, mockBrain()));
+    expect(res.host_orchestration).toBeUndefined();
   });
 });
 

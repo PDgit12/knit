@@ -4,6 +4,8 @@ import {
   getActiveHost,
   setActiveHost,
   resetActiveHost,
+  hostOrchestrationDirective,
+  hostContract,
   UNKNOWN_HOST,
   type ClientInfo,
 } from '../src/mcp/host.js';
@@ -86,5 +88,52 @@ describe('active-host singleton', () => {
     setActiveHost(classifyHost({ name: 'claude-code' }));
     resetActiveHost();
     expect(getActiveHost()).toEqual(UNKNOWN_HOST);
+  });
+});
+
+describe('hostOrchestrationDirective — composes with the native primitive, carries domains', () => {
+  const domains = ['API & Security', 'UI'];
+
+  it('claude-code → dynamic workflow', () => {
+    const d = hostOrchestrationDirective(classifyHost({ name: 'claude-code' }), domains);
+    expect(d).toMatch(/dynamic workflow/i);
+    expect(d).toContain('API & Security');
+  });
+
+  it('cursor → parallel worktree agents', () => {
+    expect(hostOrchestrationDirective(classifyHost({ name: 'cursor' }), domains)).toMatch(/parallel worktree agents/i);
+  });
+
+  it('codex → subagents', () => {
+    expect(hostOrchestrationDirective(classifyHost({ name: 'codex-mcp-client' }), domains)).toMatch(/subagents/i);
+  });
+
+  it('vscode → agent mode + /mcp.knit.* slash commands (suggest)', () => {
+    const d = hostOrchestrationDirective(classifyHost({ name: 'Visual Studio Code' }), domains);
+    expect(d).toMatch(/agent mode/i);
+    expect(d).toMatch(/\/mcp\.knit\.\*/);
+  });
+
+  it('unknown → Knit’s own primitive, explicitly suggest-not-force', () => {
+    const d = hostOrchestrationDirective(UNKNOWN_HOST, domains);
+    expect(d).toMatch(/knit_spawn_team_worktree/);
+    expect(d).toMatch(/suggests, never forces/i);
+  });
+});
+
+describe('hostContract — the load_session contract', () => {
+  it('a hook host reports auto mode + its native orchestration', () => {
+    const c = hostContract(classifyHost({ name: 'cursor' }));
+    expect(c.id).toBe('cursor');
+    expect(c.mode).toMatch(/auto/i);
+    expect(c.native_orchestration).toBe('cursor-parallel-agents');
+  });
+
+  it('a suggest host reports suggest-only + no native orchestration', () => {
+    const c = hostContract(classifyHost({ name: 'Visual Studio Code' }));
+    expect(c.mode).toMatch(/suggest-only/i);
+    expect(c.native_orchestration).toBeNull();
+    expect(c.slash_commands).toBe(true);
+    expect(c.compose).toMatch(/knit_spawn_team_worktree/);
   });
 });

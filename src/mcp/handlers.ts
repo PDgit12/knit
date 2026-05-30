@@ -8,6 +8,7 @@ import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlin
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
 import { refreshBrain } from './cache.js';
+import { getActiveHost, hostOrchestrationDirective, hostContract } from './host.js';
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject, scanProjectFingerprint } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
@@ -1857,6 +1858,14 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     ? []
     : buildToolPlan({ files, rippleFiles, domainCount: domains.size, isTypes, isAuth, scopeTier, tier });
 
+  // v0.22 host composition — on complex + cross-cutting tasks only, attach a
+  // directive to compose with the detected host's native orchestration (carries
+  // Knit's domains). Fires rarely + dropped under budget (token discipline).
+  const crossCutting = domains.size >= 2 || highFanoutCount > 0;
+  const hostOrchestration = tier === 'complex' && crossCutting && !budgetDegraded
+    ? hostOrchestrationDirective(getActiveHost(), [...domains])
+    : '';
+
   const verbose = params.verbose === 'true' || params.verbose === '1';
   const base = {
     tier,
@@ -1873,6 +1882,7 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
           tool_plan_note: 'Ordered tools for THIS task shape — follow it; do not collapse to 1–2 tools or reconstruct the loop from prose. Each step is gated by your task’s signals.',
         }
       : {}),
+    ...(hostOrchestration ? { host_orchestration: hostOrchestration } : {}),
     ...(budgetDegraded
       ? {
           degraded_for_budget: true,
@@ -3406,6 +3416,12 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     ...(updateAvailable ? { update_available: updateAvailable } : {}),
     ...(budgetHealth ? { budget_health: budgetHealth } : {}),
     ...(learningsHealth && learningsHealth.verdict === 'low-utilization' ? { learnings_health: learningsHealth } : {}),
+    // v0.22 host composition — the contract for THIS host (auto vs suggest, its
+    // native orchestration, slash-command surface). Delivered here, the first
+    // call, because the static handshake instructions are built before the
+    // host's clientInfo is known. Only surfaced once a host was actually
+    // detected (UNKNOWN_HOST stays silent — no noise for an unidentified host).
+    ...(getActiveHost().id !== 'unknown' ? { _knit_host: hostContract(getActiveHost()) } : {}),
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : prefs
