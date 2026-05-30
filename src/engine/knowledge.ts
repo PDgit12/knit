@@ -114,6 +114,60 @@ function walkFiles(rootPath: string, dir: string): FileEntry[] {
   return entries;
 }
 
+// ── Staleness probe ──────────────────────────────────────────────
+
+/**
+ * v0.22 — cheapest possible "did any indexed source file change?" probe.
+ *
+ * Walks the SAME file universe `buildKnowledge` sees (identical SKIP_DIRS +
+ * SOURCE_EXTS + symlink/size rules) but STAT-ONLY — no file reads, no regex.
+ * Returns the newest source-file mtime (ms) and the source-file count. The
+ * caller compares these against the cached index's build time + file count:
+ *   - a NEW file or an EDIT bumps `newestMtimeMs` past the index's generatedAt;
+ *   - an ADD or DELETE changes `sourceCount`.
+ * Reusing the builder's exact walk rules is load-bearing — a probe that saw a
+ * different set of files than the builder would drift and mis-fire.
+ */
+export function probeSourceTree(rootPath: string): { newestMtimeMs: number; sourceCount: number } {
+  let newestMtimeMs = 0;
+  let sourceCount = 0;
+
+  const walk = (dir: string): void => {
+    let items: string[];
+    try {
+      items = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const item of items) {
+      if (item.startsWith('.') && item !== '.') continue;
+      if (SKIP_DIRS.has(item)) continue;
+
+      const fullPath = join(dir, item);
+      let stat;
+      try {
+        const lstat = lstatSync(fullPath);
+        if (lstat.isSymbolicLink()) continue;
+        stat = lstat;
+      } catch {
+        continue;
+      }
+
+      if (stat.isDirectory()) {
+        walk(fullPath);
+      } else if (stat.isFile()) {
+        if (!SOURCE_EXTS.has(extname(item))) continue;
+        if (stat.size > 5_000_000) continue;
+        sourceCount += 1;
+        if (stat.mtimeMs > newestMtimeMs) newestMtimeMs = stat.mtimeMs;
+      }
+    }
+  };
+
+  walk(rootPath);
+  return { newestMtimeMs, sourceCount };
+}
+
 // ── Import Graph ─────────────────────────────────────────────────
 
 /** Regex patterns for extracting imports by language */

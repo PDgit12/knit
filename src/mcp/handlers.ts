@@ -109,10 +109,29 @@ export function detectDomainsFromFiles(files: string[]): Set<string> {
 const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 
 
+/**
+ * v0.22 — honest breadcrumb for the rare case the staleness guard's throttle
+ * window suppressed a re-probe: if the queried file ISN'T in the index but DOES
+ * exist on disk, the index is stale, not the file empty. Surface that instead of
+ * silently returning nothing (which is what pushed users back to grep). The
+ * getBrain probe normally refreshes before the query, so this seldom fires.
+ */
+function staleIndexHint(brain: BrainCache, filePath: string): string | undefined {
+  if (!filePath) return undefined;
+  if (brain.knowledge.files.some((f) => f.path === filePath)) return undefined;
+  try {
+    if (existsSync(join(brain.rootPath, filePath))) {
+      return 'NOTE: this file exists on disk but is not in the code index — the index may be stale. Call knit_refresh_index, then retry this query.';
+    }
+  } catch { /* path probe is best-effort */ }
+  return undefined;
+}
+
 export function handleQueryImports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const importers = brain.reverseDeps[filePath] || [];
   const risk = importers.length >= 5 ? 'HIGH' : importers.length >= 3 ? 'MEDIUM' : 'LOW';
+  const hint = importers.length === 0 ? staleIndexHint(brain, filePath) : undefined;
   return JSON.stringify({
     file: filePath,
     imported_by: importers,
@@ -121,22 +140,26 @@ export function handleQueryImports(params: Record<string, string>, brain: BrainC
     instruction: importers.length >= 3
       ? `This file has ${importers.length} dependents. Changes here will ripple. Update/test these files after editing: ${importers.slice(0, 5).join(', ')}`
       : 'Low risk — few dependents.',
+    ...(hint ? { stale_index_hint: hint } : {}),
   });
 }
 
 export function handleQueryDependents(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const deps = brain.knowledge.importGraph[filePath] || [];
-  return JSON.stringify({ file: filePath, depends_on: deps, count: deps.length });
+  const hint = deps.length === 0 ? staleIndexHint(brain, filePath) : undefined;
+  return JSON.stringify({ file: filePath, depends_on: deps, count: deps.length, ...(hint ? { stale_index_hint: hint } : {}) });
 }
 
 export function handleQueryExports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const exports = brain.knowledge.exports[filePath] || [];
+  const hint = exports.length === 0 ? staleIndexHint(brain, filePath) : undefined;
   return JSON.stringify({
     file: filePath,
     exports: exports.map((e) => ({ name: e.name, kind: e.kind, line: e.line })),
     count: exports.length,
+    ...(hint ? { stale_index_hint: hint } : {}),
   });
 }
 
