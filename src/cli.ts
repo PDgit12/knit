@@ -204,6 +204,7 @@ async function runMCP() {
   const { registerToolsListChangedNotifier } = await import('./mcp/notifier.js');
   const { loadScanResult } = await import('./engine/integration-scanner.js');
   const { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } = await import('./mcp/update-check.js');
+  const { classifyHost, setActiveHost } = await import('./mcp/host.js');
 
   const ROOT_PATH = detectProjectRoot();
   // Pass ROOT_PATH so buildInstructions appends the per-project handshake
@@ -234,6 +235,17 @@ async function runMCP() {
       instructions: PER_PROJECT_INSTRUCTIONS,
     },
   );
+
+  // v0.22 — capture the host's clientInfo the moment the handshake completes,
+  // so handlers can compose with that host's native orchestration. Best-effort:
+  // if the SDK can't surface it, the active host stays UNKNOWN_HOST (suggest-only).
+  server.oninitialized = () => {
+    try {
+      setActiveHost(classifyHost(server.getClientVersion()));
+    } catch {
+      /* leave the fallback host in place */
+    }
+  };
 
   registerToolsListChangedNotifier(() => {
     void server.sendToolListChanged().catch(() => { /* swallow */ });
