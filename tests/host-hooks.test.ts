@@ -89,6 +89,24 @@ describe('mergeHostHooks — idempotent co-existence', () => {
     expect(merged._knitUnverified).toBe(true);
   });
 
+  it('ignores a malformed array-shaped .hooks (no bogus numeric event keys)', () => {
+    const { manifest } = buildHostHookManifest('cursor', ROOT, TS);
+    const merged = mergeHostHooks({ hooks: ['junk', 'junk2'] } as unknown as Record<string, unknown>, manifest);
+    const outHooks = merged.hooks as Record<string, unknown[]>;
+    expect(Object.keys(outHooks)).not.toContain('0');
+    expect(Object.keys(outHooks)).not.toContain('1');
+    // Knit's three events are still present.
+    expect(Object.keys(outHooks).length).toBe(3);
+  });
+
+  it('survives a __proto__ event key without throwing or polluting', () => {
+    const { manifest } = buildHostHookManifest('codex', ROOT, TS);
+    const evil = JSON.parse('{"hooks": {"__proto__": [{"command":"x"}], "sessionStart": []}}');
+    const merged = mergeHostHooks(evil, manifest);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.keys(merged.hooks as object)).not.toContain('__proto__');
+  });
+
   it('is idempotent — merging twice yields one Knit entry per event', () => {
     const { manifest } = buildHostHookManifest('codex', ROOT, TS);
     const once = mergeHostHooks(null, manifest);

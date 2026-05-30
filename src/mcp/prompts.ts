@@ -34,9 +34,10 @@ export const KNIT_PROMPTS: KnitPromptDef[] = [
 
 /** Resolve one prompt by name (prompts/get), or null if unknown. */
 export function getKnitPrompt(name: string): { description: string; messages: KnitPromptMessage[] } | null {
+  const def = KNIT_PROMPTS.find((p) => p.name === name);
   if (name === 'knit_onboard') {
     return {
-      description: KNIT_PROMPTS[0].description,
+      description: def?.description ?? '',
       messages: [
         {
           role: 'user',
@@ -51,7 +52,7 @@ export function getKnitPrompt(name: string): { description: string; messages: Kn
   }
   if (name === 'knit_workflow') {
     return {
-      description: KNIT_PROMPTS[1].description,
+      description: def?.description ?? '',
       messages: [
         {
           role: 'user',

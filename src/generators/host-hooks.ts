@@ -103,7 +103,10 @@ export function mergeHostHooks(
   if (!existing || typeof existing !== 'object') return generated;
   const merged: Record<string, unknown> = { ...existing };
 
-  const existingHooks = (existing.hooks && typeof existing.hooks === 'object')
+  // Guard: a non-object OR an ARRAY `.hooks` (some tools use a different shape)
+  // is not the event-map shape we merge into — fall back to empty so we don't
+  // splice numeric array indices into the output as bogus event names.
+  const existingHooks = (existing.hooks && typeof existing.hooks === 'object' && !Array.isArray(existing.hooks))
     ? (existing.hooks as Record<string, unknown[]>)
     : {};
   const genHooks = generated.hooks as Record<string, unknown[]>;
@@ -112,6 +115,8 @@ export function mergeHostHooks(
   // Preserve the user's non-Knit entries per event, then append Knit's fresh ones.
   const events = new Set([...Object.keys(existingHooks), ...Object.keys(genHooks)]);
   for (const ev of events) {
+    // Never treat a prototype-polluting key as an event name.
+    if (ev === '__proto__' || ev === 'constructor' || ev === 'prototype') continue;
     const userEntries = Array.isArray(existingHooks[ev])
       ? existingHooks[ev].filter((h) => !(h && typeof h === 'object' && (h as { _knitOwned?: boolean })._knitOwned))
       : [];

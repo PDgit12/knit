@@ -4,7 +4,7 @@
  * and returns a JSON string response.
  */
 
-import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, statSync, constants as fsConstants } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
 import { refreshBrain } from './cache.js';
@@ -12,7 +12,6 @@ import { getActiveHost, hostOrchestrationDirective, hostContract } from './host.
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject, scanProjectFingerprint } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
-import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
 } from '../engine/paths.js';

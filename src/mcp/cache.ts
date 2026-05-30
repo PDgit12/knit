@@ -70,9 +70,13 @@ let lastStalenessProbeAt = -Infinity;
 /** True if the source tree drifted from what the cached index captured. */
 function knowledgeIsStale(c: BrainCache): boolean {
   const probe = probeSourceTree(c.rootPath);
-  // Add or delete → source-file count changes. `knowledge.files` holds exactly
-  // the indexed source files (walkFiles only keeps SOURCE_EXTS entries).
-  if (probe.sourceCount !== c.knowledge.files.length) return true;
+  // DELETE detection only — probe drops below the indexed count. Use `<`, not
+  // `!==`: `knowledge.files` is the READ-based count (walkFiles drops files it
+  // can't readFileSync), while probeSourceTree is stat-only and counts them, so
+  // an unreadable source-extension file would make probe > files.length forever
+  // and rebuild on every call. Additions are caught by the mtime check below
+  // (a new file bumps newestMtimeMs), so `<` loses nothing for adds.
+  if (probe.sourceCount < c.knowledge.files.length) return true;
   // New file or edit → newest mtime moves past the index build time. Guard an
   // unparseable timestamp (Date.parse → NaN) by treating it as stale.
   const builtAtMs = Date.parse(c.knowledge.generatedAt);

@@ -20,6 +20,23 @@ import { buildHostHookManifest, mergeHostHooks, type HostHookId } from '../gener
 /** Agents that have a hook mechanism Knit can write adherence touchpoints into. */
 const HOOK_HOST_BY_AGENT: Record<string, HostHookId> = { cursor: 'cursor', codex: 'codex', vscode: 'copilot' };
 
+/** Ensure a repo-relative path is listed in the workspace .gitignore. Idempotent
+ *  + best-effort: a single Knit comment header, one line per path, never a dupe. */
+function ensureGitignored(workspaceRoot: string, relPath: string): void {
+  try {
+    const giPath = join(workspaceRoot, '.gitignore');
+    const normalized = relPath.replace(/\\/g, '/');
+    let content = existsSync(giPath) ? readFileSync(giPath, 'utf-8') : '';
+    const lines = content.split(/\r?\n/).map((l) => l.trim());
+    if (lines.includes(normalized) || lines.includes(`/${normalized}`)) return;
+    const header = '# Knit — machine-specific generated hook configs (absolute paths; do not commit)';
+    const needHeader = !content.includes(header);
+    const prefix = content.length && !content.endsWith('\n') ? '\n' : '';
+    content += `${prefix}${needHeader ? header + '\n' : ''}${normalized}\n`;
+    writeFileAtomic(giPath, content);
+  } catch { /* best-effort — never block setup on a .gitignore write */ }
+}
+
 /** Write Knit's adherence hooks for a hook-capable host, merged with any existing
  *  config (Knit-owned entries replaced, user hooks preserved). Returns null for
  *  agents without a supported hook surface. */
@@ -36,6 +53,10 @@ function writeHostHooks(agent: string, workspaceRoot: string): { written: boolea
     const merged = mergeHostHooks(existing, manifest);
     mkdirSync(dirname(abs), { recursive: true });
     writeFileAtomic(abs, JSON.stringify(merged, null, 2));
+    // The manifest embeds absolute ~/.knit/... marker paths (machine-specific),
+    // so it must NOT be committed — same reason the Claude settings.local.json is
+    // gitignored. Add it to .gitignore so a username/homedir never lands in git.
+    ensureGitignored(workspaceRoot, file);
     return { written: true, path: abs };
   } catch (err) {
     return { written: false, path: workspaceRoot, error: (err as Error).message };
