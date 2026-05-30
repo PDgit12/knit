@@ -2128,10 +2128,10 @@ purely correctness, branding consistency, and safety.
 ### Fixed
 
 - **Critical: `knit setup` was registering the MCP server with args
-  pointing at the DEPRECATED `@piyushdua/engram-dev@latest` package.**
+  pointing at the DEPRECATED `@knit-dev/engram-dev@latest` package.**
   Three source files (`src/commands/setup.ts`, `src/generators/settings.ts`,
   `src/mcp/server.ts`) still hardcoded the legacy scoped name — sed missed
-  them during the v0.6.0 rename because the path-style `@piyushdua/engram-dev`
+  them during the v0.6.0 rename because the path-style `@knit-dev/engram-dev`
   string wasn't covered by the `engram-` pattern. Now all three correctly
   reference `knit-mcp@latest`. Anyone who ran `knit setup` between v0.6.0
   and v0.6.1 has a broken MCP registration that runs deprecated code; they
@@ -2169,16 +2169,16 @@ sessions knitting together into compounding intelligence.
 
 ### Migration for existing v0.5.x users
 
-- **New install command:** `npx knit-mcp@latest setup` (was `npx @piyushdua/engram-dev@latest setup`).
+- **New install command:** `npx knit-mcp@latest setup` (was `npx @knit-dev/engram-dev@latest setup`).
 - **Data directory:** moved from `~/.engram/` to `~/.knit/`. Existing data is preserved at the old path — the new code reads from `~/.knit/` and falls back to `ENGRAM_HOME` env var so the migration path works.
 - **MCP tool names:** all `engram_*` tools renamed to `knit_*` (e.g. `engram_classify_task` → `knit_classify_task`). 35 tools, all renamed.
 - **Settings file:** `_engramHooks` and `_engramOwned` markers renamed to `_knitHooks` / `_knitOwned`. HOOKS_VERSION bumped 3 → 4; the auto-refresh path from v0.5.1 detects any settings.local.json with the old marker and regenerates cleanly via hybrid merge, preserving user-owned hooks and permissions.
 - **Subagent files:** `<project>/.claude/agents/engram-<name>.md` → `<project>/.claude/agents/knit-<name>.md`. Path-resolution accepts both prefixes for back-compat reads.
-- **Old package on npm:** `@piyushdua/engram-dev` will receive a `npm deprecate` notice pointing to `knit-mcp`.
+- **Old package on npm:** `@knit-dev/engram-dev` will receive a `npm deprecate` notice pointing to `knit-mcp`.
 
 ### Changed
 
-- Package name: `@piyushdua/engram-dev` → `knit-mcp`.
+- Package name: `@knit-dev/engram-dev` → `knit-mcp`.
 - CLI binary: `engram-dev` → `knit`.
 - Repository: `github.com/PDgit12/engram` → `github.com/PDgit12/knit`.
 - All 35 MCP tools renamed `engram_*` → `knit_*`.
@@ -2310,7 +2310,7 @@ Metadata-only patch. No code changes.
   workflow, worktrees) rather than tool count, so it doesn't drift on every
   release.
 - **README** — fixed broken npm version badge (was pointing at unscoped
-  `engram-dev`, now URL-encoded `@piyushdua/engram-dev` so shields.io
+  `engram-dev`, now URL-encoded `@knit-dev/engram-dev` so shields.io
   resolves the real published package). Removed hardcoded `MCP_tools-32`
   badge for the same drift reason.
 - **CLAUDE.md** — domain architecture section synced to actual `src/`:
