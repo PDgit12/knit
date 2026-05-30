@@ -15,6 +15,32 @@ import {
 import { writeCodexMcp } from '../generators/codex-mcp.js';
 import { writeContinueMcp } from '../generators/continue-mcp.js';
 import { mergeAgentsMd } from '../generators/agents-md.js';
+import { buildHostHookManifest, mergeHostHooks, type HostHookId } from '../generators/host-hooks.js';
+
+/** Agents that have a hook mechanism Knit can write adherence touchpoints into. */
+const HOOK_HOST_BY_AGENT: Record<string, HostHookId> = { cursor: 'cursor', codex: 'codex', vscode: 'copilot' };
+
+/** Write Knit's adherence hooks for a hook-capable host, merged with any existing
+ *  config (Knit-owned entries replaced, user hooks preserved). Returns null for
+ *  agents without a supported hook surface. */
+function writeHostHooks(agent: string, workspaceRoot: string): { written: boolean; path: string; error?: string } | null {
+  const hostId = HOOK_HOST_BY_AGENT[agent];
+  if (!hostId) return null;
+  try {
+    const { file, manifest } = buildHostHookManifest(hostId, workspaceRoot, new Date().toISOString());
+    const abs = join(workspaceRoot, file);
+    let existing: Record<string, unknown> | null = null;
+    if (existsSync(abs)) {
+      try { existing = JSON.parse(readFileSync(abs, 'utf-8')); } catch { existing = null; }
+    }
+    const merged = mergeHostHooks(existing, manifest);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileAtomic(abs, JSON.stringify(merged, null, 2));
+    return { written: true, path: abs };
+  } catch (err) {
+    return { written: false, path: workspaceRoot, error: (err as Error).message };
+  }
+}
 
 interface SetupOptions {
   global?: boolean;
@@ -62,6 +88,17 @@ async function registerInOtherAgents(workspaceRoot: string): Promise<void> {
     // reads Knit protocol guidance even without hook enforcement.
     if ((status.agent === 'codex' || status.agent === 'cline') && status.present) {
       writeAgentsMdFlag = true;
+    }
+
+    // v0.22 — for hook-capable hosts (Cursor / Codex / Copilot-VS Code), also
+    // write Knit's adherence hooks. Marked unverified-in-host in the manifest.
+    const hookResult = writeHostHooks(status.agent, workspaceRoot);
+    if (hookResult) {
+      const hi = hookResult.error ? chalk.red('✗') : chalk.green('✓');
+      const hv = hookResult.error
+        ? chalk.red(`hooks failed: ${hookResult.error}`)
+        : chalk.dim(`adherence hooks written (${hookResult.path.replace(homedir(), '~')}) — unverified, confirm in-host`);
+      console.log(`  ${hi} ${`${status.displayName} hooks`.padEnd(28)} ${hv}`);
     }
   }
 
