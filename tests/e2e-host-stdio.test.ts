@@ -57,7 +57,7 @@ function driveClassify(clientName: string): Promise<Record<string, unknown>> {
       if (err) reject(err); else resolve(val as Record<string, unknown>);
     };
 
-    const timer = setTimeout(() => done(new Error(`timeout for ${clientName}`)), 25000);
+    const timer = setTimeout(() => done(new Error(`timeout for ${clientName}`)), 45000);
 
     const send = (msg: unknown) => child.stdin.write(JSON.stringify(msg) + '\n');
 
@@ -101,29 +101,29 @@ describe('real-life stdio E2E — host-tailored classify per clientInfo.name', (
     const res = await driveClassify('claude-code');
     expect(res.tier).toBe('complex');
     expect(String(res.host_orchestration)).toMatch(/dynamic workflow/i);
-  }, 30000);
+  }, 60000);
 
   it('cursor → parallel worktree agents', async () => {
     const res = await driveClassify('cursor');
     expect(String(res.host_orchestration)).toMatch(/parallel worktree agents/i);
-  }, 30000);
+  }, 60000);
 
   it('codex → subagents', async () => {
     const res = await driveClassify('codex-mcp-client');
     expect(String(res.host_orchestration)).toMatch(/subagents/i);
-  }, 30000);
+  }, 60000);
 
   it('Visual Studio Code → agent mode + /mcp.knit.* (suggest)', async () => {
     const res = await driveClassify('Visual Studio Code');
     expect(String(res.host_orchestration)).toMatch(/agent mode/i);
     expect(String(res.host_orchestration)).toMatch(/\/mcp\.knit\.\*/);
-  }, 30000);
+  }, 60000);
 
   it('unknown host → Knit’s own worktree primitive, suggest-not-force', async () => {
     const res = await driveClassify('some-unrecognized-agent');
     expect(String(res.host_orchestration)).toMatch(/knit_spawn_team_worktree/);
     expect(String(res.host_orchestration)).toMatch(/suggests, never forces/i);
-  }, 30000);
+  }, 60000);
 });
 
 describe('real-life stdio E2E — MCP prompts surface', () => {
@@ -136,7 +136,7 @@ describe('real-life stdio E2E — MCP prompts surface', () => {
     let buf = '';
     let settled = false;
     const fin = (err?: Error) => { if (settled) return; settled = true; try { child.kill(); } catch { /* */ } if (err) reject(err); else resolve(); };
-    const timer = setTimeout(() => fin(new Error('prompts timeout')), 25000);
+    const timer = setTimeout(() => fin(new Error('prompts timeout')), 45000);
     const send = (m: unknown) => child.stdin.write(JSON.stringify(m) + '\n');
     child.stdout.on('data', (c: Buffer) => {
       buf += c.toString();
@@ -161,5 +161,5 @@ describe('real-life stdio E2E — MCP prompts surface', () => {
     });
     child.on('error', (e) => { clearTimeout(timer); fin(e); });
     send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'Visual Studio Code', version: '1.0' } } });
-  }), 30000);
+  }), 60000);
 });

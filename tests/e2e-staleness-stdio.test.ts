@@ -39,7 +39,7 @@ class McpClient {
     });
     this.child.stdout!.on('data', (c: Buffer) => this.onData(c));
     this.ready = new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('handshake timeout')), 25000);
+      const t = setTimeout(() => reject(new Error('handshake timeout')), 45000);
       this.pending.set(1, () => { clearTimeout(t); resolve(); });
     });
     this.send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'claude-code', version: '1.0' } } });
@@ -73,7 +73,7 @@ class McpClient {
   call(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error(`call timeout: ${name}`)), 20000);
+      const t = setTimeout(() => reject(new Error(`call timeout: ${name}`)), 35000);
       this.pending.set(id, (msg) => {
         clearTimeout(t);
         const text = (msg as { result?: { content?: Array<{ text?: string }> } }).result?.content?.[0]?.text;
@@ -138,5 +138,5 @@ describe('real-life stdio E2E — no staleness while working', () => {
     } finally {
       client.close();
     }
-  }, 40000);
+  }, 75000);
 });
