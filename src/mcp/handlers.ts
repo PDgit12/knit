@@ -7,6 +7,7 @@
 import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
+import { refreshBrain } from './cache.js';
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject, scanProjectFingerprint } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
@@ -911,23 +912,39 @@ export function handleVerifyClaim(params: Record<string, string>, brain: BrainCa
   // v0.22 — never hand back a CONFIDENT contradiction that's really a
   // stale-index artifact. If the claim's subject file was modified AFTER the
   // index was built (its on-disk mtime is newer than knowledge.generatedAt),
-  // the index can't be trusted to refute it — downgrade to an honest
-  // "stale_index" verdict telling the caller to refresh and retry. This is the
-  // exact failure that misled a real session: verify said a freshly-added
-  // export was "contradicted" because the index predated the edit. (With the
-  // getBrain auto-refresh this rarely fires — defense for the throttle window.)
+  // the index can't be trusted to refute it. This is the exact failure that
+  // misled real sessions: verify said a freshly-added export was "contradicted"
+  // because the index predated the edit (probeSourceTree; feedback.ts:67).
+  //
+  // Rather than tell the agent to "refresh and retry", SELF-HEAL: rebuild the
+  // index and re-verify against fresh data, so the caller gets ground truth in
+  // one call. Bounded — only fires when staleness is actually detected, which
+  // is rare because getBrain already auto-refreshes per call (this covers the
+  // sub-throttle-window edge). If the rebuild itself fails, fall back to an
+  // honest stale_index verdict instead of a false contradiction.
   if (result.verdict === 'contradicted' && result.parsed?.subject && isSourceFilePath(result.parsed.subject)
       && fileNewerThanIndex(brain, result.parsed.subject)) {
-    return JSON.stringify({
-      claim,
-      verdict: 'stale_index',
-      parsed: result.parsed,
-      evidence: result.evidence,
-      stale_index_hint:
-        'The code index predates a recent change to this file (on-disk mtime is newer than the index build), so this contradiction may be a stale-index artifact, not ground truth.',
-      instruction:
-        'UNVERIFIABLE (stale index). Do NOT trust this contradiction. Call knit_refresh_index and retry, or confirm directly (grep/read).',
-    });
+    try {
+      const fresh = refreshBrain(brain.rootPath);
+      const reverified = parseAndVerifyClaim(claim, fresh);
+      return JSON.stringify({
+        claim,
+        ...reverified,
+        index_refreshed: true,
+        note: 'The code index was behind this file (modified after the last build); auto-refreshed and re-verified — this verdict is against current source.',
+      });
+    } catch {
+      return JSON.stringify({
+        claim,
+        verdict: 'stale_index',
+        parsed: result.parsed,
+        evidence: result.evidence,
+        stale_index_hint:
+          'The code index predates a recent change to this file and an auto-refresh failed, so this contradiction is not trustworthy.',
+        instruction:
+          'UNVERIFIABLE (stale index). Do NOT trust this contradiction. Call knit_refresh_index and retry, or confirm directly (grep/read).',
+      });
+    }
   }
   return JSON.stringify({ claim, ...result });
 }

@@ -137,31 +137,47 @@ describe('stale_index_hint on query handlers', () => {
   });
 });
 
-describe('verify_claim staleness defense', () => {
-  it('downgrades a false "contradicted" to "stale_index" when the file was edited after the index built', async () => {
+describe('verify_claim self-heals on a stale index', () => {
+  it('turns a FALSE "contradicted" into a correct "verified" by auto-refreshing — the real session failure', async () => {
     const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
     const { getBrain } = await import('../src/mcp/cache.js');
-    const brain = getBrain(projectRoot); // index built now
+    const brain = getBrain(projectRoot); // index built now (knows a.ts/b.ts)
 
-    // a.ts IS indexed, but we modify it AFTER the build — exactly the session
-    // failure (a freshly-added export the stale index can't see).
+    // Add a REAL new export to the already-indexed a.ts — exactly the bug:
+    // probeSourceTree added to knowledge.ts after the index built; feedback.ts:67.
+    writeFileSync(join(projectRoot, 'src', 'a.ts'), 'export const a = 1;\nexport const brandNewSymbol = 2;\n', 'utf-8');
     const future = new Date(Date.now() + 60_000);
     utimesSync(join(projectRoot, 'src', 'a.ts'), future, future);
 
     const res = JSON.parse(handleVerifyClaim({ claim: 'src/a.ts exports brandNewSymbol' }, brain));
-    expect(res.verdict).toBe('stale_index');
-    expect(res.stale_index_hint).toMatch(/predates a recent change/i);
-    expect(res.instruction).toMatch(/refresh/i);
+    // Against the STALE index this is a false "contradicted"; the self-heal
+    // refreshes and re-verifies, returning the truth.
+    expect(res.verdict).toBe('verified');
+    expect(res.index_refreshed).toBe(true);
+    expect(res.note).toMatch(/auto-refreshed/i);
   });
 
-  it('still returns a confident "contradicted" for a file NOT modified after the build', async () => {
+  it('a genuine contradiction on a modified file stays "contradicted" (refresh confirms it), not a false verified', async () => {
     const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
     const { getBrain } = await import('../src/mcp/cache.js');
     const brain = getBrain(projectRoot);
-    // b.ts is indexed and unmodified → a genuine contradiction stays confident.
+    // Touch a.ts (mtime future) but do NOT add the claimed symbol → after the
+    // self-heal refresh, a.ts genuinely doesn't export it → confident contradiction.
+    const future = new Date(Date.now() + 60_000);
+    utimesSync(join(projectRoot, 'src', 'a.ts'), future, future);
+    const res = JSON.parse(handleVerifyClaim({ claim: 'src/a.ts exports neverExisted' }, brain));
+    expect(res.verdict).toBe('contradicted');
+    expect(res.index_refreshed).toBe(true); // it DID refresh, and the truth is still "no"
+  });
+
+  it('still returns a confident "contradicted" WITHOUT refreshing for a file NOT modified after the build', async () => {
+    const { handleVerifyClaim } = await import('../src/mcp/handlers.js');
+    const { getBrain } = await import('../src/mcp/cache.js');
+    const brain = getBrain(projectRoot);
+    // b.ts indexed + unmodified → genuine contradiction, no refresh triggered.
     const res = JSON.parse(handleVerifyClaim({ claim: 'src/b.ts exports notARealExport' }, brain));
     expect(res.verdict).toBe('contradicted');
-    expect(res.stale_index_hint).toBeUndefined();
+    expect(res.index_refreshed).toBeUndefined();
   });
 });
 
