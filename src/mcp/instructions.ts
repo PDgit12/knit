@@ -30,41 +30,33 @@ import { getCachedLatestVersion, isNewerVersion } from './update-check.js';
 import { loadPreferences } from '../engine/preferences.js';
 import { redactSecrets } from './sanitize.js';
 
-export const KNIT_INSTRUCTIONS_BASE = `Knit is a memory + workflow layer for this project. It provides per-project memory across sessions, a knowledge graph (imports/exports/tests), and a tier-routed workflow protocol.
+export const KNIT_INSTRUCTIONS_BASE = `Knit is a memory + workflow layer for this project: per-project memory across sessions, a knowledge graph (imports/exports/tests), and a tier-routed protocol. Knit supplies inputs; you make the calls. "Required" scales with tier — on hosts with hooks a gate enforces it; everywhere else it's a strong directive you follow.
 
-ALWAYS at session start:
-1. Call knit_load_session — returns prior handoff, top learnings, false positives. If has_unfinished_work is true, resume that handoff instead of starting fresh.
-2. For any non-trivial task, call knit_classify_task BEFORE editing or writing — returns tier (inquiry / trivial / standard / complex) and phases.
-3. If tier=complex with auto_plan_mode=true, call EnterPlanMode immediately. Do not start editing.
-4. If tier=inquiry, just answer — no plan mode, no phases. Re-classify only if scope grows into writes.
-5. Before reporting a task done, call knit_record_learning if anything non-obvious surfaced (not a substring restatement of prior learnings).
+ALWAYS (every session):
+1. knit_load_session FIRST — prior handoff, top learnings, false positives, and (when your host supports it) a host-composition directive all arrive here. If has_unfinished_work, resume that handoff, don't start fresh.
+2. knit_classify_task BEFORE any non-trivial edit — returns tier (inquiry / trivial / standard / complex), phases, and a tool_plan.
+3. Tier reflex: complex + auto_plan_mode=true → call EnterPlanMode before editing; inquiry → just answer (no plan mode, no phases); re-classify only if scope grows into writes.
+4. Follow the tool_plan classify returns — call those tools in order. Don't collapse to 1–2 tools or rebuild the loop from prose.
+5. knit_record_learning before "done" if something non-obvious surfaced (not a restatement of an existing learning).
 
-When to reach for other Knit tools:
-- knit_query_imports / knit_query_exports / knit_query_dependents / knit_query_tests — use instead of grep when the knowledge index is fresh.
-- knit_search_learnings — call before re-investigating a domain. The point of memory is to skip what you've already learned.
-- knit_search_sessions — answers "have I done this before?"
-- knit_search_global_learnings — same, but across all your projects (Knit's cross-project pool).
-- knit_get_workflow({phase}) — fetch protocol depth for one phase on demand. Do not try to remember the workflow; ask for it.
-- knit_list_features — if you want to do X but the tool isn't visible, this surfaces what's hidden and how to enable it.
-- knit_save_handoff — call when context degrades or session ends so the next session resumes cleanly.
-- knit_verify_claim — fact-check one claim against the graph BEFORE LEARN on standard/complex scope (Stop-hook gate enforces this).
-- knit_index_requirements / knit_generate_test_cases — for long-form spec / RFC / Jira-export ingestion. Indexes once, retrieves only relevant chunks per feature query.
-- knit_get_fingerprint — detected stack (lang/framework/test/lint/build/CI) for choosing the right tooling per project.
-- knit_infer_domains + knit_compose_template — propose CLAUDE.md auto-config sections from git co-change + import-graph + colocation signals.
-- knit_get_calibration / knit_record_false_positive (with a direction tag like #complex-was-trivial) — feed the self-healing classifier so it tunes per-project over time.
-- knit_scan_agent_commands / knit_suggest_command — v0.14. Surfaces the host agent's user-defined slash commands. Before phases like test/lint/review/ship, call knit_suggest_command({phase}); if it returns a match, invoke it via the agent's native slash-command mechanism instead of describing the work yourself.
+CONDITIONAL (fire on the trigger):
+- standard/complex → knit_verify_claim a codebase claim BEFORE LEARN (Stop-gate enforces it; it self-heals a stale index and re-verifies).
+- complex → knit_get_workflow({phase}) for phase depth — ask for it, don't memorize it.
+- re-touching a domain → knit_search_learnings first, to skip re-investigation. It returns HEADLINES (id + preview); call knit_get_learning({id}) for a full lesson only when you need it.
+- stating a codebase fact → knit_query_imports / exports / dependents / tests, and cite the result. The index auto-refreshes when files change.
+- before test / lint / review / ship → knit_suggest_command({phase}); if it matches, invoke the host's native slash command instead of describing the work.
 
-The protocol enforces a 4-tier classifier:
-- Inquiry: read-only "what / where / audit / explain" — just answer.
-- Trivial: single-file obvious change — EXECUTE → VERIFY → LEARN.
+ON-DEMAND: knit_save_handoff (context degrading), knit_search_sessions / knit_search_global_learnings, knit_index_requirements + knit_generate_test_cases (specs/RFCs), knit_get_fingerprint, knit_infer_domains + knit_compose_template, knit_get_calibration / knit_record_false_positive (tunes the self-healing classifier), knit_list_features (a tool you want isn't visible).
+
+4-tier classifier (when in doubt, under-classify — easier to escalate than downgrade):
+- Inquiry: read-only what / where / audit / explain — just answer.
+- Trivial: one obvious file — EXECUTE → VERIFY → LEARN.
 - Standard: bug fix or single-domain feature — RESEARCH → EXECUTE → OPTIMIZE → REVIEW → LEARN.
-- Complex: cross-domain, types/auth-touching, high-fanout, or any task spanning more than one commit — full 6 phases with auto plan mode on RESEARCH.
+- Complex: cross-domain, types/auth, high-fanout, or multi-commit — full 6 phases, auto plan mode on RESEARCH.
 
-Knit provides inputs; you make the calls. When in doubt, under-classify — easier to escalate mid-task than to downgrade.
+Soft-gate: a handler returning {status:'protocol_required', next_action:'<tool>'} means call that tool then retry — not a failure (only strictness=block returns it).
 
-Protocol soft-gate: if a handler returns {status: 'protocol_required', next_action: '<tool>'}, call that next_action then retry — not a permanent failure. Only strictness='block' returns this gate (knit_set_protocol_strictness).
-
-Citation rule: when you state a fact about this codebase ("file X imports Y", "function Z is defined in W", "tests for A live in B"), cite the Knit tool result that verified it — e.g. "(per knit_query_imports)". If you can't cite a tool result, mark the claim as 'unverified' explicitly. This makes hallucinations visible at the claim level instead of letting them ship as confident-sounding prose. The verifier exists; use it.`;
+Citation rule: when you assert a codebase fact ("X imports Y", "Z is defined in W"), cite the Knit tool that verified it — "(per knit_query_imports)". If you can't, mark it 'unverified'. This makes hallucinations visible at the claim level. The verifier exists; use it.`;
 
 /** Back-compat: the static const that v0.7.0–v0.8.0 callers imported. Tests
  *  for budget cap and content invariants continue to assert against this. */

@@ -197,13 +197,15 @@ async function runMCP() {
   // Start the MCP server — this is what Claude Code calls
   const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  const { ListToolsRequestSchema, CallToolRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
+  const { ListToolsRequestSchema, CallToolRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema } = await import('@modelcontextprotocol/sdk/types.js');
   const { getBrain, detectProjectRoot, refreshBrain } = await import('./mcp/cache.js');
   const { getActiveToolDefinitionsForBrain, handleToolCall } = await import('./mcp/tools.js');
   const { buildInstructions } = await import('./mcp/instructions.js');
   const { registerToolsListChangedNotifier } = await import('./mcp/notifier.js');
   const { loadScanResult } = await import('./engine/integration-scanner.js');
   const { prewarmLatestVersion, getCachedLatestVersion, isNewerVersion } = await import('./mcp/update-check.js');
+  const { classifyHost, setActiveHost } = await import('./mcp/host.js');
+  const { KNIT_PROMPTS, getKnitPrompt } = await import('./mcp/prompts.js');
 
   const ROOT_PATH = detectProjectRoot();
   // Pass ROOT_PATH so buildInstructions appends the per-project handshake
@@ -230,10 +232,30 @@ async function runMCP() {
   const server = new Server(
     { name: 'knit-brain', version: VERSION },
     {
-      capabilities: { tools: { listChanged: true } },
+      capabilities: { tools: { listChanged: true }, prompts: {} },
       instructions: PER_PROJECT_INSTRUCTIONS,
     },
   );
+
+  // v0.22 — MCP prompts → /mcp.knit.* slash commands on hosts that support them
+  // (Copilot/VS Code). Pulled on demand; zero handshake cost.
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: KNIT_PROMPTS }));
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const prompt = getKnitPrompt(request.params.name);
+    if (!prompt) throw new Error(`Unknown prompt: ${request.params.name}`);
+    return prompt;
+  });
+
+  // v0.22 — capture the host's clientInfo the moment the handshake completes,
+  // so handlers can compose with that host's native orchestration. Best-effort:
+  // if the SDK can't surface it, the active host stays UNKNOWN_HOST (suggest-only).
+  server.oninitialized = () => {
+    try {
+      setActiveHost(classifyHost(server.getClientVersion()));
+    } catch {
+      /* leave the fallback host in place */
+    }
+  };
 
   registerToolsListChangedNotifier(() => {
     void server.sendToolListChanged().catch(() => { /* swallow */ });

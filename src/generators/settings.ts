@@ -14,6 +14,7 @@ import {
   turnEditLogPath,
   knowledgePath,
 } from '../engine/paths.js';
+import { nodeHook, jsLit, REPO_ROOT_JS, GIT_GET_JS } from './hook-snippets.js';
 
 /**
  * Generates .claude/settings.local.json hooks. v0.3.1+ emits cross-platform
@@ -87,49 +88,8 @@ export function generateSettings(config: KnitConfig, rootPath: string): object {
   };
 }
 
-// ── Hook-building helpers ────────────────────────────────────────
-
-/** Embed a string as a JS string literal: forward-slash paths + JSON-quoted. */
-function jsLit(s: string): string {
-  return JSON.stringify(s.replace(/\\/g, '/'));
-}
-
-/** Compress a multiline JS snippet into a single-line `node -e '...'` shell command.
- *  - Wraps the script in `(() => { … })()` so `return` early-exits work under
- *    Node 22+/25+ where `node -e` is strict about top-level return statements.
- *  - POSIX-safe: any single quote inside the script is escaped via the standard
- *    '\'' close-escape-reopen trick so apostrophes in console.log strings can't
- *    prematurely terminate the outer quote and break the Stop hook at runtime. */
-function nodeHook(script: string): string {
-  const compact = script
-    .split('\n')
-    .map((l) => l.replace(/\/\/.*$/, '').trim())  // strip line comments
-    .filter((l) => l.length > 0)
-    .join(' ');
-  const wrapped = `(() => { ${compact} })();`;
-  const escaped = wrapped.replace(/'/g, `'\\''`);
-  return `node -e '${escaped}'`;
-}
-
-// ── Reusable JS snippets embedded inside hooks ───────────────────
-
-/** JS helper that resolves the canonical repo root via git, falling back to cwd. */
-const REPO_ROOT_JS = `
-  const __getRoot = () => {
-    try {
-      return require("child_process").execSync("git rev-parse --show-toplevel", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-    } catch { return process.cwd(); }
-  };
-`;
-
-/** JS helper that runs a git command in the repo root and returns stdout. */
-const GIT_GET_JS = `
-  const __git = (cmd, root, fallback) => {
-    try {
-      return require("child_process").execSync(cmd, { cwd: root, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-    } catch { return fallback === undefined ? "" : fallback; }
-  };
-`;
+// nodeHook / jsLit / REPO_ROOT_JS / GIT_GET_JS now live in ./hook-snippets.ts
+// (shared with the per-host writers). Imported above — output is unchanged.
 
 // ── Main hook generator ──────────────────────────────────────────
 

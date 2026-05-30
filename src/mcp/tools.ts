@@ -180,7 +180,7 @@ export function getToolDefinitions(): ToolDef[] {
     {
       name: 'knit_onboard',
       description: '[ONBOARDING] Run once after connecting Knit. Captures the project + how the user wants Knit; persists preferences, applies strictness + features, records project intent.',
-      inputSchema: { type: 'object', properties: { project_description: { type: 'string', description: 'What the project is.' }, intent: { type: 'string', description: 'What the user is building / their goal.' }, strictness: { type: 'string', description: 'off | warn | block.' }, focus_domains: { type: 'string', description: 'Comma-separated domains to focus on.' }, enable: { type: 'string', description: 'Comma-separated features to enable: teams, subagents, diagnostics, admin.' } } },
+      inputSchema: { type: 'object', properties: { project_description: { type: 'string', description: 'What the project is.' }, intent: { type: 'string', description: 'What the user is building / their goal.' }, strictness: { type: 'string', description: 'off | warn | block.' }, focus_domains: { type: 'string', description: 'Comma-separated domains to focus on.' }, enable: { type: 'string', description: 'Comma-separated features to enable: teams, subagents, diagnostics, admin.' }, orchestration: { type: 'string', description: 'auto | suggest | off — whether classify emits host-composition directives on complex tasks.' }, token_mode: { type: 'string', description: 'lean | standard — lean trims optional surfaces for a tight context budget.' } } },
     },
     {
       name: 'knit_setup_project',

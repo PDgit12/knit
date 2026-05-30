@@ -31,6 +31,10 @@ interface AdherenceState {
   loaded: boolean;
   lastNudgeCall: number;
   consecutiveDrift: number;
+  /** v0.22 — distinct Knit tools used this session (full-tool-use signal). */
+  distinctTools: Set<string>;
+  /** v0.22 — the under-utilization nudge fires at most once per session. */
+  underUtilNudged: boolean;
 }
 
 const state: AdherenceState = {
@@ -39,7 +43,25 @@ const state: AdherenceState = {
   loaded: false,
   lastNudgeCall: -Infinity,
   consecutiveDrift: 0,
+  distinctTools: new Set<string>(),
+  underUtilNudged: false,
 };
+
+/** Min calls before the under-utilization pattern is judged established. */
+const UNDERUTIL_MIN_CALLS = 8;
+
+/** Graph/verify tools — using ANY of these means the agent isn't collapsed. */
+function isInsightTool(name: string): boolean {
+  return name.startsWith('knit_query_') || name === 'knit_verify_claim' || name === 'knit_build_context';
+}
+
+/** Protocol tools every session uses — excluded from the diversity count so
+ *  "classify + record" still reads as collapsed (the missing middle is the point). */
+const PROTOCOL_TOOLS = new Set(['knit_classify_task', 'knit_load_session']);
+
+function underUtilMessage(calls: number): string {
+  return `Knit full-tool-use (call ${calls}): you've leaned on ≤2 tools and none of the graph/verify tools this session. The brain is more than record_learning — try knit_query_imports (ripple), knit_query_tests (coverage), or knit_verify_claim (fact-check a codebase claim) for this task.`;
+}
 
 /** Memory-write tools — calling one without classifying first is the drift signal. */
 const WRITE_TOOLS = new Set<string>([
@@ -63,6 +85,8 @@ export function resetAdherenceState(): void {
   state.loaded = false;
   state.lastNudgeCall = -Infinity;
   state.consecutiveDrift = 0;
+  state.distinctTools = new Set<string>();
+  state.underUtilNudged = false;
 }
 
 function driftMessage(streak: number): string {
@@ -87,6 +111,7 @@ function periodicMessage(loaded: boolean, calls: number): string {
  */
 export function observeAndNudge(toolName: string, rootPath: string): string | null {
   state.calls += 1;
+  state.distinctTools.add(toolName);
 
   if (toolName === 'knit_classify_task') {
     state.classified = true;
@@ -111,6 +136,21 @@ export function observeAndNudge(toolName: string, rootPath: string): string | nu
     if (sinceLast < NUDGE_THROTTLE) return null; // throttle — keep counting, stay quiet
     state.lastNudgeCall = state.calls;
     return driftMessage(state.consecutiveDrift);
+  }
+
+  // Under-utilization (v0.22): the agent is active but collapsed onto ≤2 tools
+  // and has never used a graph/verify tool — the exact "full tool surface goes
+  // unused" failure. One targeted nudge per session, throttled.
+  const workToolCount = [...state.distinctTools].filter((t) => !PROTOCOL_TOOLS.has(t)).length;
+  if (!state.underUtilNudged
+      && state.classified
+      && state.calls >= UNDERUTIL_MIN_CALLS
+      && workToolCount <= 2
+      && ![...state.distinctTools].some(isInsightTool)
+      && sinceLast >= NUDGE_THROTTLE) {
+    state.underUtilNudged = true;
+    state.lastNudgeCall = state.calls;
+    return underUtilMessage(state.calls);
   }
 
   // Periodic re-surface in long sessions (only when not already nudging).

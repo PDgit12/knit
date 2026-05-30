@@ -15,6 +15,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFileAtomic } from './atomic-write.js';
 import { preferencesPath } from './paths.js';
 
+export type OrchestrationPref = 'auto' | 'suggest' | 'off';
+export type TokenModePref = 'lean' | 'standard';
+
 export interface ProjectPreferences {
   version: 1;
   /** Short description of the project (what it is). */
@@ -25,8 +28,33 @@ export interface ProjectPreferences {
   strictness: 'off' | 'warn' | 'block' | null;
   /** Domains the user wants Knit to focus on. */
   focusDomains: string[];
+  /**
+   * v0.22 — how Knit should surface host-composition directives on complex tasks:
+   *   'auto'    — emit the host_orchestration directive (default).
+   *   'suggest' — same directive, but framed as a suggestion (reserved; currently
+   *               identical to auto since MCP can only ever suggest).
+   *   'off'     — never emit host_orchestration (user drives orchestration manually).
+   */
+  orchestration: OrchestrationPref;
+  /**
+   * v0.22 — token budget mode:
+   *   'standard' — default surfaces.
+   *   'lean'     — trim optional surfaces (fewer/headline-only learnings, drop
+   *               non-essential nudges) for users on a tight context budget.
+   */
+  tokenMode: TokenModePref;
   /** ISO timestamp of onboarding. */
   onboardedAt: string;
+}
+
+/** Coerce an unknown value to a valid OrchestrationPref, defaulting to 'auto'. */
+function coerceOrchestration(v: unknown): OrchestrationPref {
+  return v === 'off' || v === 'suggest' || v === 'auto' ? v : 'auto';
+}
+
+/** Coerce an unknown value to a valid TokenModePref, defaulting to 'standard'. */
+function coerceTokenMode(v: unknown): TokenModePref {
+  return v === 'lean' || v === 'standard' ? v : 'standard';
 }
 
 /** Read preferences for a project; null if not onboarded or unreadable. */
@@ -47,6 +75,9 @@ export function loadPreferences(rootPath: string): ProjectPreferences | null {
         ? parsed.strictness
         : null,
       focusDomains: Array.isArray(parsed.focusDomains) ? parsed.focusDomains.filter((d): d is string => typeof d === 'string') : [],
+      // v0.22 fields — absent in pre-v0.22 preferences.json → safe defaults (no migration).
+      orchestration: coerceOrchestration(parsed.orchestration),
+      tokenMode: coerceTokenMode(parsed.tokenMode),
       onboardedAt: typeof parsed.onboardedAt === 'string' ? parsed.onboardedAt : '',
     };
   } catch {

@@ -15,6 +15,53 @@ import {
 import { writeCodexMcp } from '../generators/codex-mcp.js';
 import { writeContinueMcp } from '../generators/continue-mcp.js';
 import { mergeAgentsMd } from '../generators/agents-md.js';
+import { buildHostHookManifest, mergeHostHooks, type HostHookId } from '../generators/host-hooks.js';
+
+/** Agents that have a hook mechanism Knit can write adherence touchpoints into. */
+const HOOK_HOST_BY_AGENT: Record<string, HostHookId> = { cursor: 'cursor', codex: 'codex', vscode: 'copilot' };
+
+/** Ensure a repo-relative path is listed in the workspace .gitignore. Idempotent
+ *  + best-effort: a single Knit comment header, one line per path, never a dupe. */
+function ensureGitignored(workspaceRoot: string, relPath: string): void {
+  try {
+    const giPath = join(workspaceRoot, '.gitignore');
+    const normalized = relPath.replace(/\\/g, '/');
+    let content = existsSync(giPath) ? readFileSync(giPath, 'utf-8') : '';
+    const lines = content.split(/\r?\n/).map((l) => l.trim());
+    if (lines.includes(normalized) || lines.includes(`/${normalized}`)) return;
+    const header = '# Knit — machine-specific generated hook configs (absolute paths; do not commit)';
+    const needHeader = !content.includes(header);
+    const prefix = content.length && !content.endsWith('\n') ? '\n' : '';
+    content += `${prefix}${needHeader ? header + '\n' : ''}${normalized}\n`;
+    writeFileAtomic(giPath, content);
+  } catch { /* best-effort — never block setup on a .gitignore write */ }
+}
+
+/** Write Knit's adherence hooks for a hook-capable host, merged with any existing
+ *  config (Knit-owned entries replaced, user hooks preserved). Returns null for
+ *  agents without a supported hook surface. */
+function writeHostHooks(agent: string, workspaceRoot: string): { written: boolean; path: string; error?: string } | null {
+  const hostId = HOOK_HOST_BY_AGENT[agent];
+  if (!hostId) return null;
+  try {
+    const { file, manifest } = buildHostHookManifest(hostId, workspaceRoot, new Date().toISOString());
+    const abs = join(workspaceRoot, file);
+    let existing: Record<string, unknown> | null = null;
+    if (existsSync(abs)) {
+      try { existing = JSON.parse(readFileSync(abs, 'utf-8')); } catch { existing = null; }
+    }
+    const merged = mergeHostHooks(existing, manifest);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileAtomic(abs, JSON.stringify(merged, null, 2));
+    // The manifest embeds absolute ~/.knit/... marker paths (machine-specific),
+    // so it must NOT be committed — same reason the Claude settings.local.json is
+    // gitignored. Add it to .gitignore so a username/homedir never lands in git.
+    ensureGitignored(workspaceRoot, file);
+    return { written: true, path: abs };
+  } catch (err) {
+    return { written: false, path: workspaceRoot, error: (err as Error).message };
+  }
+}
 
 interface SetupOptions {
   global?: boolean;
@@ -62,6 +109,17 @@ async function registerInOtherAgents(workspaceRoot: string): Promise<void> {
     // reads Knit protocol guidance even without hook enforcement.
     if ((status.agent === 'codex' || status.agent === 'cline') && status.present) {
       writeAgentsMdFlag = true;
+    }
+
+    // v0.22 — for hook-capable hosts (Cursor / Codex / Copilot-VS Code), also
+    // write Knit's adherence hooks. Marked unverified-in-host in the manifest.
+    const hookResult = writeHostHooks(status.agent, workspaceRoot);
+    if (hookResult) {
+      const hi = hookResult.error ? chalk.red('✗') : chalk.green('✓');
+      const hv = hookResult.error
+        ? chalk.red(`hooks failed: ${hookResult.error}`)
+        : chalk.dim(`adherence hooks written (${hookResult.path.replace(homedir(), '~')}) — unverified, confirm in-host`);
+      console.log(`  ${hi} ${`${status.displayName} hooks`.padEnd(28)} ${hv}`);
     }
   }
 

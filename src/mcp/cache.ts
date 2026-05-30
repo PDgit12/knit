@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, copyFileSync, readdirSync, statSyn
 import { join, basename, dirname } from 'node:path';
 import { writeFileAtomic } from '../engine/atomic-write.js';
 import type { ProjectKnowledge, KnowledgeBase, KnitConfig } from '../engine/types.js';
-import { buildKnowledge, buildReverseDependencies } from '../engine/knowledge.js';
+import { buildKnowledge, buildReverseDependencies, probeSourceTree } from '../engine/knowledge.js';
 import { scanProject } from '../engine/scanner.js';
 import { loadKnowledgeBaseSafe, saveKnowledgeBase, importFromMarkdown } from '../engine/knowledgebase.js';
 import { readLearnings, pruneLearningsByAge } from '../engine/learnings.js';
@@ -43,6 +43,51 @@ export interface BrainCache {
 }
 
 let cache: BrainCache | null = null;
+
+/**
+ * v0.22 — warm-cache staleness guard.
+ *
+ * The bug it fixes: `getBrain` returned the warm in-process cache whenever the
+ * rootPath matched, with NO check that the source tree had changed. In a
+ * long-lived MCP process (the normal case — one process per session, often
+ * hours) a file added mid-session was invisible to knit_query_imports until an
+ * explicit knit_refresh_index, so agents fell back to grep and stopped trusting
+ * the graph tools. The fix: before serving the warm cache, run a stat-only
+ * probe (probeSourceTree — no file reads) and rebuild if the tree drifted.
+ *
+ * Throttled so a burst of tool calls pays the probe at most once per window —
+ * the probe is cheap (stat-only) but not free on a large repo. Env-tunable;
+ * 0 forces a probe on every call (used by tests). The default keeps freshness
+ * within ~1.5s while adding negligible amortized latency.
+ */
+/** Throttle window, read at call time so it's configurable per process/test. */
+function stalenessThrottleMs(): number {
+  const raw = Number(process.env.KNIT_INDEX_STALENESS_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1500;
+}
+let lastStalenessProbeAt = -Infinity;
+
+/** True if the source tree drifted from what the cached index captured. */
+function knowledgeIsStale(c: BrainCache): boolean {
+  const probe = probeSourceTree(c.rootPath);
+  // DELETE detection only — probe drops below the indexed count. Use `<`, not
+  // `!==`: `knowledge.files` is the READ-based count (walkFiles drops files it
+  // can't readFileSync), while probeSourceTree is stat-only and counts them, so
+  // an unreadable source-extension file would make probe > files.length forever
+  // and rebuild on every call. Additions are caught by the mtime check below
+  // (a new file bumps newestMtimeMs), so `<` loses nothing for adds.
+  if (probe.sourceCount < c.knowledge.files.length) return true;
+  // New file or edit → newest mtime moves past the index build time. Guard an
+  // unparseable timestamp (Date.parse → NaN) by treating it as stale.
+  const builtAtMs = Date.parse(c.knowledge.generatedAt);
+  if (!Number.isFinite(builtAtMs)) return true;
+  return probe.newestMtimeMs > builtAtMs;
+}
+
+/** Test-only: reset the staleness throttle so the next getBrain re-probes. */
+export function resetStalenessThrottle(): void {
+  lastStalenessProbeAt = -Infinity;
+}
 
 /**
  * Per-process set of rootPaths whose hook version we've already checked.
@@ -110,7 +155,15 @@ function maybeAgePrune(rootPath: string, projectName: string): void {
 
 export function getBrain(rootPath: string): BrainCache {
   if (cache && cache.rootPath === rootPath) {
-    return cache;
+    // v0.22 — re-validate the warm cache against the source tree, throttled.
+    // Within the throttle window assume fresh (avoids re-probing on every call
+    // in a burst); otherwise probe and fall through to a rebuild if it drifted.
+    const now = Date.now();
+    if (now - lastStalenessProbeAt < stalenessThrottleMs()) return cache;
+    lastStalenessProbeAt = now;
+    if (!knowledgeIsStale(cache)) return cache;
+    // Stale → drop the cache and fall through to the rebuild path below.
+    cache = null;
   }
 
   // Fire-and-forget the npm update check at brain load. Best-effort: by the
@@ -187,6 +240,9 @@ export function getBrain(rootPath: string): BrainCache {
     loadedAt: Date.now(),
     autoInitialized,
   };
+  // The index we just built is current as of now — open the throttle window
+  // from here so the very next warm call doesn't redundantly re-probe.
+  lastStalenessProbeAt = Date.now();
 
   // v0.17 freshness layer — throttled age-prune of sessions + learnings on
   // brain load. Pre-v0.17 sessions only pruned on first-touch and learnings

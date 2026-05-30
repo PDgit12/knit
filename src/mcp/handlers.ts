@@ -4,20 +4,21 @@
  * and returns a JSON string response.
  */
 
-import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, constants as fsConstants } from 'node:fs';
+import { writeFileSync, readFileSync, readdirSync, existsSync, renameSync, unlinkSync, appendFileSync, mkdirSync, openSync, fstatSync, closeSync, statSync, constants as fsConstants } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { BrainCache } from './cache.js';
+import { refreshBrain } from './cache.js';
+import { getActiveHost, hostOrchestrationDirective, hostContract } from './host.js';
 import type { TeamFinding } from '../engine/types.js';
 import { scanProject, scanProjectFingerprint } from '../engine/scanner.js';
 import { queryByDomains, getFalsePositives, getKBSummary, recordCacheHit, addEntry, saveKnowledgeBase, bumpMetric, bumpClassificationTier } from '../engine/knowledgebase.js';
-import { statSync } from 'node:fs';
 import {
   knowledgebasePath, learningsDir, teamsPath, sessionsLogPath, projectAgentsDir,
 } from '../engine/paths.js';
 import { appendSession, searchSessions, getRecentSessions, sessionCount, pruneSessionsByAge, loadAllSessions } from '../engine/sessions.js';
 import { isStale, resolveRef, sourceExists, extractFileRefs, FRESHNESS } from '../engine/freshness.js';
 import { resetAdherenceState } from './adherence.js';
-import { loadPreferences, savePreferences, type ProjectPreferences } from '../engine/preferences.js';
+import { loadPreferences, savePreferences, type ProjectPreferences, type OrchestrationPref, type TokenModePref } from '../engine/preferences.js';
 import type { SessionSummary, SessionOutcome } from '../engine/types.js';
 import { getWorkflowSection, listWorkflowSections } from '../generators/workflow-protocol.js';
 import { spawnWorktree, listWorktrees, finalizeWorktree } from '../engine/worktrees.js';
@@ -109,10 +110,29 @@ export function detectDomainsFromFiles(files: string[]): Set<string> {
 const VALID_SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']);
 
 
+/**
+ * v0.22 — honest breadcrumb for the rare case the staleness guard's throttle
+ * window suppressed a re-probe: if the queried file ISN'T in the index but DOES
+ * exist on disk, the index is stale, not the file empty. Surface that instead of
+ * silently returning nothing (which is what pushed users back to grep). The
+ * getBrain probe normally refreshes before the query, so this seldom fires.
+ */
+function staleIndexHint(brain: BrainCache, filePath: string): string | undefined {
+  if (!filePath) return undefined;
+  if (brain.knowledge.files.some((f) => f.path === filePath)) return undefined;
+  try {
+    if (existsSync(join(brain.rootPath, filePath))) {
+      return 'NOTE: this file exists on disk but is not in the code index — the index may be stale. Call knit_refresh_index, then retry this query.';
+    }
+  } catch { /* path probe is best-effort */ }
+  return undefined;
+}
+
 export function handleQueryImports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const importers = brain.reverseDeps[filePath] || [];
   const risk = importers.length >= 5 ? 'HIGH' : importers.length >= 3 ? 'MEDIUM' : 'LOW';
+  const hint = importers.length === 0 ? staleIndexHint(brain, filePath) : undefined;
   return JSON.stringify({
     file: filePath,
     imported_by: importers,
@@ -121,22 +141,26 @@ export function handleQueryImports(params: Record<string, string>, brain: BrainC
     instruction: importers.length >= 3
       ? `This file has ${importers.length} dependents. Changes here will ripple. Update/test these files after editing: ${importers.slice(0, 5).join(', ')}`
       : 'Low risk — few dependents.',
+    ...(hint ? { stale_index_hint: hint } : {}),
   });
 }
 
 export function handleQueryDependents(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const deps = brain.knowledge.importGraph[filePath] || [];
-  return JSON.stringify({ file: filePath, depends_on: deps, count: deps.length });
+  const hint = deps.length === 0 ? staleIndexHint(brain, filePath) : undefined;
+  return JSON.stringify({ file: filePath, depends_on: deps, count: deps.length, ...(hint ? { stale_index_hint: hint } : {}) });
 }
 
 export function handleQueryExports(params: Record<string, string>, brain: BrainCache): string {
   const filePath = params.file_path;
   const exports = brain.knowledge.exports[filePath] || [];
+  const hint = exports.length === 0 ? staleIndexHint(brain, filePath) : undefined;
   return JSON.stringify({
     file: filePath,
     exports: exports.map((e) => ({ name: e.name, kind: e.kind, line: e.line })),
     count: exports.length,
+    ...(hint ? { stale_index_hint: hint } : {}),
   });
 }
 
@@ -153,9 +177,11 @@ export function handleQueryTests(params: Record<string, string>, brain: BrainCac
   }
   if (params.file_path) {
     const tests = brain.knowledge.testMap.tested[params.file_path] || [];
+    const hint = tests.length === 0 ? staleIndexHint(brain, params.file_path) : undefined;
     return JSON.stringify({
       file: params.file_path, tested_by: tests, has_tests: tests.length > 0,
       instruction: tests.length > 0 ? `Tested by: ${tests.join(', ')}` : 'NO TESTS. Write tests for this file before making changes.',
+      ...(hint ? { stale_index_hint: hint } : {}),
     });
   }
   return JSON.stringify({
@@ -330,8 +356,16 @@ function buildLearningsResponse(
       const staleRefs = rootPath
         ? extractFileRefs(`${r.summary} ${r.lesson}`).filter((ref) => !sourceExists(rootPath, ref))
         : [];
+      // v0.22 token-opt — TRUE hierarchical retrieval. Search returns the
+      // headline + id + a short preview; the full multi-paragraph lesson is
+      // paid for on demand via knit_get_learning({id}). Pre-v0.22 every search
+      // dumped all full lessons (the exact anti-pattern Knit's own docs warn
+      // against) — 10 hits could cost ~15KB; headlines+preview cut that ~10x.
       return {
-        summary: r.summary, lesson: r.lesson, outcome: r.outcome,
+        id: r.id,
+        summary: r.summary,
+        lesson_preview: lessonPreview(r.lesson),
+        outcome: r.outcome,
         date: r.date, tags: r.tags, access_count: r.accessCount,
         ...(staleRefs.length > 0 ? { stale_refs: staleRefs } : {}),
       };
@@ -339,12 +373,22 @@ function buildLearningsResponse(
     count: results.length,
     instruction: results.length > 0
       ? hasFailures
-        ? `Found ${results.length} past learnings including FAILURES. Read the lessons carefully — avoid repeating past mistakes.`
-        : `Found ${results.length} past learnings. Apply these lessons to your current task.`
+        ? `Found ${results.length} past learnings including FAILURES (headlines only). Call knit_get_learning({id}) for the full lesson of any relevant one before re-investigating — avoid repeating past mistakes.`
+        : `Found ${results.length} past learnings (headlines only). Call knit_get_learning({id}) for the full lesson of any that look relevant.`
       : freeText.length > 0
         ? 'No past learnings match this query. Try broader terms, or call knit_search_global_learnings to search across all your projects.'
         : 'No past learnings for these domains. This is new territory — be thorough and record what you learn.',
   };
+}
+
+/** Headline-length lesson preview for hierarchical retrieval — first sentence
+ *  or 160 chars, whichever is shorter. Full lesson via knit_get_learning. */
+function lessonPreview(lesson: string): string {
+  const flat = (lesson || '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= 160) return flat;
+  const cut = flat.slice(0, 160);
+  const lastStop = cut.lastIndexOf('. ');
+  return (lastStop > 60 ? cut.slice(0, lastStop + 1) : cut.trimEnd()) + ' …';
 }
 
 export function handleGetFalsePositives(_params: Record<string, string>, brain: BrainCache): string {
@@ -486,12 +530,25 @@ export function handleBrainStatus(_params: Record<string, string>, brain: BrainC
 
   return JSON.stringify({
     ...summary,
-    knowledge_index: {
-      files_indexed: brain.knowledge.summary.totalFiles,
-      total_lines: brain.knowledge.summary.totalLines,
-      import_edges: Object.keys(brain.knowledge.importGraph).length,
-      exports_mapped: Object.keys(brain.knowledge.exports).length,
-    },
+    knowledge_index: (() => {
+      // v0.22 — surface index FRESHNESS, not just size. verify_claim/query_*
+      // tell agents to "check index freshness" but there was no way to see it.
+      const builtAtMs = Date.parse(brain.knowledge.generatedAt);
+      const ageMinutes = Number.isFinite(builtAtMs)
+        ? Math.max(0, Math.round((Date.now() - builtAtMs) / 60000))
+        : null;
+      return {
+        files_indexed: brain.knowledge.summary.totalFiles,
+        total_lines: brain.knowledge.summary.totalLines,
+        import_edges: Object.keys(brain.knowledge.importGraph).length,
+        exports_mapped: Object.keys(brain.knowledge.exports).length,
+        generated_at: brain.knowledge.generatedAt,
+        age_minutes: ageMinutes,
+        // getBrain auto-refreshes on source drift (v0.22+), so the index is
+        // normally current. The honest fallback if a query still looks stale:
+        freshness_note: 'Index auto-refreshes on source-tree drift. If a query/verify result looks stale, call knit_refresh_index.',
+      };
+    })(),
     // Back-compat: the flat token_accounting shape from pre-v0.7.2 is kept so
     // anything that hard-coded those field names still works.
     token_accounting: {
@@ -869,11 +926,72 @@ export function handleVerifyClaim(params: Record<string, string>, brain: BrainCa
   } catch {
     // best-effort
   }
+
+  // v0.22 — never hand back a CONFIDENT contradiction that's really a
+  // stale-index artifact. If the claim's subject file was modified AFTER the
+  // index was built (its on-disk mtime is newer than knowledge.generatedAt),
+  // the index can't be trusted to refute it. This is the exact failure that
+  // misled real sessions: verify said a freshly-added export was "contradicted"
+  // because the index predated the edit (probeSourceTree; feedback.ts:67).
+  //
+  // Rather than tell the agent to "refresh and retry", SELF-HEAL: rebuild the
+  // index and re-verify against fresh data, so the caller gets ground truth in
+  // one call. Bounded — only fires when staleness is actually detected, which
+  // is rare because getBrain already auto-refreshes per call (this covers the
+  // sub-throttle-window edge). If the rebuild itself fails, fall back to an
+  // honest stale_index verdict instead of a false contradiction.
+  if (result.verdict === 'contradicted' && result.parsed?.subject && isSourceFilePath(result.parsed.subject)
+      && fileNewerThanIndex(brain, result.parsed.subject)) {
+    try {
+      const fresh = refreshBrain(brain.rootPath);
+      const reverified = parseAndVerifyClaim(claim, fresh);
+      return JSON.stringify({
+        claim,
+        ...reverified,
+        index_refreshed: true,
+        note: 'The code index was behind this file (modified after the last build); auto-refreshed and re-verified — this verdict is against current source.',
+      });
+    } catch {
+      return JSON.stringify({
+        claim,
+        verdict: 'stale_index',
+        parsed: result.parsed,
+        evidence: result.evidence,
+        stale_index_hint:
+          'The code index predates a recent change to this file and an auto-refresh failed, so this contradiction is not trustworthy.',
+        instruction:
+          'UNVERIFIABLE (stale index). Do NOT trust this contradiction. Call knit_refresh_index and retry, or confirm directly (grep/read).',
+      });
+    }
+  }
   return JSON.stringify({ claim, ...result });
 }
 
+/** True if a path looks like an indexable source file. */
+function isSourceFilePath(p: string): boolean {
+  return /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/.test(p);
+}
+
+/**
+ * True if `file` exists on disk and was modified after the index was built —
+ * i.e. the index is too old to be trusted about this file. Best-effort: any IO
+ * error or an unparseable build timestamp returns false (don't mask real
+ * contradictions on a benign error).
+ */
+function fileNewerThanIndex(brain: BrainCache, file: string): boolean {
+  try {
+    const abs = join(brain.rootPath, file);
+    if (!existsSync(abs)) return false;
+    const builtAtMs = Date.parse(brain.knowledge.generatedAt);
+    if (!Number.isFinite(builtAtMs)) return false;
+    return statSync(abs).mtimeMs > builtAtMs;
+  } catch {
+    return false;
+  }
+}
+
 interface VerifierResult {
-  verdict: 'verified' | 'contradicted' | 'unparseable';
+  verdict: 'verified' | 'contradicted' | 'unparseable' | 'stale_index';
   parsed?: { type: string; subject: string; object?: string };
   evidence?: string;
   instruction: string;
@@ -1501,18 +1619,96 @@ function applyContextBudget(scope: ScopeTier, budgetRemaining: number): { scope:
   return { scope: 'trivial', degraded: true };
 }
 
+/** One ordered step in a classify `tool_plan`. */
+interface ToolPlanStep {
+  phase: string;
+  tool: string;
+  why: string;
+  args_hint?: string;
+}
+
+/** A spec/RFC/requirements doc worth ingesting via knit_index_requirements. */
+function isSpecFile(f: string): boolean {
+  return /\.(md|markdown|txt|rst)$/i.test(f) && /(spec|rfc|requirements?|prd|design)/i.test(f);
+}
+
+/**
+ * v0.22 full-tool-use — turn the TASK SHAPE classify already computed into an
+ * ordered, callable tool sequence. Root cause it fixes: agents collapse to 1–2
+ * tools because Knit surfaces a flat tool dict in once-read prose. Every step is
+ * GATED by a signal classify computed (high-fanout, domain count, types/auth,
+ * spec file, scope) so the plan is right-sized — a docs-only repo gets a short
+ * plan; a multi-domain monorepo names the graph + team tools. Naming a tool here
+ * is ALSO the discovery signal for hosts that defer-load tool schemas. Additive
+ * + droppable: the caller omits it entirely under budget pressure.
+ */
+function buildToolPlan(o: {
+  files: string[];
+  rippleFiles: string[];
+  domainCount: number;
+  isTypes: boolean;
+  isAuth: boolean;
+  scopeTier: ScopeTier;
+  tier: TaskTier;
+}): ToolPlanStep[] {
+  const plan: ToolPlanStep[] = [];
+  const standardPlus = o.scopeTier === 'standard' || o.scopeTier === 'complex';
+
+  // RESEARCH — understand blast radius before editing.
+  for (const f of o.rippleFiles.slice(0, 2)) {
+    plan.push({ phase: 'RESEARCH', tool: 'knit_query_imports', why: `${f} is high-fanout — see what ripples before editing it`, args_hint: `file_path="${f}"` });
+  }
+  if (o.isTypes || o.isAuth) {
+    const f = o.files.find((x) => /types|schema|auth|security/i.test(x));
+    plan.push({
+      phase: 'RESEARCH',
+      tool: 'knit_query_dependents',
+      why: o.isAuth ? 'security-sensitive surface — map the blast radius' : 'shared type/contract — map who depends on it',
+      ...(f ? { args_hint: `file_path="${f}"` } : {}),
+    });
+  }
+  const spec = o.files.find(isSpecFile);
+  if (spec) {
+    plan.push({ phase: 'RESEARCH', tool: 'knit_index_requirements', why: 'spec/requirements doc — index once, retrieve only relevant chunks per feature', args_hint: `file_path="${spec}"` });
+    plan.push({ phase: 'PLAN', tool: 'knit_generate_test_cases', why: 'derive test cases from the indexed spec' });
+  }
+
+  // PLAN — parallelize and fetch protocol depth.
+  if (o.domainCount >= 3) {
+    plan.push({ phase: 'PLAN', tool: 'knit_spawn_team_worktree', why: `${o.domainCount} domains affected — parallelize the work in isolated worktrees` });
+  }
+  if (o.tier === 'complex') {
+    plan.push({ phase: 'PLAN', tool: 'knit_get_workflow', why: 'fetch per-phase protocol depth on demand (do not reconstruct it)', args_hint: 'phase="plan"' });
+  }
+
+  // EXECUTE — coverage awareness for the files actually changing.
+  if (standardPlus && o.files.length > 0) {
+    plan.push({ phase: 'EXECUTE', tool: 'knit_query_tests', why: 'know each file’s coverage before changing it', args_hint: `file_path="${o.files[0]}"` });
+  }
+
+  // REVIEW / LEARN — the gates.
+  if (standardPlus) {
+    plan.push({ phase: 'REVIEW', tool: 'knit_verify_claim', why: 'fact-check ≥1 codebase claim before asserting or LEARN (Stop-gate enforces this)' });
+    plan.push({ phase: 'LEARN', tool: 'knit_record_learning', why: 'capture the non-obvious insight so the next session skips re-investigation' });
+  }
+
+  return plan.slice(0, 8);
+}
+
 export function handleClassifyTask(params: Record<string, string>, brain: BrainCache): string {
   const rawFiles = (params.files_to_touch || '').split(',').map((f) => f.trim()).filter(Boolean);
   const files = rawFiles.filter((f) => f !== 'unknown');
   const description = (params.description || '').toLowerCase();
   const domains = detectDomainsFromFiles(files);
   const crossDomainRipple: string[] = [];
+  const rippleFiles: string[] = [];
   let highFanoutCount = 0;
 
   for (const file of files) {
     const importers = brain.reverseDeps[file] || [];
     if (importers.length >= 3) {
       crossDomainRipple.push(`${file} is high-fanout (${importers.length} dependents)`);
+      rippleFiles.push(file);
       if (importers.length >= 10) highFanoutCount++;
     }
   }
@@ -1572,6 +1768,12 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   const budgetRemaining = Number.isFinite(rawBudget) && rawBudget >= 0 && rawBudget <= 100 ? rawBudget : 100;
   const { scope: scopeTier, degraded: budgetDegraded } = applyContextBudget(initialScope, budgetRemaining);
 
+  // v0.22 — onboarding prefs steer surfacing: orchestration=off suppresses the
+  // host directive; token_mode=lean trims optional surfaces for tight budgets.
+  const prefs = loadPreferences(brain.rootPath);
+  const orchestrationPref: OrchestrationPref = prefs?.orchestration ?? 'auto';
+  const leanMode = prefs?.tokenMode === 'lean';
+
   // auto_plan_mode is now risk-driven, not scope-driven.
   const autoPlanMode = riskTier === 'high' || riskTier === 'medium';
 
@@ -1623,18 +1825,24 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
   // v0.9 — pre-emptive learnings injection. When the task warrants RESEARCH
   // (standard or complex scope), auto-run BM25 over the description + affected
   // domains and embed the top 3 hits in the response.
-  let preEmptiveLearnings: Array<{ summary: string; lesson: string; tags: string[] }> | undefined;
+  // v0.22 token-opt — surface pre-emptive learnings as HEADLINES (id + summary +
+  // tags + a short preview), not full lesson bodies. classify fires on every
+  // standard/complex task, so dumping 3 multi-paragraph lessons here was the
+  // single biggest avoidable per-call token cost. The agent pulls the full
+  // lesson on demand via knit_get_learning({id}) — hierarchical retrieval.
+  let preEmptiveLearnings: Array<{ id: string; summary: string; lesson_preview: string; tags: string[] }> | undefined;
   if (scopeTier === 'standard' || scopeTier === 'complex') {
     try {
       const trimmed = (params.description || '').trim();
       const queryText = trimmed || [...domains].join(' ');
       if (queryText) {
         const index = buildLearningsIndex(brain.knowledgeBase.entries);
-        const hits = index.search(queryText, 3);
+        // token_mode=lean → surface only the single best learning headline.
+        const hits = index.search(queryText, leanMode ? 1 : 3);
         if (hits.length > 0) {
           preEmptiveLearnings = hits.map((h) => {
             const entry = (h.document.metadata as { entry: KBEntry }).entry;
-            return { summary: entry.summary, lesson: entry.lesson, tags: entry.tags };
+            return { id: entry.id, summary: entry.summary, lesson_preview: lessonPreview(entry.lesson), tags: entry.tags };
           });
           recordCacheHit(brain.knowledgeBase);
         }
@@ -1650,6 +1858,28 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     ? 'If this classification is wrong, call knit_record_false_positive with the reason — improves the classifier over time.'
     : undefined;
 
+  // v0.22 full-tool-use — ordered, signal-gated tool sequence. Dropped entirely
+  // under budget pressure (token discipline: additive-or-nothing).
+  const toolPlan = budgetDegraded
+    ? []
+    : buildToolPlan({ files, rippleFiles, domainCount: domains.size, isTypes, isAuth, scopeTier, tier });
+
+  // v0.22 host composition — on complex + cross-cutting tasks only, attach a
+  // directive to compose with the detected host's native orchestration (carries
+  // Knit's domains). Fires rarely + dropped under budget (token discipline) +
+  // suppressed when the user set orchestration=off (they drive it manually).
+  const crossCutting = domains.size >= 2 || highFanoutCount > 0;
+  const hostOrchestration = orchestrationPref !== 'off' && tier === 'complex' && crossCutting && !budgetDegraded
+    ? hostOrchestrationDirective(getActiveHost(), [...domains])
+    : '';
+
+  // v0.22 — proactive handoff: when the context budget is running low, recommend
+  // checkpointing BEFORE the window fills, so the session resumes cheaply. The
+  // compounding lever — preserve "capital", checkpoint, resume.
+  const handoffNudge = budgetRemaining < 30
+    ? `Context budget is low (${budgetRemaining}%). Call knit_save_handoff to checkpoint before the window fills — the next session resumes from it cheaply.`
+    : '';
+
   const verbose = params.verbose === 'true' || params.verbose === '1';
   const base = {
     tier,
@@ -1660,6 +1890,14 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     phases,
     auto_plan_mode: autoPlanMode,
     instruction,
+    ...(toolPlan.length > 0
+      ? {
+          tool_plan: toolPlan,
+          tool_plan_note: 'Ordered tools for THIS task shape — follow it; do not collapse to 1–2 tools or reconstruct the loop from prose. Each step is gated by your task’s signals.',
+        }
+      : {}),
+    ...(hostOrchestration ? { host_orchestration: hostOrchestration } : {}),
+    ...(handoffNudge ? { handoff_nudge: handoffNudge } : {}),
     ...(budgetDegraded
       ? {
           degraded_for_budget: true,
@@ -1669,7 +1907,7 @@ export function handleClassifyTask(params: Record<string, string>, brain: BrainC
     ...(preEmptiveLearnings && preEmptiveLearnings.length > 0
       ? {
           pre_emptive_learnings: preEmptiveLearnings,
-          pre_emptive_note: 'Prior learnings auto-surfaced. Apply these before re-investigating from scratch. To get more, call knit_search_learnings with the same query.',
+          pre_emptive_note: 'Prior learnings auto-surfaced as HEADLINES. Call knit_get_learning({id}) for the full lesson of any relevant one before re-investigating. More via knit_search_learnings.',
         }
       : {}),
     ...(fpNudge ? { fp_nudge: fpNudge } : {}),
@@ -1727,8 +1965,26 @@ export function handleBuildContext(params: Record<string, string>, brain: BrainC
 
   const domainTags = [...affectedDomains].map((d) => d.toLowerCase().replace(/[^a-z]/g, ''));
   const learnings = queryByDomains(brain.knowledgeBase, domainTags);
-  for (const l of learnings) knownPitfalls.push(`${l.summary}: ${l.lesson}`);
+  // v0.22 token-opt — pitfalls as headline + preview, not full lesson bodies.
+  // Full lesson on demand via knit_get_learning({id}).
+  for (const l of learnings) knownPitfalls.push(`[${l.id}] ${l.summary}: ${lessonPreview(l.lesson)}`);
   const fps = getFalsePositives(brain.knowledgeBase);
+
+  // v0.22 full-tool-use — name the tools this CONTEXT warrants, gated by signals
+  // already computed here (ripple, untested, domain count). Mirrors classify's
+  // tool_plan at the context layer so the diverse tool surface gets exercised.
+  const suggestedTools: Array<{ name: string; why: string; args_hint?: string }> = [];
+  const topRipple = files.find((f) => (brain.reverseDeps[f] || []).length >= 3);
+  if (topRipple) {
+    suggestedTools.push({ name: 'knit_query_imports', why: `${topRipple} has dependents — confirm the ripple before editing`, args_hint: `file_path="${topRipple}"` });
+  }
+  const untestedTouched = files.find((f) => brain.knowledge.testMap?.untested?.includes(f));
+  if (untestedTouched) {
+    suggestedTools.push({ name: 'knit_query_tests', why: `${untestedTouched} has no tests indexed — add coverage before changing it`, args_hint: `file_path="${untestedTouched}"` });
+  }
+  if (affectedDomains.size >= 3) {
+    suggestedTools.push({ name: 'knit_spawn_team_worktree', why: `${affectedDomains.size} domains — parallelize in isolated worktrees` });
+  }
 
   // v0.9 #8 — suggested_reads. For the agent that already passed
   // files_to_touch, compute a curated list of additional files worth
@@ -1745,6 +2001,7 @@ export function handleBuildContext(params: Record<string, string>, brain: BrainC
       cross_domain_ripple: ripple, known_pitfalls: knownPitfalls,
       false_positives: fps.map((fp) => `${fp.summary}: ${fp.lesson}`),
       ...(suggestedReads.length > 0 ? { suggested_reads: suggestedReads } : {}),
+      ...(suggestedTools.length > 0 ? { suggested_tools: suggestedTools } : {}),
     },
     instruction: 'Pass this entire object to every agent prompt in EXECUTE, OPTIMIZE, and REVIEW phases.',
   });
@@ -2399,17 +2656,27 @@ export function handleOnboard(params: Record<string, string>, brain: BrainCache)
   const enableRaw = (params.enable || '')
     .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 
+  // v0.22 — orchestration + token_mode prefs (optional; safe defaults).
+  const orchRaw = (params.orchestration || '').trim().toLowerCase();
+  const orchestration: OrchestrationPref = orchRaw === 'off' || orchRaw === 'suggest' || orchRaw === 'auto' ? orchRaw : 'auto';
+  const tokenRaw = (params.token_mode || '').trim().toLowerCase();
+  const tokenMode: TokenModePref = tokenRaw === 'lean' ? 'lean' : 'standard';
+
   const prefs: ProjectPreferences = {
     version: 1,
     projectDescription,
     intent,
     strictness,
     focusDomains,
+    orchestration,
+    tokenMode,
     onboardedAt: new Date().toISOString(),
   };
   savePreferences(brain.rootPath, prefs);
 
   const applied: string[] = [];
+  if (orchestration !== 'auto') applied.push(`orchestration=${orchestration}`);
+  if (tokenMode !== 'standard') applied.push(`token_mode=${tokenMode}`);
 
   if (strictness) {
     writeProtocolConfig(brain.rootPath, strictness);
@@ -2449,6 +2716,8 @@ export function handleOnboard(params: Record<string, string>, brain: BrainCache)
     intent,
     strictness: strictness ?? '(unchanged)',
     focus_domains: focusDomains,
+    orchestration,
+    token_mode: tokenMode,
     features_enabled: featuresEnabled,
     applied,
     instruction: 'Onboarding saved. Knit will surface this project intent at the start of every session. Call knit_classify_task to begin your first task.',
@@ -3050,13 +3319,16 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     handoff = redactSecrets(readFileSync(handoffPath, 'utf-8').slice(0, 1500));
   }
 
-  // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5.
-  const learningsLimit = wantAll || include.has('full_learnings') ? 5 : 3;
+  // 3. Top learnings — default 3 (was 5). include=full_learnings restores 5;
+  //    token_mode=lean trims to 2. v0.22 token-opt: headline + id + preview, not
+  //    full lesson bodies (call knit_get_learning({id}) for the full lesson).
+  const leanMode = loadPreferences(brain.rootPath)?.tokenMode === 'lean';
+  const learningsLimit = wantAll || include.has('full_learnings') ? 5 : leanMode ? 2 : 3;
   const topLearnings = brain.knowledgeBase.entries
     .filter((e) => e.accessCount > 0)
     .sort((a, b) => b.accessCount - a.accessCount)
     .slice(0, learningsLimit)
-    .map((e) => ({ summary: e.summary, lesson: e.lesson, tags: e.tags, accessed: e.accessCount }));
+    .map((e) => ({ id: e.id, summary: e.summary, lesson_preview: lessonPreview(e.lesson), tags: e.tags, accessed: e.accessCount }));
 
   // 4. False positives — cap at 5 by default; full list in include=full_learnings.
   const fpsLimit = wantAll || include.has('full_learnings') ? 50 : 5;
@@ -3174,6 +3446,12 @@ export function handleLoadSession(params: Record<string, string>, brain: BrainCa
     ...(updateAvailable ? { update_available: updateAvailable } : {}),
     ...(budgetHealth ? { budget_health: budgetHealth } : {}),
     ...(learningsHealth && learningsHealth.verdict === 'low-utilization' ? { learnings_health: learningsHealth } : {}),
+    // v0.22 host composition — the contract for THIS host (auto vs suggest, its
+    // native orchestration, slash-command surface). Delivered here, the first
+    // call, because the static handshake instructions are built before the
+    // host's clientInfo is known. Only surfaced once a host was actually
+    // detected (UNKNOWN_HOST stays silent — no noise for an unidentified host).
+    ...(getActiveHost().id !== 'unknown' ? { _knit_host: hostContract(getActiveHost()) } : {}),
     instruction: handoff
       ? 'UNFINISHED WORK DETECTED. Read the handoff above — pick up where the last session left off. Do NOT start fresh.'
       : prefs
@@ -3279,12 +3557,56 @@ export function handleGetWorkflow(params: Record<string, string>, brain: BrainCa
     });
   }
 
+  const toolsForPhase = PHASE_TOOLS[phase];
   return JSON.stringify({
     phase,
     content,
+    ...(toolsForPhase && toolsForPhase.length > 0 ? { tools_for_phase: toolsForPhase } : {}),
     instruction: 'Apply this section to the current task. For another phase, call knit_get_workflow again with that phase name.',
   });
 }
+
+/**
+ * v0.22 full-tool-use — which Knit tools to actually CALL in each phase. The
+ * workflow prose says what to do; this names the tools that do it, so the agent
+ * exercises the right slice of the surface instead of collapsing to 1–2 tools.
+ */
+const PHASE_TOOLS: Record<string, Array<{ tool: string; why: string }>> = {
+  research: [
+    { tool: 'knit_search_learnings', why: 'reuse prior findings before re-investigating' },
+    { tool: 'knit_query_imports', why: 'map dependents / blast radius of files you’ll touch' },
+    { tool: 'knit_query_exports', why: 'confirm a file’s public surface' },
+  ],
+  plan: [
+    { tool: 'knit_spawn_team_worktree', why: 'parallelize independent multi-domain work' },
+    { tool: 'knit_index_requirements', why: 'ingest a spec/RFC for per-feature retrieval' },
+    { tool: 'knit_get_workflow', why: 'pull the next phase’s depth on demand' },
+  ],
+  execute: [
+    { tool: 'knit_query_tests', why: 'know each file’s coverage before changing it' },
+    { tool: 'knit_query_dependents', why: 'confirm what a change touches' },
+  ],
+  tdd: [
+    { tool: 'knit_generate_test_cases', why: 'derive cases from indexed requirements' },
+    { tool: 'knit_query_tests', why: 'find the untested files first' },
+  ],
+  review: [
+    { tool: 'knit_verify_claim', why: 'fact-check codebase claims against the graph' },
+    { tool: 'knit_query_tests', why: 'verify coverage of changed files' },
+  ],
+  learn: [
+    { tool: 'knit_verify_claim', why: 'verify ≥1 claim before LEARN (Stop-gate)' },
+    { tool: 'knit_record_learning', why: 'persist the non-obvious insight' },
+  ],
+  handoff: [
+    { tool: 'knit_save_handoff', why: 'checkpoint state so the next session resumes cheaply' },
+    { tool: 'knit_save_session_summary', why: 'make this session searchable' },
+  ],
+  ship: [
+    { tool: 'knit_suggest_command', why: 'get the project’s test/lint/build/ship command' },
+    { tool: 'knit_verify_claim', why: 'final fact-check before asserting done' },
+  ],
+};
 
 /**
  * Install or refresh a subagent into <project>/.claude/agents/knit-<name>.md.
