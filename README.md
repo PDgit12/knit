@@ -183,6 +183,15 @@ bench-gated, and local-first.
 
 ---
 
+## ✨ What's new in v0.22.0
+
+- **Host composition.** Knit detects the host at the MCP handshake (`clientInfo`) and composes with its native orchestration on complex tasks: Claude Code → dynamic workflow, Cursor → parallel worktree agents, Codex → subagents, Copilot/VS Code → agent mode + `/mcp.knit.*`. **Suggest-only hosts stay suggest-only** — Knit suggests its own worktree primitive, never fakes auto-trigger.
+- **Stale-index fix.** `knit_query_*` and `knit_verify_claim` no longer return a confident *false* answer when a file changed after the index was built — `getBrain` auto-refreshes on source drift, and `verify_claim` **self-heals** (rebuilds + re-verifies in one call).
+- **Full tool-use.** `knit_classify_task` returns an ordered, signal-gated `tool_plan` so the diverse tool surface actually gets used instead of collapsing to 1–2 tools.
+- **Per-host adherence hooks** for Cursor / Codex / Copilot (merged with existing config; non-Claude hooks marked `_knitUnverified` — confirm in-host).
+- **Token optimization.** Hierarchical retrieval everywhere (headline + `id` + preview; full lesson via `knit_get_learning`), `token_mode: lean`, and a handshake-instructions rewrite that's **~22% leaner** while adding the new clauses.
+- **56 tools** (Tier-1 37). Shipped after a six-dimension audit and a real-life stdio end-to-end run across five `clientInfo` values.
+
 ## ✨ What's new in v0.21.0
 
 - **Onboarding (`knit_onboard`).** Paste the README prompt after connecting Knit, describe your project + how you want Knit to behave, and the agent persists your preferences (strictness, features, focus domains) and records the project intent — surfaced every session, on any MCP host.
@@ -777,6 +786,7 @@ These are focused in-repo regression gates that block a merge if retrieval degra
 
 | Version | Headline |
 |---|---|
+| **v0.22.0** | **Host composition + full tool-use + stale-index fix.** Knit detects the host at the handshake and composes with its native orchestration (Claude Code dynamic workflows, Cursor worktree agents, Codex subagents, Copilot/VS Code `/mcp.knit.*`); suggest-only hosts stay suggest-only. `getBrain` auto-refreshes a stale index and `knit_verify_claim` self-heals, so `query_*`/`verify` never return a confident false answer. `knit_classify_task` returns a signal-gated `tool_plan`; per-host adherence hooks (Cursor/Codex/Copilot, unverified-in-host flagged); `orchestration`/`token_mode` onboarding prefs; hierarchical retrieval + a ~22% leaner handshake. Shipped after a six-dimension audit + a real-life stdio E2E across five `clientInfo` values. 56 tools, 932 tests. |
 | **v0.21.0** | **Onboarding + dashboard actions.** `knit_onboard` captures the project + how the user wants Knit (preferences persisted, intent surfaced every session, host-agnostic). The dashboard gains **Refresh** + **Export all projects** actions (non-blocking child processes, Host/Origin-gated). New `GET /api/projects/:id/knowledge` + a `knit doctor` webapp check. Shipped after a second six-dimension audit (0 critical) + a real-life E2E. 56 tools. |
 | **v0.20.0** | **Brain integrity + clarity + dashboard-first.** A freshness layer keeps every datum trustworthy (handoffs auto-clear, idle classifier signals decay, deleted-file references get flagged). `knit doctor`/`knit_list_features` explain the live tool count. Mid-session protocol re-surfacing keeps agents on-protocol across every MCP host. **`knit`** opens the brain dashboard; a read-only Knowledge-index view + Skills composition land. Removed competitor comparisons for intrinsic positioning. Shipped after a six-dimension deep-clean audit (0 critical). 55 tools, 855 tests. |
 | **v0.16.0** | **Semantic-lite retrieval.** Curated coding-domain synonym dictionary (~50 pairs) closes the most common BM25 lexical gaps (`hook` ↔ `webhook`, `schema` ↔ `migration`, etc.) without an embedding model. 2-gram fallback for typos default ON after bench verification. Synthetic bench 88% top-1 / **100% recall@5** (was 96%); learnings 86.7% top-1 / 96.7% recall@5. Plus a FIFO-safe `O_NONBLOCK` fix to `handleIndexRequirements`. 55 tools, 818 tests. |

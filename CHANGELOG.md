@@ -2,6 +2,76 @@
 
 All notable changes to Knit. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); Knit uses [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] — 2026-05-30
+
+**Host composition + full tool-use + the stale-index fix.** Shipped after a
+six-dimension audit and a real-life end-to-end run that drives the live MCP
+server over stdio with five different `clientInfo.name` values. 56 tools.
+
+### Fixed — stale code index (the one that misled real sessions)
+
+- `knit_query_imports` / `query_dependents` / `query_exports` / `query_tests` and
+  `knit_verify_claim` could return a confident **false** answer when a file was
+  added or edited after the index was built — in a long-lived MCP process the new
+  file was invisible until an explicit refresh, so agents fell back to grep.
+- `getBrain` now re-validates the warm cache against the source tree before
+  serving it (a stat-only `probeSourceTree` — new file / edit / delete), throttled
+  via `KNIT_INDEX_STALENESS_MS` (default 1500ms).
+- `knit_verify_claim` **self-heals**: when it detects the subject file changed
+  after the index build, it transparently rebuilds and re-verifies — a false
+  `contradicted` becomes the correct `verified` in one call, no manual retry.
+- Query tools surface a `stale_index_hint`; `knit_brain_status.knowledge_index`
+  now reports `generated_at` + `age_minutes` so freshness is observable.
+
+### Added — host composition (per-platform orchestration)
+
+- Knit captures the host's `clientInfo` at the `initialize` handshake
+  (`src/mcp/host.ts`) and composes with each host's native orchestration:
+  `knit_classify_task` attaches a `host_orchestration` directive on complex
+  cross-cutting tasks — Claude Code → dynamic workflow, Cursor → parallel worktree
+  agents, Codex → subagents, Copilot/VS Code → agent mode + `/mcp.knit.*`.
+- **Suggest-only hosts stay suggest-only by design** (VS Code / unknown get
+  Knit's own `knit_spawn_team_worktree`, framed "suggests, never forces"). No
+  faked auto-trigger — MCP can only suggest where a host has no deterministic hook.
+- `knit_load_session` delivers a `_knit_host` contract (auto vs suggest, native
+  orchestration, slash surface) on the first call.
+- **MCP `prompts` capability** — `knit_onboard` + `knit_workflow` appear as
+  `/mcp.knit.*` slash commands on hosts that support prompts (Copilot/VS Code).
+
+### Added — full tool-use (the diverse tool surface actually gets used)
+
+- `knit_classify_task` returns an ordered `tool_plan` (`{phase,tool,why,args_hint}`)
+  gated by signals it already computes — right-sized (docs repo → short plan) and
+  dropped under budget pressure.
+- `knit_build_context` adds `suggested_tools`; `knit_get_workflow` adds a
+  phase→tool map; the adherence layer nudges a classified agent that has collapsed
+  onto ≤2 tools and never used a graph/verify tool.
+
+### Added — per-host adherence hooks (Cursor / Codex / Copilot)
+
+- `knit setup` writes adherence hooks for detected hook-capable hosts, merged
+  idempotently with any existing config (Knit-owned entries replaced, the user's
+  own hooks preserved — compose, don't duplicate).
+- **Honest scope:** this machine runs only Claude Code, so non-Claude event names
+  and hook **input contracts are UNVERIFIED**. Only host-input-independent
+  adherence touchpoints are emitted (session marker, classify *reminder* — never a
+  hard block since Cursor has no pre-edit block, stop LEARN reminder); the per-file
+  tsc/diff hooks stay Claude-only. Every manifest carries `_knitUnverified: true`
+  + a `_knitNote`, and `knit setup` prints "unverified, confirm in-host".
+
+### Added — onboarding prefs + token optimization
+
+- `knit_onboard` gains `orchestration` (`auto|suggest|off`) and `token_mode`
+  (`lean|standard`); no migration (pre-v0.22 preferences default safely).
+- **Hierarchical retrieval** everywhere: `knit_search_learnings`,
+  `classify` pre-emptive learnings, `build_context` pitfalls, and `load_session`
+  top-learnings now return headline + `id` + a short preview — the full lesson is
+  paid for on demand via `knit_get_learning({id})`. `token_mode=lean` trims
+  counts; a proactive `handoff_nudge` fires when the context budget is low.
+- The handshake `instructions` were rewritten into ALWAYS / CONDITIONAL /
+  ON-DEMAND bands as **net compression** (3979 → 3101 bytes, ~22% leaner) while
+  adding the new clauses. `bench:tokens`: per-classify 50% smaller, −3.2% drift.
+
 ## [0.21.0] — 2026-05-29
 
 **Onboarding + dashboard actions.** Shipped after a six-dimension deep-clean
