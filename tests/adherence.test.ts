@@ -63,4 +63,34 @@ describe('protocol adherence re-surfacing', () => {
     for (let i = 0; i < 30; i++) last = observeAndNudge('knit_get_suggestions', ROOT);
     expect(last).toMatch(/check-in \(call 30\)/);
   });
+
+  // v0.22 — under-utilization (full tool-use) nudge.
+  it('nudges a classified agent that collapsed onto ≤2 tools with no graph/verify tool', () => {
+    observeAndNudge('knit_classify_task', ROOT); // classified → eligible for under-util
+    let fired: string | null = null;
+    // Only ever record_learning + save_handoff (2 work tools, no insight tool).
+    for (let i = 0; i < 14 && !fired; i++) {
+      const m = observeAndNudge(i % 2 ? 'knit_save_handoff' : 'knit_record_learning', ROOT);
+      if (m && /full-tool-use/i.test(m)) fired = m;
+    }
+    expect(fired).toMatch(/full-tool-use/i);
+    expect(fired).toMatch(/knit_query_imports|knit_verify_claim/);
+  });
+
+  it('does NOT fire the under-util nudge once a graph/verify tool has been used', () => {
+    observeAndNudge('knit_classify_task', ROOT);
+    observeAndNudge('knit_query_imports', ROOT); // an insight tool → not collapsed
+    let msg: string | null = null;
+    for (let i = 0; i < 14; i++) msg = observeAndNudge('knit_record_learning', ROOT);
+    expect(msg ?? '').not.toMatch(/full-tool-use/i);
+  });
+
+  it('does NOT fire under-util before classify (drift takes priority)', () => {
+    let sawUnderUtil = false;
+    for (let i = 0; i < 14; i++) {
+      const m = observeAndNudge('knit_get_suggestions', ROOT);
+      if (m && /full-tool-use/i.test(m)) sawUnderUtil = true;
+    }
+    expect(sawUnderUtil).toBe(false);
+  });
 });
