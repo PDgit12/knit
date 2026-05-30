@@ -176,9 +176,11 @@ export function handleQueryTests(params: Record<string, string>, brain: BrainCac
   }
   if (params.file_path) {
     const tests = brain.knowledge.testMap.tested[params.file_path] || [];
+    const hint = tests.length === 0 ? staleIndexHint(brain, params.file_path) : undefined;
     return JSON.stringify({
       file: params.file_path, tested_by: tests, has_tests: tests.length > 0,
       instruction: tests.length > 0 ? `Tested by: ${tests.join(', ')}` : 'NO TESTS. Write tests for this file before making changes.',
+      ...(hint ? { stale_index_hint: hint } : {}),
     });
   }
   return JSON.stringify({
@@ -892,11 +894,56 @@ export function handleVerifyClaim(params: Record<string, string>, brain: BrainCa
   } catch {
     // best-effort
   }
+
+  // v0.22 — never hand back a CONFIDENT contradiction that's really a
+  // stale-index artifact. If the claim's subject file was modified AFTER the
+  // index was built (its on-disk mtime is newer than knowledge.generatedAt),
+  // the index can't be trusted to refute it — downgrade to an honest
+  // "stale_index" verdict telling the caller to refresh and retry. This is the
+  // exact failure that misled a real session: verify said a freshly-added
+  // export was "contradicted" because the index predated the edit. (With the
+  // getBrain auto-refresh this rarely fires — defense for the throttle window.)
+  if (result.verdict === 'contradicted' && result.parsed?.subject && isSourceFilePath(result.parsed.subject)
+      && fileNewerThanIndex(brain, result.parsed.subject)) {
+    return JSON.stringify({
+      claim,
+      verdict: 'stale_index',
+      parsed: result.parsed,
+      evidence: result.evidence,
+      stale_index_hint:
+        'The code index predates a recent change to this file (on-disk mtime is newer than the index build), so this contradiction may be a stale-index artifact, not ground truth.',
+      instruction:
+        'UNVERIFIABLE (stale index). Do NOT trust this contradiction. Call knit_refresh_index and retry, or confirm directly (grep/read).',
+    });
+  }
   return JSON.stringify({ claim, ...result });
 }
 
+/** True if a path looks like an indexable source file. */
+function isSourceFilePath(p: string): boolean {
+  return /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs)$/.test(p);
+}
+
+/**
+ * True if `file` exists on disk and was modified after the index was built —
+ * i.e. the index is too old to be trusted about this file. Best-effort: any IO
+ * error or an unparseable build timestamp returns false (don't mask real
+ * contradictions on a benign error).
+ */
+function fileNewerThanIndex(brain: BrainCache, file: string): boolean {
+  try {
+    const abs = join(brain.rootPath, file);
+    if (!existsSync(abs)) return false;
+    const builtAtMs = Date.parse(brain.knowledge.generatedAt);
+    if (!Number.isFinite(builtAtMs)) return false;
+    return statSync(abs).mtimeMs > builtAtMs;
+  } catch {
+    return false;
+  }
+}
+
 interface VerifierResult {
-  verdict: 'verified' | 'contradicted' | 'unparseable';
+  verdict: 'verified' | 'contradicted' | 'unparseable' | 'stale_index';
   parsed?: { type: string; subject: string; object?: string };
   evidence?: string;
   instruction: string;
